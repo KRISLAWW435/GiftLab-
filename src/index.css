@@ -1,0 +1,432 @@
+@import "tailwindcss";
+
+:root {
+  /* Core GiftLab Cosmic Palette Tokens */
+  --gl-bg: #070B1A;
+  --gl-surface-panel: #0C1229;
+  --gl-surface-card: #121938;
+  --gl-surface-elevated: #172047;
+  --gl-surface-input: #090E24;
+  --gl-surface-hud: rgba(12, 18, 41, 0.88);
+
+  --gl-accent: #7C3AED;
+  --gl-accent-hover: #6D28D9;
+  --gl-accent-light: #A78BFA;
+  --gl-accent-soft: rgba(124, 58, 237, 0.18);
+  --gl-gold: #F59E0B;
+  --gl-gold-soft: rgba(245, 158, 11, 0.14);
+  --gl-gold-text: #FDE68A;
+
+  --gl-text: #F8FAFC;
+  --gl-text-secondary: #CBD5E1;
+  --gl-text-muted: #94A3B8;
+
+  --gl-border: rgba(255, 255, 255, 0.10);
+  --gl-border-hover: rgba(255, 255, 255, 0.22);
+  --gl-border-selected: rgba(167, 139, 250, 0.78);
+
+  --gl-ok: #34D399;
+  --gl-danger: #E11D48;
+  --gl-danger-hover: #BE123C;
+
+  /* Radii & Focus */
+  --gl-radius-sm: 10px;
+  --gl-radius-md: 12px;
+  --gl-radius-lg: 16px;
+  --gl-radius-xl: 20px;
+  --gl-focus-ring: 0 0 0 2px rgba(167, 139, 250, 0.78);
+}
+
+@theme {
+  --font-display: "Comfortaa", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+  --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --color-gl-bg: var(--gl-bg);
+  --color-gl-panel: var(--gl-surface-panel);
+  --color-gl-card: var(--gl-surface-card);
+  --color-gl-elevated: var(--gl-surface-elevated);
+  --color-gl-input: var(--gl-surface-input);
+  --color-gl-accent: var(--gl-accent);
+  --color-gl-accent-light: var(--gl-accent-light);
+  --color-gl-gold: var(--gl-gold);
+  --color-gl-text: var(--gl-text);
+  --color-gl-text-secondary: var(--gl-text-secondary);
+  --color-gl-text-muted: var(--gl-text-muted);
+}
+
+@layer base {
+  html,
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    font-family: var(--font-sans);
+    background-color: var(--gl-bg);
+    color: var(--gl-text);
+  }
+
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none;
+    box-shadow: var(--gl-focus-ring);
+  }
+}
+
+@layer components {
+  /* Viewport & Safe Area Foundations */
+  .gl-h-screen {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .gl-min-h-screen {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .gl-safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .gl-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .gl-safe-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* Typographic Roles */
+  .gl-title-display {
+    font-family: var(--font-display);
+    color: var(--gl-text);
+    line-height: 1.2;
+    font-weight: 700;
+  }
+
+  .gl-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gl-text-secondary);
+  }
+
+  .gl-muted {
+    color: var(--gl-text-muted);
+  }
+
+  /* Calm Cosmic Panels, Cards, Drawers & HUD */
+  .gl-panel {
+    background-color: var(--gl-surface-panel);
+    border-color: var(--gl-border);
+    color: var(--gl-text);
+  }
+
+  .gl-card {
+    background-color: var(--gl-surface-card);
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-radius-lg);
+    color: var(--gl-text);
+    transition: border-color 160ms ease, background-color 160ms ease;
+  }
+
+  .gl-card-interactive:hover {
+    border-color: var(--gl-border-hover);
+  }
+
+  .gl-drawer {
+    background-color: var(--gl-surface-panel);
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-radius-xl);
+    color: var(--gl-text);
+  }
+
+  .gl-hud {
+    background-color: var(--gl-surface-hud);
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-radius-lg);
+  }
+
+  /* Unified Form Fields & Selectors */
+  .gl-input,
+  .gl-textarea,
+  .gl-select {
+    width: 100%;
+    min-height: 44px;
+    border-radius: var(--gl-radius-md);
+    border: 1px solid var(--gl-border);
+    background-color: var(--gl-surface-input);
+    padding: 0.625rem 0.875rem;
+    font-size: 0.9375rem;
+    color: var(--gl-text);
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .gl-input::placeholder,
+  .gl-textarea::placeholder {
+    color: var(--gl-text-muted);
+    opacity: 0.78;
+  }
+
+  .gl-input:hover:not(:disabled),
+  .gl-textarea:hover:not(:disabled),
+  .gl-select:hover:not(:disabled) {
+    border-color: var(--gl-border-hover);
+  }
+
+  .gl-input:focus,
+  .gl-textarea:focus,
+  .gl-select:focus {
+    outline: none;
+    border-color: var(--gl-accent-light);
+    box-shadow: var(--gl-focus-ring);
+  }
+
+  .gl-input:disabled,
+  .gl-textarea:disabled,
+  .gl-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Unified Buttons */
+  .gl-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0.625rem 1.125rem;
+    border-radius: var(--gl-radius-md);
+    background-color: var(--gl-accent);
+    border: 1px solid rgba(167, 139, 250, 0.35);
+    color: var(--gl-text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 150ms ease, transform 120ms ease, opacity 150ms ease;
+  }
+
+  .gl-btn-primary:hover:not(:disabled) {
+    background-color: var(--gl-accent-hover);
+  }
+
+  .gl-btn-primary:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+
+  .gl-btn-primary:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .gl-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    min-height: 40px;
+    padding: 0.5rem 0.875rem;
+    border-radius: var(--gl-radius-md);
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--gl-border);
+    color: var(--gl-text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms ease;
+  }
+
+  .gl-btn-secondary:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: var(--gl-border-hover);
+    color: var(--gl-text);
+  }
+
+  .gl-btn-secondary:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+
+  .gl-btn-secondary:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .gl-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0.5rem;
+    border-radius: var(--gl-radius-md);
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--gl-border);
+    color: var(--gl-text-secondary);
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms ease;
+  }
+
+  .gl-btn-icon:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: var(--gl-border-hover);
+    color: var(--gl-text);
+  }
+
+  .gl-btn-icon:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+
+  .gl-btn-icon:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  /* Unified Tabs & Selection Indicators */
+  .gl-tab-group {
+    display: grid;
+    gap: 0.375rem;
+    padding: 0.375rem;
+    background-color: var(--gl-surface-input);
+    border-bottom: 1px solid var(--gl-border);
+  }
+
+  .gl-tab {
+    min-height: 40px;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--gl-radius-md);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gl-text-secondary);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+
+  .gl-tab:hover:not([data-selected="true"]) {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: var(--gl-text);
+  }
+
+  .gl-tab[data-selected="true"] {
+    background-color: var(--gl-accent);
+    color: var(--gl-text);
+  }
+
+  .gl-choice {
+    border-radius: var(--gl-radius-md);
+    border: 1px solid var(--gl-border);
+    background-color: rgba(255, 255, 255, 0.03);
+    color: var(--gl-text-secondary);
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+
+  .gl-choice:hover:not(:disabled):not([data-selected="true"]) {
+    background-color: rgba(255, 255, 255, 0.07);
+    border-color: var(--gl-border-hover);
+    color: var(--gl-text);
+  }
+
+  .gl-choice[data-selected="true"] {
+    border-color: var(--gl-border-selected);
+    background-color: var(--gl-accent-soft);
+    color: var(--gl-text);
+  }
+
+  .gl-choice:disabled {
+    opacity: 0.38;
+    pointer-events: none;
+  }
+
+  @media (min-width: 1024px) {
+    .gl-editor-sidebar-left {
+      width: 240px;
+    }
+    .gl-editor-sidebar-right {
+      width: 320px;
+    }
+  }
+
+  @media (min-width: 1440px) {
+    .gl-editor-sidebar-left {
+      width: 280px;
+    }
+    .gl-editor-sidebar-right {
+      width: 360px;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .gl-btn-primary {
+      min-height: 46px;
+    }
+    .gl-btn-secondary,
+    .gl-tab {
+      min-height: 44px;
+    }
+    .gl-btn-icon {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes nudgeRight {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(5px); }
+}
+
+@keyframes nudgeLeft {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-6px); }
+}
+
+.animate-nudge-right {
+  animation: nudgeRight 1.9s ease-in-out infinite;
+}
+
+.animate-nudge-left {
+  animation: nudgeLeft 2.1s ease-in-out infinite;
+}
+
+/* Custom subtle scrollbars for side panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(12, 18, 41, 0.45);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.48);
+}
