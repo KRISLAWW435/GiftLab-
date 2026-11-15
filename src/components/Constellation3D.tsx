@@ -47,6 +47,8 @@ interface Constellation3DProps {
   onSelectStar?: (starId: string) => void;
   onSelectConnection?: (connectionId: string | null) => void;
   onMoveStar?: (starId: string, position: StarPosition3D) => void;
+  onDragStar?: (starId: string, position: StarPosition3D, isDepthDrag: boolean) => void;
+  onDragEnd?: () => void;
   onIntroComplete?: () => void;
   onBirthComplete?: () => void;
   onFinalRevealComplete?: () => void;
@@ -78,6 +80,8 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       onSelectStar,
       onSelectConnection,
       onMoveStar,
+      onDragStar,
+      onDragEnd,
       onIntroComplete,
       onBirthComplete,
       onFinalRevealComplete,
@@ -95,6 +99,8 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       onSelectStar,
       onSelectConnection,
       onMoveStar,
+      onDragStar,
+      onDragEnd,
       onIntroComplete,
       onBirthComplete,
       onFinalRevealComplete,
@@ -106,6 +112,8 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       onSelectStar,
       onSelectConnection,
       onMoveStar,
+      onDragStar,
+      onDragEnd,
       onIntroComplete,
       onBirthComplete,
       onFinalRevealComplete,
@@ -162,6 +170,8 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
           onSelectStar: (id) => callbacksRef.current.onSelectStar?.(id),
           onSelectConnection: (id) => callbacksRef.current.onSelectConnection?.(id),
           onMoveStar: (id, pos) => callbacksRef.current.onMoveStar?.(id, pos),
+          onDragStar: (id, pos, isDepth) => callbacksRef.current.onDragStar?.(id, pos, isDepth),
+          onDragEnd: () => callbacksRef.current.onDragEnd?.(),
           onIntroComplete: () => callbacksRef.current.onIntroComplete?.(),
           onBirthComplete: () => callbacksRef.current.onBirthComplete?.(),
           onFinalRevealComplete: () => callbacksRef.current.onFinalRevealComplete?.(),

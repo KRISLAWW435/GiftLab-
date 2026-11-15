@@ -39,6 +39,8 @@ export interface ConstellationEngineCallbacks {
   onSelectStar?: (starId: string) => void;
   onSelectConnection?: (connectionId: string | null) => void;
   onMoveStar?: (starId: string, position: StarPosition3D) => void;
+  onDragStar?: (starId: string, position: StarPosition3D, isDepthDrag: boolean) => void;
+  onDragEnd?: () => void;
   onIntroComplete?: () => void;
   onBirthComplete?: () => void;
   onFinalRevealComplete?: () => void;
@@ -263,6 +265,8 @@ export class ConstellationEngine {
   private hoveredStarId: string | null = null;
   private hoveredEnvelope = false;
   private draggingStarId: string | null = null;
+  private draggingPointerId: number | null = null;
+  private activePointers = new Map<number, string>();
   private pointerDownPos = { x: 0, y: 0 };
   private isPointerDown = false;
   private dragOffset = new THREE.Vector3();
@@ -898,6 +902,7 @@ export class ConstellationEngine {
       !this.birthPlaying &&
       !this.draggingStarId &&
       (isArrangeMode || state.interactionMode === 'orbit' || state.interactionMode === 'connect');
+    this.cameraCtrl.setControlsEnabled(orbitAllowed);
     this.cameraCtrl.setOrbitEnabled(orbitAllowed);
   }
 
@@ -920,24 +925,84 @@ export class ConstellationEngine {
     }
   }
 
+  private roundPosition(pos: THREE.Vector3): StarPosition3D {
+    return {
+      x: Number(pos.x.toFixed(2)),
+      y: Number(pos.y.toFixed(2)),
+      z: Number(pos.z.toFixed(2)),
+    };
+  }
+
   private bindEvents(): void {
     const canvas = this.renderer.domElement;
 
+    const finishActiveStarDrag = (commit: boolean) => {
+      if (!this.draggingStarId) return;
+      const movedId = this.draggingStarId;
+      const pointerId = this.draggingPointerId;
+      const node = this.starNodes.get(movedId);
+      this.draggingStarId = null;
+      this.draggingPointerId = null;
+      this.wasShiftDragging = false;
+
+      if (pointerId !== null) {
+        try {
+          if (canvas.hasPointerCapture(pointerId)) {
+            canvas.releasePointerCapture(pointerId);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (commit && node) {
+        this.callbacks.onMoveStar?.(movedId, this.roundPosition(node.group.position));
+      }
+      this.callbacks.onDragEnd?.();
+      this.cameraCtrl.setControlsEnabled(true);
+      this.applySceneState(this.state);
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (this.isDisposed) return;
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+      this.activePointers.set(e.pointerId, e.pointerType);
+
+      // Multi-touch gesture (e.g. 2-finger pinch): immediately yield to OrbitControls zoom without conflict
+      if (this.activePointers.size >= 2) {
+        if (this.draggingStarId) {
+          finishActiveStarDrag(true);
+        }
+        const canOrbit = !this.sealedMode && !this.birthPlaying && !this.finalRevealPlaying;
+        this.cameraCtrl.setControlsEnabled(canOrbit);
+        this.cameraCtrl.setOrbitEnabled(canOrbit);
+        return;
+      }
+
+      if (e.pointerType === 'mouse' && e.button !== 0) {
+        const canOrbit = !this.sealedMode && !this.birthPlaying && !this.finalRevealPlaying;
+        this.cameraCtrl.setControlsEnabled(canOrbit);
+        return;
+      }
 
       this.isPointerDown = true;
       this.pointerDownPos = { x: e.clientX, y: e.clientY };
 
-      if (this.state.interactionMode === 'arrange') {
+      if (
+        this.state.interactionMode === 'arrange' &&
+        !this.sealedMode &&
+        !this.birthPlaying &&
+        !this.finalRevealPlaying
+      ) {
         const hitId = this.pickStar(e.clientX, e.clientY);
         if (hitId) {
           const node = this.starNodes.get(hitId);
           if (node) {
             this.draggingStarId = hitId;
+            this.draggingPointerId = e.pointerId;
             this.lastDragClientY = e.clientY;
             this.wasShiftDragging = e.shiftKey;
+            this.cameraCtrl.setControlsEnabled(false);
             this.cameraCtrl.setOrbitEnabled(false);
 
             if (hitId !== this.state.selectedStarId) {
@@ -947,7 +1012,15 @@ export class ConstellationEngine {
             this.syncDragPlane(node.group.position, e.clientX, e.clientY);
             canvas.setPointerCapture(e.pointerId);
             canvas.style.cursor = e.shiftKey ? 'ns-resize' : 'grabbing';
+            this.callbacks.onDragStar?.(
+              hitId,
+              this.roundPosition(node.group.position),
+              e.shiftKey,
+            );
           }
+        } else {
+          this.cameraCtrl.setControlsEnabled(true);
+          this.cameraCtrl.setOrbitEnabled(true);
         }
       }
     };
@@ -955,7 +1028,7 @@ export class ConstellationEngine {
     const onPointerMove = (e: PointerEvent) => {
       if (this.isDisposed) return;
 
-      if (this.draggingStarId) {
+      if (this.draggingStarId && e.pointerId === this.draggingPointerId) {
         const node = this.starNodes.get(this.draggingStarId);
         if (!node) return;
 
@@ -971,6 +1044,11 @@ export class ConstellationEngine {
             3.2,
           );
           this.refreshLinesFromNodes();
+          this.callbacks.onDragStar?.(
+            this.draggingStarId,
+            this.roundPosition(node.group.position),
+            true,
+          );
           return;
         }
 
@@ -980,6 +1058,11 @@ export class ConstellationEngine {
         if (this.wasShiftDragging) {
           this.wasShiftDragging = false;
           this.syncDragPlane(node.group.position, e.clientX, e.clientY);
+          this.callbacks.onDragStar?.(
+            this.draggingStarId,
+            this.roundPosition(node.group.position),
+            false,
+          );
           return;
         }
 
@@ -995,6 +1078,11 @@ export class ConstellationEngine {
 
           node.group.position.set(clampedX, clampedY, nextZ);
           this.refreshLinesFromNodes();
+          this.callbacks.onDragStar?.(
+            this.draggingStarId,
+            this.roundPosition(node.group.position),
+            false,
+          );
         }
         return;
       }
@@ -1037,64 +1125,74 @@ export class ConstellationEngine {
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      if (!this.isPointerDown || this.isDisposed) return;
-      this.isPointerDown = false;
+      this.activePointers.delete(e.pointerId);
+      if (this.isDisposed) return;
 
       const dist = Math.hypot(
         e.clientX - this.pointerDownPos.x,
         e.clientY - this.pointerDownPos.y,
       );
 
-      if (this.draggingStarId) {
+      if (this.draggingStarId && e.pointerId === this.draggingPointerId) {
         const movedId = this.draggingStarId;
-        const node = this.starNodes.get(movedId);
-        this.draggingStarId = null;
-        this.wasShiftDragging = false;
-        try {
-          if (canvas.hasPointerCapture(e.pointerId)) {
-            canvas.releasePointerCapture(e.pointerId);
-          }
-        } catch {
-          // ignore
+        finishActiveStarDrag(true);
+        if (this.activePointers.size === 0) {
+          this.isPointerDown = false;
         }
-
-        this.applySceneState(this.state);
         canvas.style.cursor = this.pickStar(e.clientX, e.clientY)
           ? e.shiftKey
             ? 'ns-resize'
             : 'grab'
           : 'default';
 
-        if (node) {
-          this.callbacks.onMoveStar?.(movedId, {
-            x: Number(node.group.position.x.toFixed(2)),
-            y: Number(node.group.position.y.toFixed(2)),
-            z: Number(node.group.position.z.toFixed(2)),
-          });
-        }
-        if (dist < 7) {
+        if (e.type === 'pointerup' && dist < 7) {
           this.handleStarClick(movedId);
         }
         return;
       }
 
-      if (dist < 8) {
-        if (this.sealedMode && this.envelope) {
-          if (this.pickEnvelope(e.clientX, e.clientY)) {
-            this.callbacks.onOpenEnvelope?.();
+      if (this.activePointers.size === 0) {
+        const wasDown = this.isPointerDown;
+        this.isPointerDown = false;
+        const canOrbit = !this.sealedMode && !this.birthPlaying && !this.finalRevealPlaying;
+        this.cameraCtrl.setControlsEnabled(canOrbit);
+        if (!wasDown || e.type !== 'pointerup') return;
+
+        if (dist < 8) {
+          if (this.sealedMode && this.envelope) {
+            if (this.pickEnvelope(e.clientX, e.clientY)) {
+              this.callbacks.onOpenEnvelope?.();
+            }
+            return;
           }
-          return;
-        }
 
-        if (this.birthPlaying || this.finalRevealPlaying) return;
+          if (this.birthPlaying || this.finalRevealPlaying) return;
 
-        const hitId = this.pickStar(e.clientX, e.clientY);
-        if (hitId) {
-          this.handleStarClick(hitId);
-        } else if (this.state.interactionMode === 'connect') {
-          const hitConnId = this.pickConnection(e.clientX, e.clientY);
-          this.callbacks.onSelectConnection?.(hitConnId);
+          const hitId = this.pickStar(e.clientX, e.clientY);
+          if (hitId) {
+            this.handleStarClick(hitId);
+          } else if (this.state.interactionMode === 'connect') {
+            const hitConnId = this.pickConnection(e.clientX, e.clientY);
+            this.callbacks.onSelectConnection?.(hitConnId);
+          }
         }
+      }
+    };
+
+    const onShiftKeyChange = (e: KeyboardEvent) => {
+      if (e.key !== 'Shift' || this.isDisposed) return;
+      if (this.draggingStarId) {
+        const node = this.starNodes.get(this.draggingStarId);
+        canvas.style.cursor = e.shiftKey ? 'ns-resize' : 'grabbing';
+        if (node) {
+          this.callbacks.onDragStar?.(
+            this.draggingStarId,
+            this.roundPosition(node.group.position),
+            e.shiftKey,
+          );
+        }
+      } else if (this.hoveredStarId && this.state.interactionMode === 'arrange') {
+        canvas.style.cursor = e.shiftKey ? 'ns-resize' : 'grab';
       }
     };
 
@@ -1102,11 +1200,13 @@ export class ConstellationEngine {
       e.preventDefault();
     };
 
-    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointerdown', onPointerDown, { capture: true });
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointercancel', onPointerUp);
     canvas.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('keydown', onShiftKeyChange);
+    window.addEventListener('keyup', onShiftKeyChange);
 
     const onContextLost = (ev: Event) => {
       ev.preventDefault();
@@ -1131,11 +1231,13 @@ export class ConstellationEngine {
     this.resizeObserver.observe(this.container);
 
     this.cleanupListeners = () => {
-      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointerdown', onPointerDown, { capture: true });
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('keydown', onShiftKeyChange);
+      window.removeEventListener('keyup', onShiftKeyChange);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
       document.removeEventListener('visibilitychange', onVisibility);

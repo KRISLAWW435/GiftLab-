@@ -27,32 +27,39 @@ import { saveImageBlob } from '../services/database';
 import { processUploadedImage } from '../services/imageProcessor';
 import type {
   ConstellationStar,
+  CosmicPaletteId,
   GlowColorId,
   OccasionId,
   StarIllustrationRef,
   StarImageFitMode,
   StarImageSettings,
+  StarTextStyle,
 } from '../types/project';
 import { StarIllustrationView } from './StarIllustrationView';
+import { TextStyleEditor } from './TextStyleEditor';
 
 interface StarEditorProps {
   projectId: string;
+  paletteId: CosmicPaletteId;
   occasion: OccasionId;
   star: ConstellationStar;
   starIndex: number;
   globalGlowColor: GlowColorId;
   onChange: (patch: Partial<ConstellationStar>) => void;
+  onApplyTextStyleToAll?: (style: StarTextStyle) => void;
 }
 
 type IdeaCategory = 'mothers_day' | 'new_year' | OccasionId;
 
 export function StarEditor({
   projectId,
+  paletteId,
   occasion,
   star,
   starIndex,
   globalGlowColor,
   onChange,
+  onApplyTextStyleToAll,
 }: StarEditorProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewDragRef = useRef<{
@@ -198,13 +205,22 @@ export function StarEditor({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="font-display text-sm font-semibold text-gl-text">
-          Параметры звезды
-        </h3>
-        <span className="text-xs font-medium text-gl-accent-light tabular-nums">
-          Звезда {starIndex + 1}
-        </span>
+      <div className="space-y-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="font-display text-sm font-semibold text-gl-text">
+            Параметры звезды
+          </h3>
+          <span className="text-xs font-medium text-gl-accent-light tabular-nums">
+            Звезда {starIndex + 1}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-gl-text-muted tabular-nums">
+          <span>Положение на сцене</span>
+          <span>
+            X: {star.position.x.toFixed(2)} · Y: {star.position.y.toFixed(2)} · Z:{' '}
+            {star.position.z.toFixed(2)}
+          </span>
+        </div>
       </div>
 
       {/* 1. Форма 3D-объекта */}
@@ -373,6 +389,17 @@ export function StarEditor({
           )}
         </div>
       </div>
+
+      {/* 3b. Типографика и оформление послания */}
+      <TextStyleEditor
+        value={star.textStyle}
+        paletteId={paletteId}
+        glowColorId={resolveStarGlowHex(star, globalGlowColor)}
+        previewTitle={star.title || `Звезда ${starIndex + 1}`}
+        previewMessage={star.message}
+        onChange={(textStyle) => onChange({ textStyle })}
+        onApplyToAll={onApplyTextStyleToAll}
+      />
 
       {/* 4. Цвет свечения */}
       <div className="space-y-2">

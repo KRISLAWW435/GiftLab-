@@ -266,7 +266,11 @@ export function Constellation2DFallback({
             >
               <span
                 className={`rounded-full flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${
-                  isPending ? 'ring-2 ring-amber-300 scale-115' : ''
+                  isPending
+                    ? 'ring-2 ring-amber-300 scale-115'
+                    : isSelected && !isHero
+                      ? 'ring-2 ring-white/80'
+                      : ''
                 }`}
                 style={{
                   width: `${sizePx}px`,

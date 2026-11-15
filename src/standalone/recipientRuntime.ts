@@ -2,17 +2,24 @@ import { ConstellationEngine } from '../scene/ConstellationEngine';
 import {
   COSMIC_PALETTES,
   GLOW_COLORS,
+  computeTextBlockMarginLeftPct,
+  isDefaultStarTextStyle,
+  resolveMessageFont,
   resolveStarGlowHex,
   resolveStarShape,
+  resolveStarTextStyle,
+  resolveTextShadowCss,
   sanitizeConnections,
 } from '../scene/paletteConfig';
 import type {
   ConstellationStar,
   CosmicPaletteId,
   GlowColorId,
+  MessageTextAlign,
   RecipientPhase,
   StarConnection,
   StarShapeId,
+  StarTextStyle,
 } from '../types/project';
 
 interface StandaloneStar extends ConstellationStar {
@@ -29,6 +36,7 @@ interface StandalonePayload {
   stars: StandaloneStar[];
   connections?: StarConnection[];
   finalMessage: string;
+  finalTextStyle?: StarTextStyle;
   musicPath: string | null;
   musicName: string | null;
 }
@@ -254,11 +262,16 @@ function bootGiftLabRecipient(): void {
   const storyMotionWrap = el('div', 'gl-story-motion-wrap');
   const storyContent = el('article', 'gl-story-content');
 
+  const topOuterSpacer = el('div', 'gl-story-spacer');
   const illuWrap = el('div', 'gl-illu-wrap');
   const illuGlow = el('div', 'gl-illu-glow');
   const illuImg = document.createElement('img');
   illuImg.className = 'gl-illu-img';
   illuWrap.append(illuGlow, illuImg);
+
+  const topInnerSpacer = el('div', 'gl-story-spacer');
+  const storyBlock = el('div', 'gl-story-block');
+  const storyAccentLine = el('div', 'gl-story-accent-line gl-hidden');
 
   const storyOrd = el('p', 'gl-story-ord');
   const storyTitle = el('h2', 'gl-story-title');
@@ -269,7 +282,16 @@ function bootGiftLabRecipient(): void {
   storySign.setAttribute('data-selectable-text', 'true');
   if (!signatureText) storySign.classList.add('gl-hidden');
 
-  storyContent.append(illuWrap, storyOrd, storyTitle, storyMsg, storySign);
+  storyBlock.append(storyAccentLine, storyOrd, storyTitle, storyMsg, storySign);
+  const bottomInnerSpacer = el('div', 'gl-story-spacer');
+
+  storyContent.append(
+    topOuterSpacer,
+    illuWrap,
+    topInnerSpacer,
+    storyBlock,
+    bottomInnerSpacer,
+  );
   storyMotionWrap.appendChild(storyContent);
 
   // Stably mounted secondary arrows + unobtrusive swipe hint
@@ -298,16 +320,76 @@ function bootGiftLabRecipient(): void {
   // PHASE 5: Final Rotating Constellation Top Greeting & Dock
   const finaleScrim = el('div', 'gl-finale-scrim gl-hidden');
   const finaleTop = el('header', 'gl-finale-top gl-hidden');
+  const finaleBox = el('div', 'gl-finale-box');
   const finaleKicker = el(
     'p',
     'gl-finale-kicker',
     payload.recipientName ? `Для ${payload.recipientName} · ${payload.title}` : payload.title,
   );
+  const finaleAccentLine = el('div', 'gl-story-accent-line gl-hidden');
   const finaleHeading = el('h1', 'gl-finale-heading', payload.finalMessage);
   const finaleSignEl = el('p', 'gl-finale-sign', signatureText);
   if (!signatureText) finaleSignEl.classList.add('gl-hidden');
-  finaleTop.append(finaleKicker, finaleHeading, finaleSignEl);
+  finaleBox.append(finaleKicker, finaleAccentLine, finaleHeading, finaleSignEl);
+  finaleTop.appendChild(finaleBox);
   stage.append(finaleScrim, finaleTop);
+
+  function applyFinaleTextFormatting(): void {
+    if (!payload.finalTextStyle) return;
+    const style = resolveStarTextStyle(payload.finalTextStyle);
+    if (isDefaultStarTextStyle(style)) return;
+
+    const fontMeta = resolveMessageFont(style.fontId);
+    const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth < 540;
+    const align: Exclude<MessageTextAlign, 'auto'> =
+      style.textAlign !== 'auto' ? style.textAlign : 'center';
+    const shadowCss = resolveTextShadowCss(style.shadow, globalGlow.hex);
+
+    finaleBox.classList.remove(
+      'gl-story-block-frame',
+      'gl-story-block-quote-left',
+      'gl-story-block-quote-right',
+    );
+    finaleBox.style.textAlign = align;
+    finaleBox.style.fontFamily = fontMeta.cssFamily;
+    finaleBox.style.borderColor = '';
+
+    if (style.accent === 'frame') {
+      finaleBox.classList.add('gl-story-block-frame');
+      finaleBox.style.borderColor = `${globalGlow.hex}44`;
+    } else if (style.accent === 'quote') {
+      finaleBox.classList.add(
+        align === 'right' ? 'gl-story-block-quote-right' : 'gl-story-block-quote-left',
+      );
+      finaleBox.style.borderColor = globalGlow.hex;
+    }
+
+    if (style.accent === 'line') {
+      finaleAccentLine.classList.remove('gl-hidden');
+      finaleAccentLine.style.background = `linear-gradient(90deg, ${globalGlow.hex}, ${globalGlow.coreHex})`;
+      finaleAccentLine.style.marginLeft = align === 'left' ? '0' : 'auto';
+      finaleAccentLine.style.marginRight = align === 'center' ? 'auto' : '0';
+    } else {
+      finaleAccentLine.classList.add('gl-hidden');
+    }
+
+    const finalePx = Math.min(
+      isPortrait ? 24 : 34,
+      Math.max(16, Math.round((style.fontSize + fontMeta.opticalSizeBoost) * 1.28)),
+    );
+    finaleHeading.style.fontFamily = fontMeta.cssFamily;
+    finaleHeading.style.fontWeight = style.fontWeight === 'semibold' ? '600' : '400';
+    finaleHeading.style.fontSize = `${finalePx}px`;
+    finaleHeading.style.lineHeight = String(Math.min(1.65, style.lineHeight));
+    finaleHeading.style.color = style.color;
+    finaleHeading.style.textShadow = shadowCss;
+
+    if (signatureText) {
+      finaleSignEl.style.color = style.color;
+      finaleSignEl.style.opacity = '0.78';
+    }
+  }
+  applyFinaleTextFormatting();
 
   const dock = el('div', 'gl-dock gl-hidden');
   const starPillsWrap = el('div', 'gl-star-pills');
@@ -426,6 +508,105 @@ function bootGiftLabRecipient(): void {
   stage.appendChild(dock);
   root.appendChild(stage);
 
+  function applyStoryTextFormatting(): void {
+    const star = normalizedStars[activeIndex] ?? normalizedStars[0];
+    if (!star) return;
+    const glow = GLOW_COLORS[resolveStarGlowHex(star, payload.globalGlowColor)];
+    const style = resolveStarTextStyle(star);
+    const fontMeta = resolveMessageFont(style.fontId);
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const isPortrait = h > w || w < 540;
+    const isCompactLandscape = !isPortrait && h < 520;
+
+    const effectiveAlign: Exclude<MessageTextAlign, 'auto'> =
+      style.textAlign === 'auto' ? (isPortrait ? 'center' : 'left') : style.textAlign;
+    const bodyPx = Math.min(
+      style.fontSize + fontMeta.opticalSizeBoost,
+      isCompactLandscape ? 16 : isPortrait ? 20 : 26,
+    );
+    const titlePx = Math.round(
+      Math.min(isCompactLandscape ? 25 : isPortrait ? 31 : 38, bodyPx * 1.48),
+    );
+    const marginLeftPct = computeTextBlockMarginLeftPct(style.widthPct, style.offsetX);
+
+    const absYRatio = Math.min(1, Math.abs(style.offsetY) / 100);
+    const spacerBase = isPortrait || isCompactLandscape ? 0.35 : 0.9;
+    const topOuterGrow = Number(((1 - absYRatio) * spacerBase).toFixed(3));
+    const topInnerGrow = Number(
+      (style.offsetY <= 0
+        ? 0.08 * (1 + style.offsetY / 100)
+        : 0.08 + (style.offsetY / 100) * 1.92
+      ).toFixed(3),
+    );
+    const bottomInnerGrow = Number(
+      (style.offsetY >= 0
+        ? (1 - absYRatio) * spacerBase
+        : spacerBase + (-style.offsetY / 100) * (2 - spacerBase)
+      ).toFixed(3),
+    );
+
+    topOuterSpacer.style.flexGrow = String(topOuterGrow);
+    topInnerSpacer.style.flexGrow = String(topInnerGrow);
+    bottomInnerSpacer.style.flexGrow = String(bottomInnerGrow);
+
+    const shadowCss = resolveTextShadowCss(style.shadow, glow.hex);
+
+    storyBlock.style.width = `${style.widthPct}%`;
+    storyBlock.style.marginLeft = `${marginLeftPct}%`;
+    storyBlock.style.textAlign = effectiveAlign;
+    storyBlock.style.fontFamily = fontMeta.cssFamily;
+    storyBlock.style.borderColor = '';
+    storyBlock.classList.remove(
+      'gl-story-block-frame',
+      'gl-story-block-quote-left',
+      'gl-story-block-quote-right',
+    );
+    if (style.accent === 'frame') {
+      storyBlock.classList.add('gl-story-block-frame');
+      storyBlock.style.borderColor = `${glow.hex}44`;
+    } else if (style.accent === 'quote') {
+      storyBlock.classList.add(
+        effectiveAlign === 'right'
+          ? 'gl-story-block-quote-right'
+          : 'gl-story-block-quote-left',
+      );
+      storyBlock.style.borderColor = glow.hex;
+    }
+
+    if (style.accent === 'line') {
+      storyAccentLine.classList.remove('gl-hidden');
+      storyAccentLine.style.background = `linear-gradient(90deg, ${glow.hex}, ${glow.coreHex})`;
+      storyAccentLine.style.marginLeft = effectiveAlign === 'left' ? '0' : 'auto';
+      storyAccentLine.style.marginRight = effectiveAlign === 'center' ? 'auto' : '0';
+    } else {
+      storyAccentLine.classList.add('gl-hidden');
+    }
+
+    storyTitle.style.fontFamily = fontMeta.cssFamily;
+    storyTitle.style.fontSize = `${titlePx}px`;
+    storyTitle.style.fontWeight = '600';
+    storyTitle.style.lineHeight = String(
+      Math.min(1.4, Math.max(1.12, Number((style.lineHeight * 0.78).toFixed(2)))),
+    );
+    storyTitle.style.color = style.color;
+    storyTitle.style.textShadow = shadowCss;
+
+    storyMsg.style.fontFamily = fontMeta.cssFamily;
+    storyMsg.style.fontSize = `${bodyPx}px`;
+    storyMsg.style.fontWeight = style.fontWeight === 'semibold' ? '600' : '400';
+    storyMsg.style.lineHeight = String(style.lineHeight);
+    storyMsg.style.color = style.color;
+    storyMsg.style.textShadow = shadowCss;
+
+    if (signatureText) {
+      storySign.style.color = style.color;
+      storySign.style.opacity = '0.78';
+      storySign.style.textShadow = shadowCss;
+    }
+  }
+
   function renderStoryUI(): void {
     const star = normalizedStars[activeIndex] ?? normalizedStars[0];
     if (!star) return;
@@ -475,6 +656,7 @@ function bootGiftLabRecipient(): void {
     storyOrd.style.color = glow.coreHex;
     storyTitle.textContent = star.title || `Звезда ${activeIndex + 1}`;
     storyMsg.textContent = star.message || 'Здесь хранится особое тёплое пожелание.';
+    applyStoryTextFormatting();
 
     prevArrowBtn.disabled = activeIndex <= 0;
     backToConstBtn.classList.toggle('gl-hidden', !finaleReached);
@@ -980,12 +1162,13 @@ function bootGiftLabRecipient(): void {
     });
   }
 
-  window.addEventListener('resize', () => {
+  const handleViewportUpdate = () => {
+    if (phase === 'starStory') applyStoryTextFormatting();
+    applyFinaleTextFormatting();
     if (using2DFallback) refresh2DFallback();
-  });
-  window.addEventListener('orientationchange', () => {
-    if (using2DFallback) refresh2DFallback();
-  });
+  };
+  window.addEventListener('resize', handleViewportUpdate);
+  window.addEventListener('orientationchange', handleViewportUpdate);
 
   engine = new ConstellationEngine(
     canvasHost,

@@ -3,10 +3,12 @@ import { renderBuiltinIllustrationToBlob } from '../assets/illustrations';
 import {
   MUSIC_TRACKS,
   resolveStarShape,
+  resolveStarTextStyle,
   sanitizeConnections,
 } from '../scene/paletteConfig';
 import type { BuiltinIllustrationId, ConstellationProject } from '../types/project';
 import { getImageBlob } from './database';
+import { bundleFontsForZip } from './localFonts';
 import { getMusicTrackBlob } from './musicEngine';
 import runtimeBundle from '../standalone/runtime.bundle.txt?raw';
 
@@ -76,18 +78,24 @@ const STANDALONE_CSS = `
   .gl-story-left { min-height: 0; pointer-events: none; }
   .gl-story-right { pointer-events: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; display: flex; flex-direction: column; justify-content: space-between; padding: 12px 48px 22px 16px; }
   @keyframes glStoryIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .gl-story-motion-wrap { width: 100%; max-width: 560px; margin: auto 0; transition: transform 220ms ease-out; }
-  .gl-story-content { width: 100%; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 16px; }
+  .gl-story-motion-wrap { flex: 1; min-height: 0; width: 100%; max-width: 560px; display: flex; flex-direction: column; transition: transform 220ms ease-out; }
+  .gl-story-content { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; align-items: stretch; }
+  .gl-story-spacer { flex-basis: 0; flex-shrink: 0; }
+  .gl-story-block { flex-shrink: 0; max-width: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .gl-story-block-frame { border: 1px solid rgba(255,255,255,0.22); border-radius: 16px; background: rgba(7,11,26,0.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 14px 18px; box-shadow: 0 18px 40px rgba(0,0,0,0.45); }
+  .gl-story-block-quote-left { border-left: 2px solid #c4b5fd; padding: 2px 0 2px 14px; }
+  .gl-story-block-quote-right { border-right: 2px solid #c4b5fd; padding: 2px 14px 2px 0; }
+  .gl-story-accent-line { height: 2px; width: 64px; border-radius: 999px; margin-bottom: 2px; }
   .gl-story-anim .gl-story-content { animation: glStoryIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
   .gl-reduced .gl-story-anim .gl-story-content { animation: none; }
 
-  .gl-illu-wrap { position: relative; display: flex; align-items: center; justify-content: center; padding: 4px 0; }
+  .gl-illu-wrap { position: relative; flex-shrink: 0; align-self: flex-start; display: flex; align-items: center; justify-content: center; padding: 4px 0; }
   .gl-illu-glow { position: absolute; inset: -20px; border-radius: 999px; pointer-events: none; opacity: 0.58; }
   .gl-illu-img { position: relative; width: 196px; height: 196px; object-fit: contain; filter: drop-shadow(0 14px 30px rgba(0,0,0,0.6)); }
 
   .gl-story-ord { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
-  .gl-story-title { font-size: clamp(22px, 3vw, 36px); font-weight: 700; line-height: 1.18; color: #ffffff; text-shadow: 0 2px 14px rgba(0,0,0,0.65); user-select: text; }
-  .gl-story-msg { font-size: clamp(15px, 1.4vw, 19px); line-height: 1.6; color: rgba(241,245,249,0.95); white-space: pre-wrap; text-shadow: 0 2px 10px rgba(0,0,0,0.75); user-select: text; }
+  .gl-story-title { font-size: clamp(22px, 3vw, 36px); font-weight: 600; line-height: 1.18; color: #ffffff; text-shadow: 0 2px 14px rgba(0,0,0,0.65); user-select: text; overflow-wrap: anywhere; word-break: break-word; }
+  .gl-story-msg { font-size: clamp(15px, 1.4vw, 19px); line-height: 1.6; color: rgba(241,245,249,0.95); white-space: pre-wrap; text-shadow: 0 2px 10px rgba(0,0,0,0.75); user-select: text; overflow-wrap: anywhere; word-break: break-word; }
   .gl-story-sign { font-size: 13px; font-style: italic; color: rgba(203,213,225,0.9); user-select: text; }
 
   /* Compact Secondary Arrows & Unobtrusive Swipe Hint */
@@ -107,9 +115,10 @@ const STANDALONE_CSS = `
   /* Finale Top Greeting & Bottom Dock */
   .gl-finale-scrim { position: fixed; inset: 0 0 auto 0; height: 210px; z-index: 10; pointer-events: none; background: linear-gradient(to bottom, rgba(6,9,26,0.82), rgba(6,9,26,0.38) 55%, transparent); }
   .gl-finale-top { position: fixed; top: 0; inset-x: 0; z-index: 20; padding: 20px 24px; text-align: center; pointer-events: none; }
-  .gl-finale-kicker { font-size: 13px; color: rgba(253,230,138,0.92); margin-bottom: 6px; font-weight: 500; }
-  .gl-finale-heading { max-width: 720px; margin: 0 auto; font-size: clamp(18px, 2.5vw, 30px); font-weight: 700; line-height: 1.3; color: #ffffff; text-shadow: 0 2px 16px rgba(0,0,0,0.85); }
-  .gl-finale-sign { margin-top: 6px; font-size: 13px; color: #cbd5e1; font-style: italic; }
+  .gl-finale-box { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; }
+  .gl-finale-kicker { font-size: 13px; color: rgba(253,230,138,0.92); margin-bottom: 2px; font-weight: 500; }
+  .gl-finale-heading { width: 100%; font-size: clamp(18px, 2.5vw, 30px); font-weight: 700; line-height: 1.3; color: #ffffff; text-shadow: 0 2px 16px rgba(0,0,0,0.85); overflow-wrap: anywhere; word-break: break-word; }
+  .gl-finale-sign { margin-top: 2px; font-size: 13px; color: #cbd5e1; font-style: italic; }
 
   .gl-kicker { font-size: 13px; color: #cbd5e1; margin-bottom: 4px; letter-spacing: 0.01em; }
   .gl-title { font-size: clamp(22px, 3.2vw, 34px); font-weight: 700; line-height: 1.2; color: #ffffff; text-shadow: 0 2px 14px rgba(0,0,0,0.65); }
@@ -140,9 +149,9 @@ const STANDALONE_CSS = `
     .gl-story-brand { display: none; }
     .gl-story-grid { display: flex; flex-direction: column; }
     .gl-story-left { height: 32vh; min-height: 185px; max-height: 290px; flex-shrink: 0; }
-    .gl-story-right { flex: 1; padding: 4px 18px 18px; align-items: center; text-align: center; }
-    .gl-story-motion-wrap { margin: auto; }
-    .gl-story-content { align-items: center; text-align: center; gap: 12px; }
+    .gl-story-right { flex: 1; padding: 4px 18px 18px; align-items: center; }
+    .gl-story-motion-wrap { margin: 0 auto; }
+    .gl-illu-wrap { align-self: center; }
     .gl-illu-img { width: 124px; height: 124px; }
     .gl-story-nav { margin: 0 auto; }
   }
@@ -152,7 +161,6 @@ const STANDALONE_CSS = `
     .gl-story-top { padding: 8px 16px 4px; }
     .gl-story-brand { display: none; }
     .gl-story-right { padding: 4px 20px 10px 10px; }
-    .gl-story-content { gap: 7px; }
     .gl-illu-img { width: 82px; height: 82px; }
     .gl-story-title { font-size: 20px; }
     .gl-story-msg { font-size: 14px; line-height: 1.45; }
@@ -226,6 +234,14 @@ export async function exportProjectToZip(
     }
   }
 
+  const usedFontIds = new Set(
+    project.stars.map((s) => resolveStarTextStyle(s).fontId),
+  );
+  if (project.finalTextStyle) {
+    usedFontIds.add(resolveStarTextStyle(project.finalTextStyle).fontId);
+  }
+  const fontFaceCss = await bundleFontsForZip(assetsFolder, usedFontIds);
+
   const payload = {
     title: project.title,
     recipientName: project.recipientName,
@@ -236,6 +252,7 @@ export async function exportProjectToZip(
     stars: standaloneStars,
     connections: sanitizeConnections(project.connections, project.stars),
     finalMessage: project.finalMessage,
+    finalTextStyle: project.finalTextStyle,
     musicPath,
     musicName,
   };
@@ -246,7 +263,10 @@ export async function exportProjectToZip(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>${escapeHtmlText(project.title)} — GiftLab</title>
-  <style>${STANDALONE_CSS}</style>
+  <style>
+  ${fontFaceCss}
+  ${STANDALONE_CSS}
+  </style>
 </head>
 <body>
   <div id="app"></div>

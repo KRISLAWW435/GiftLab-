@@ -72,6 +72,11 @@ export function EditorLayout({
   const [zenMode, setZenMode] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [dragReadout, setDragReadout] = useState<{
+    starId: string;
+    position: StarPosition3D;
+    isDepthDrag: boolean;
+  } | null>(null);
 
   const [tutorialOpen, setTutorialOpen] = useState<boolean>(() => {
     try {
@@ -306,11 +311,10 @@ export function EditorLayout({
           <button
             type="button"
             onClick={onOpenPreview}
-            className="gl-btn-secondary !px-3 !py-2 text-xs text-gl-text"
+            className="gl-btn-secondary !px-2.5 sm:!px-3 !py-2 text-xs text-gl-text"
           >
             <Eye className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Режим получателя</span>
-            <span className="sm:hidden">Просмотр</span>
+            <span>Предпросмотр</span>
           </button>
 
           <button
@@ -369,12 +373,39 @@ export function EditorLayout({
               onSelectStar={handleSelectStarOnScene}
               onSelectConnection={handleSelectConnection}
               onMoveStar={handleMoveStar}
+              onDragStar={(starId, position, isDepthDrag) =>
+                setDragReadout({ starId, position, isDepthDrag })
+              }
+              onDragEnd={() => setDragReadout(null)}
               onCameraOrbit={() => {
                 if (tutorialOpen && tutorialStep === 'practice') {
                   setPracticeRotatedScene(true);
                 }
               }}
             />
+
+            {/* Live Star Coordinates HUD during 3D Movement */}
+            {dragReadout && interactionMode === 'arrange' && (
+              <div
+                aria-live="polite"
+                className={`pointer-events-none absolute top-3 left-3 z-10 gl-hud !rounded-xl px-3 py-1.5 text-xs flex flex-wrap items-center gap-x-2.5 gap-y-0.5 tabular-nums ${
+                  dragReadout.isDepthDrag ? '!border-amber-300/50' : '!border-gl-accent/45'
+                }`}
+              >
+                <span className="font-semibold text-gl-text truncate max-w-[160px]">
+                  {starTitleById.get(dragReadout.starId) ?? 'Звезда'}
+                </span>
+                <span className="text-gl-text-secondary">
+                  X: {dragReadout.position.x.toFixed(2)} · Y: {dragReadout.position.y.toFixed(2)} ·{' '}
+                  <span className={dragReadout.isDepthDrag ? 'text-amber-300 font-semibold' : ''}>
+                    Z: {dragReadout.position.z.toFixed(2)}
+                  </span>
+                </span>
+                {dragReadout.isDepthDrag && (
+                  <span className="text-[11px] text-amber-200">Глубина (Shift)</span>
+                )}
+              </div>
+            )}
 
             {/* Contextual Connect-Mode Helper (top-left, shown only when connecting or editing a link) */}
             {interactionMode === 'connect' && (
@@ -497,7 +528,7 @@ export function EditorLayout({
               onDismiss={handleDismissTutorial}
             />
 
-            {/* Bottom Single-Row Primary Dock (4 core actions) */}
+            {/* Bottom Single-Row Primary Dock (Arrange, Connect, Reset Camera) */}
             <div className="gl-hud absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex flex-nowrap items-center gap-1 !rounded-2xl p-1.5 max-w-[96%] overflow-x-auto">
               <button
                 type="button"
@@ -517,16 +548,6 @@ export function EditorLayout({
               >
                 <Link2 className="w-3.5 h-3.5 shrink-0" />
                 <span>Связи</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => switchMode('orbit')}
-                data-selected={interactionMode === 'orbit'}
-                className="gl-tab inline-flex items-center gap-1.5 !min-h-[36px] sm:!min-h-[38px] !px-2.5 sm:!px-3 shrink-0"
-              >
-                <Orbit className="w-3.5 h-3.5 shrink-0" />
-                <span>Обзор 3D</span>
               </button>
 
               <button
@@ -580,11 +601,21 @@ export function EditorLayout({
               {rightTab === 'star' && activeStar ? (
                 <StarEditor
                   projectId={project.id}
+                  paletteId={project.paletteId}
                   occasion={project.occasion}
                   star={activeStar}
                   starIndex={activeStarIndex}
                   globalGlowColor={project.globalGlowColor}
                   onChange={handleUpdateStar}
+                  onApplyTextStyleToAll={(style) =>
+                    onUpdateProject((prev) => ({
+                      ...prev,
+                      stars: prev.stars.map((s) => ({
+                        ...s,
+                        textStyle: { ...style },
+                      })),
+                    }))
+                  }
                 />
               ) : (
                 <ConstellationSettings

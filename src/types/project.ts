@@ -36,6 +36,37 @@ export interface StarImageSettings {
   offsetY: number;
 }
 
+export type MessageFontId = 'manrope' | 'comfortaa' | 'caveat' | 'cormorant' | 'lora';
+
+export type MessageFontCategory = 'handwritten' | 'elegant' | 'classic' | 'modern';
+
+export type MessageTextWeight = 'normal' | 'semibold';
+
+export type MessageTextAlign = 'left' | 'center' | 'right';
+
+export type MessageTextShadow = 'soft' | 'none' | 'glow';
+
+export type MessageTextAccent = 'none' | 'line' | 'frame' | 'quote';
+
+export interface StarTextStyle {
+  fontId: MessageFontId;
+  /** Message body font size in px (14..24) */
+  fontSize: number;
+  fontWeight: MessageTextWeight;
+  textAlign: MessageTextAlign | 'auto';
+  /** Line height multiplier (1.2..2.0) */
+  lineHeight: number;
+  color: string;
+  shadow: MessageTextShadow;
+  accent: MessageTextAccent;
+  /** Bounded horizontal offset (-100..100) */
+  offsetX: number;
+  /** Bounded vertical offset (-100..100) */
+  offsetY: number;
+  /** Text block width percentage within safe stage (56..100) */
+  widthPct: number;
+}
+
 export interface StarIllustrationRef {
   type: 'builtin' | 'custom';
   /** BuiltinIllustrationId when type === 'builtin', or imageId in IndexedDB when type === 'custom' */
@@ -50,6 +81,8 @@ export interface ConstellationStar {
   illustration: StarIllustrationRef;
   /** Optional non-destructive image presentation & crop settings */
   imageSettings?: StarImageSettings;
+  /** Optional typography and bounded block placement settings */
+  textStyle?: StarTextStyle;
   /** 3D crystal form; migrated to 'star' when absent in legacy projects */
   shape: StarShapeId;
   /** If 'inherit' or undefined, uses project.globalGlowColor */
@@ -76,6 +109,7 @@ export interface ConstellationProject {
   stars: ConstellationStar[];
   connections: StarConnection[];
   finalMessage: string;
+  finalTextStyle?: StarTextStyle;
   musicTrackId: MusicTrackId;
   createdAt: number;
   updatedAt: number;

@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link2, Music, Pause, Play, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Link2,
+  Music,
+  Pause,
+  Play,
+  Trash2,
+  Type,
+} from 'lucide-react';
 import { CompositionPresetPreview } from '../assets/shapePreviews';
 import {
   COMPOSITION_PRESETS,
@@ -18,6 +27,7 @@ import type {
   MusicTrackId,
   OccasionId,
 } from '../types/project';
+import { TextStyleEditor } from './TextStyleEditor';
 
 interface ConstellationSettingsProps {
   project: ConstellationProject;
@@ -43,6 +53,7 @@ export function ConstellationSettings({
   onToggleReducedMotion,
 }: ConstellationSettingsProps) {
   const [auditionTrackId, setAuditionTrackId] = useState<MusicTrackId | null>(null);
+  const [finalStyleOpen, setFinalStyleOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
 
@@ -224,6 +235,39 @@ export function ConstellationSettings({
               className="gl-textarea resize-none leading-relaxed"
             />
           </label>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setFinalStyleOpen((o) => !o)}
+              aria-expanded={finalStyleOpen}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-gl-text-secondary hover:text-gl-text hover:bg-white/[0.04] transition-colors cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Type className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
+                Оформление финального текста
+              </span>
+              {finalStyleOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+              )}
+            </button>
+
+            {finalStyleOpen && (
+              <div className="border-t border-white/10 p-3 pt-1">
+                <TextStyleEditor
+                  value={project.finalTextStyle}
+                  paletteId={project.paletteId}
+                  glowColorId={project.globalGlowColor}
+                  previewTitle={project.title}
+                  previewMessage={project.finalMessage}
+                  showLayoutControls={false}
+                  onChange={(finalTextStyle) => onChange({ finalTextStyle })}
+                />
+              </div>
+            )}
+          </div>
         </>
       )}
 

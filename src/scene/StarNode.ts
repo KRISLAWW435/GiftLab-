@@ -20,6 +20,7 @@ export interface SharedStarGeometries {
   sparkMote: THREE.OctahedronGeometry;
   hitProxy: THREE.SphereGeometry;
   pulseRing: THREE.RingGeometry;
+  selectionRing: THREE.RingGeometry;
   sparklePoints: THREE.BufferGeometry;
 }
 
@@ -259,6 +260,7 @@ export function createSharedStarGeometries(): SharedStarGeometries {
     sparkMote: new THREE.OctahedronGeometry(0.052, 0),
     hitProxy: new THREE.SphereGeometry(0.78, 12, 10),
     pulseRing: new THREE.RingGeometry(0.48, 0.59, 36),
+    selectionRing: new THREE.RingGeometry(0.58, 0.65, 40),
     sparklePoints,
   };
 }
@@ -279,6 +281,7 @@ export function disposeSharedStarGeometries(geos: SharedStarGeometries): void {
   geos.sparkMote.dispose();
   geos.hitProxy.dispose();
   geos.pulseRing.dispose();
+  geos.selectionRing.dispose();
   geos.sparklePoints.dispose();
 }
 
@@ -298,6 +301,7 @@ export class StarNode {
   private haloSprite: THREE.Sprite;
   private flareSprite: THREE.Sprite;
   private pulseRingMesh: THREE.Mesh;
+  private selectionRingMesh: THREE.Mesh;
   private linkRingMesh: THREE.Mesh;
 
   private bodyMat: THREE.MeshPhysicalMaterial;
@@ -309,6 +313,7 @@ export class StarNode {
   private haloMat: THREE.SpriteMaterial;
   private flareMat: THREE.SpriteMaterial;
   private pulseMat: THREE.MeshBasicMaterial;
+  private selectionRingMat: THREE.MeshBasicMaterial;
   private linkRingMat: THREE.MeshBasicMaterial;
   private hitMat: THREE.MeshBasicMaterial;
 
@@ -453,6 +458,19 @@ export class StarNode {
     this.pulseRingMesh.visible = false;
     this.group.add(this.pulseRingMesh);
 
+    // Crisp active selection ring for selected star in editor
+    this.selectionRingMat = new THREE.MeshBasicMaterial({
+      color: glow.coreHex,
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.selectionRingMesh = new THREE.Mesh(geos.selectionRing, this.selectionRingMat);
+    this.selectionRingMesh.visible = false;
+    this.group.add(this.selectionRingMesh);
+
     // Steady link-source indicator ring (when picking 1st star in "Создать связи")
     this.linkRingMat = new THREE.MeshBasicMaterial({
       color: '#fde68a',
@@ -596,6 +614,7 @@ export class StarNode {
     this.haloMat.color.set(glow.hex);
     this.flareMat.color.set(glow.coreHex);
     this.pulseMat.color.set(glow.hex);
+    this.selectionRingMat.color.set(glow.coreHex);
   }
 
   public setInteractionState(opts: {
@@ -608,6 +627,8 @@ export class StarNode {
     storyBackground?: boolean;
     storyHeroScale?: number;
   }): void {
+    const newlySelected =
+      opts.selected === true && !this.isSelected && !opts.storyHero && !opts.finale;
     if (opts.hovered !== undefined) this.isHovered = opts.hovered;
     if (opts.selected !== undefined) this.isSelected = opts.selected;
     if (opts.visited !== undefined) this.isVisited = opts.visited;
@@ -616,6 +637,7 @@ export class StarNode {
     if (opts.storyHero !== undefined) this.isStoryHero = opts.storyHero;
     if (opts.storyBackground !== undefined) this.isStoryBackground = opts.storyBackground;
     if (opts.storyHeroScale !== undefined) this.storyHeroScale = opts.storyHeroScale;
+    if (newlySelected) this.triggerPulse();
   }
 
   public setTargetPosition(x: number, y: number, z: number, snap = false): void {
@@ -760,6 +782,17 @@ export class StarNode {
                 : 1.78) * twinkle;
     this.haloSprite.scale.set(haloSize, haloSize, 1);
 
+    // Steady active-selection ring in editor mode
+    if (this.isSelected && !this.isStoryHero && !this.isFinaleActive && !this.isPendingLink) {
+      this.selectionRingMesh.visible = true;
+      this.selectionRingMesh.quaternion.copy(cameraQuat);
+      const breathe = reducedMotion ? 1.05 : 1.04 + 0.06 * Math.sin(elapsed * 3.1);
+      this.selectionRingMesh.scale.setScalar(breathe);
+      this.selectionRingMat.opacity = reducedMotion ? 0.72 : 0.62 + 0.18 * Math.sin(elapsed * 3.1);
+    } else {
+      this.selectionRingMesh.visible = false;
+    }
+
     // Link source highlight ring
     if (this.isPendingLink) {
       this.linkRingMesh.visible = true;
@@ -793,6 +826,7 @@ export class StarNode {
     this.haloMat.dispose();
     this.flareMat.dispose();
     this.pulseMat.dispose();
+    this.selectionRingMat.dispose();
     this.linkRingMat.dispose();
     this.hitMat.dispose();
   }

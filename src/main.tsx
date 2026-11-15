@@ -1,3 +1,13 @@
+import '@fontsource/caveat/400.css';
+import '@fontsource/caveat/600.css';
+import '@fontsource/caveat/700.css';
+import '@fontsource/cormorant-garamond/400.css';
+import '@fontsource/cormorant-garamond/600.css';
+import '@fontsource/cormorant-garamond/700.css';
+import '@fontsource/lora/400.css';
+import '@fontsource/lora/600.css';
+import '@fontsource/lora/700.css';
+import '@fontsource/comfortaa/400.css';
 import '@fontsource/comfortaa/500.css';
 import '@fontsource/comfortaa/600.css';
 import '@fontsource/comfortaa/700.css';

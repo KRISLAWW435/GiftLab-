@@ -14,10 +14,19 @@ import {
   COSMIC_PALETTES,
   GLOW_COLORS,
   MUSIC_TRACKS,
+  computeTextBlockMarginLeftPct,
+  isDefaultStarTextStyle,
+  resolveMessageFont,
   resolveStarGlowHex,
+  resolveStarTextStyle,
+  resolveTextShadowCss,
 } from '../scene/paletteConfig';
 import { getMusicTrackBlob } from '../services/musicEngine';
-import type { ConstellationProject, RecipientPhase } from '../types/project';
+import type {
+  ConstellationProject,
+  MessageTextAlign,
+  RecipientPhase,
+} from '../types/project';
 import { Constellation3D, type Constellation3DHandle } from './Constellation3D';
 import { StarIllustrationView } from './StarIllustrationView';
 
@@ -569,6 +578,59 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
   const isPortrait = viewport.height > viewport.width || viewport.width < 540;
   const isCompactLandscape = !isPortrait && viewport.height < 520;
 
+  const starTextStyle = resolveStarTextStyle(activeStar ?? undefined);
+  const starFontMeta = resolveMessageFont(starTextStyle.fontId);
+  const effectiveAlign: Exclude<MessageTextAlign, 'auto'> =
+    starTextStyle.textAlign === 'auto'
+      ? isPortrait
+        ? 'center'
+        : 'left'
+      : starTextStyle.textAlign;
+  const effectiveBodyPx = Math.min(
+    starTextStyle.fontSize + starFontMeta.opticalSizeBoost,
+    isCompactLandscape ? 16 : isPortrait ? 20 : 26,
+  );
+  const effectiveTitlePx = Math.round(
+    Math.min(isCompactLandscape ? 25 : isPortrait ? 31 : 38, effectiveBodyPx * 1.48),
+  );
+  const textMarginLeftPct = computeTextBlockMarginLeftPct(
+    starTextStyle.widthPct,
+    starTextStyle.offsetX,
+  );
+  const absYRatio = Math.min(1, Math.abs(starTextStyle.offsetY) / 100);
+  const spacerBase = isPortrait || isCompactLandscape ? 0.35 : 0.9;
+  const topOuterGrow = Number(((1 - absYRatio) * spacerBase).toFixed(3));
+  const topInnerGrow = Number(
+    (starTextStyle.offsetY <= 0
+      ? 0.08 * (1 + starTextStyle.offsetY / 100)
+      : 0.08 + (starTextStyle.offsetY / 100) * 1.92
+    ).toFixed(3),
+  );
+  const bottomInnerGrow = Number(
+    (starTextStyle.offsetY >= 0
+      ? (1 - absYRatio) * spacerBase
+      : spacerBase + (-starTextStyle.offsetY / 100) * (2 - spacerBase)
+    ).toFixed(3),
+  );
+  const resolvedTextShadow = resolveTextShadowCss(
+    starTextStyle.shadow,
+    activeStarGlow.hex,
+  );
+
+  const finalTextStyle = project.finalTextStyle
+    ? resolveStarTextStyle(project.finalTextStyle)
+    : null;
+  const hasCustomFinalStyle = Boolean(
+    finalTextStyle && !isDefaultStarTextStyle(finalTextStyle),
+  );
+  const finalFontMeta = finalTextStyle
+    ? resolveMessageFont(finalTextStyle.fontId)
+    : null;
+  const finalEffectiveAlign: Exclude<MessageTextAlign, 'auto'> =
+    finalTextStyle && finalTextStyle.textAlign !== 'auto'
+      ? finalTextStyle.textAlign
+      : 'center';
+
   return (
     <div className="relative w-screen gl-h-screen overflow-hidden bg-gl-bg text-gl-text">
       {/* Unified 3D Cosmic Scene (single persistent WebGL context) */}
@@ -912,10 +974,10 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                     : 'px-6 sm:px-10 lg:pr-14 lg:pl-4 pb-6 pt-2 justify-between items-start text-left'
               }`}
             >
-              {/* Animated Story Content */}
+              {/* Animated Story Content inside bounded flex stage */}
               <div
-                className={`w-full max-w-xl ${
-                  isPortrait ? 'mx-auto my-auto' : 'my-auto'
+                className={`flex-1 min-h-0 w-full max-w-xl flex flex-col ${
+                  isPortrait ? 'mx-auto' : ''
                 }`}
                 style={{
                   transform:
@@ -944,16 +1006,16 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                       duration: reducedMotion ? 0.06 : 0.24,
                       ease: [0.16, 1, 0.3, 1],
                     }}
-                    className={`w-full flex flex-col ${
-                      isPortrait
-                        ? 'items-center text-center gap-3 sm:gap-4'
-                        : isCompactLandscape
-                          ? 'items-start text-left gap-2'
-                          : 'items-start text-left gap-4 sm:gap-5'
-                    }`}
+                    className="flex-1 min-h-0 w-full flex flex-col"
                   >
-                    {/* Borderless Floating Illustration */}
-                    <div className="relative flex items-center justify-center py-0.5">
+                    <div style={{ flexGrow: topOuterGrow, flexBasis: 0 }} />
+
+                    {/* Borderless Floating Illustration (always protected above text) */}
+                    <div
+                      className={`relative shrink-0 flex items-center justify-center py-0.5 ${
+                        isPortrait ? 'self-center' : 'self-start'
+                      }`}
+                    >
                       <div
                         className="pointer-events-none absolute inset-0 -m-5 rounded-full opacity-55"
                         style={{
@@ -963,6 +1025,7 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                       />
                       <StarIllustrationView
                         illustration={activeStar.illustration}
+                        imageSettings={activeStar.imageSettings}
                         alt={activeStar.title || `Звезда ${activeIndex + 1}`}
                         className={`relative object-contain drop-shadow-[0_14px_34px_rgba(0,0,0,0.6)] ${
                           isPortrait
@@ -974,47 +1037,104 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                       />
                     </div>
 
-                    {/* Star Ordinal & Title */}
-                    <div className="space-y-1 w-full">
-                      <p
-                        className="text-xs sm:text-sm font-medium tracking-wide tabular-nums"
-                        style={{ color: activeStarGlow.coreHex }}
-                      >
-                        Звезда {activeIndex + 1} из {totalStars}
-                      </p>
-                      <h2
-                        data-selectable-text="true"
-                        className={`font-display font-bold text-white leading-tight drop-shadow [text-wrap:balance] select-text ${
-                          isCompactLandscape
-                            ? 'text-xl'
-                            : 'text-2xl sm:text-3xl lg:text-4xl'
-                        }`}
-                      >
-                        {activeStar.title || `Звезда ${activeIndex + 1}`}
-                      </h2>
-                    </div>
+                    <div style={{ flexGrow: topInnerGrow, flexBasis: 0 }} />
 
-                    {/* Personal Wish Message */}
-                    <p
-                      data-selectable-text="true"
-                      className={`text-slate-100/95 leading-relaxed whitespace-pre-wrap drop-shadow-[0_2px_10px_rgba(0,0,0,0.75)] max-w-prose select-text ${
-                        isCompactLandscape
-                          ? 'text-sm'
-                          : 'text-base sm:text-lg lg:text-xl'
+                    {/* Bounded Customizable Message Block */}
+                    <div
+                      data-testid="story-text-block"
+                      style={{
+                        width: `${starTextStyle.widthPct}%`,
+                        marginLeft: `${textMarginLeftPct}%`,
+                        textAlign: effectiveAlign,
+                        fontFamily: starFontMeta.cssFamily,
+                        borderColor:
+                          starTextStyle.accent === 'frame'
+                            ? `${activeStarGlow.hex}44`
+                            : starTextStyle.accent === 'quote'
+                              ? activeStarGlow.hex
+                              : undefined,
+                      }}
+                      className={`shrink-0 max-w-full space-y-2 ${
+                        starTextStyle.accent === 'frame'
+                          ? 'rounded-2xl border bg-[#070B1A]/62 backdrop-blur-md px-4 py-3.5 sm:px-5 sm:py-4 shadow-xl'
+                          : starTextStyle.accent === 'quote'
+                            ? effectiveAlign === 'right'
+                              ? 'border-r-2 pr-3.5 py-0.5'
+                              : 'border-l-2 pl-3.5 py-0.5'
+                            : ''
                       }`}
                     >
-                      {activeStar.message || 'Здесь хранится особое тёплое пожелание.'}
-                    </p>
+                      {starTextStyle.accent === 'line' && (
+                        <div
+                          className="h-0.5 w-16 rounded-full"
+                          style={{
+                            background: `linear-gradient(90deg, ${activeStarGlow.hex}, ${activeStarGlow.coreHex})`,
+                            marginLeft: effectiveAlign === 'left' ? 0 : 'auto',
+                            marginRight: effectiveAlign === 'center' ? 'auto' : 0,
+                          }}
+                        />
+                      )}
 
-                    {/* Signature Attribution */}
-                    {signatureText && (
+                      {/* Star Ordinal & Title */}
+                      <div className="space-y-1 w-full">
+                        <p
+                          className="text-xs sm:text-sm font-medium tracking-wide tabular-nums"
+                          style={{ color: activeStarGlow.coreHex }}
+                        >
+                          Звезда {activeIndex + 1} из {totalStars}
+                        </p>
+                        <h2
+                          data-selectable-text="true"
+                          style={{
+                            fontFamily: starFontMeta.cssFamily,
+                            fontSize: `${effectiveTitlePx}px`,
+                            fontWeight: 600,
+                            lineHeight: Math.min(
+                              1.4,
+                              Math.max(1.12, Number((starTextStyle.lineHeight * 0.78).toFixed(2))),
+                            ),
+                            color: starTextStyle.color,
+                            textShadow: resolvedTextShadow,
+                          }}
+                          className="leading-tight [text-wrap:balance] break-words [overflow-wrap:anywhere] select-text"
+                        >
+                          {activeStar.title || `Звезда ${activeIndex + 1}`}
+                        </h2>
+                      </div>
+
+                      {/* Personal Wish Message */}
                       <p
                         data-selectable-text="true"
-                        className="text-xs sm:text-sm text-slate-300/90 italic tracking-wide select-text"
+                        style={{
+                          fontFamily: starFontMeta.cssFamily,
+                          fontSize: `${effectiveBodyPx}px`,
+                          fontWeight: starTextStyle.fontWeight === 'semibold' ? 600 : 400,
+                          lineHeight: starTextStyle.lineHeight,
+                          color: starTextStyle.color,
+                          textShadow: resolvedTextShadow,
+                        }}
+                        className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] select-text"
                       >
-                        — {signatureText}
+                        {activeStar.message || 'Здесь хранится особое тёплое пожелание.'}
                       </p>
-                    )}
+
+                      {/* Signature Attribution */}
+                      {signatureText && (
+                        <p
+                          data-selectable-text="true"
+                          style={{
+                            color: starTextStyle.color,
+                            opacity: 0.78,
+                            textShadow: resolvedTextShadow,
+                          }}
+                          className="text-xs sm:text-sm italic tracking-wide select-text"
+                        >
+                          — {signatureText}
+                        </p>
+                      )}
+                    </div>
+
+                    <div style={{ flexGrow: bottomInnerGrow, flexBasis: 0 }} />
                   </motion.article>
                 </AnimatePresence>
               </div>
@@ -1157,18 +1277,85 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
               initial={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: reducedMotion ? 0.08 : 0.65, ease: [0.16, 1, 0.3, 1] }}
-              className="flex-1 max-w-2xl mx-auto text-center space-y-1.5"
+              style={
+                hasCustomFinalStyle && finalTextStyle && finalFontMeta
+                  ? {
+                      textAlign: finalEffectiveAlign,
+                      fontFamily: finalFontMeta.cssFamily,
+                      borderColor:
+                        finalTextStyle.accent === 'frame'
+                          ? `${globalGlow.hex}44`
+                          : finalTextStyle.accent === 'quote'
+                            ? globalGlow.hex
+                            : undefined,
+                    }
+                  : undefined
+              }
+              className={`flex-1 max-w-2xl mx-auto text-center space-y-1.5 ${
+                hasCustomFinalStyle && finalTextStyle?.accent === 'frame'
+                  ? 'rounded-2xl border bg-[#070B1A]/60 backdrop-blur-md px-5 py-3.5 shadow-xl'
+                  : hasCustomFinalStyle && finalTextStyle?.accent === 'quote'
+                    ? finalEffectiveAlign === 'right'
+                      ? 'border-r-2 pr-4 py-1'
+                      : 'border-l-2 pl-4 py-1'
+                    : ''
+              }`}
             >
               <p className="text-xs sm:text-sm font-medium text-amber-200/90 tracking-wide">
                 {project.recipientName
                   ? `Для ${project.recipientName} · ${project.title}`
                   : project.title}
               </p>
-              <h1 className="font-display text-lg sm:text-2xl lg:text-3xl font-bold text-gl-text leading-snug drop-shadow-[0_2px_16px_rgba(0,0,0,0.85)] [text-wrap:balance]">
+
+              {hasCustomFinalStyle && finalTextStyle?.accent === 'line' && (
+                <div
+                  className="h-0.5 w-16 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${globalGlow.hex}, ${globalGlow.coreHex})`,
+                    marginLeft: finalEffectiveAlign === 'left' ? 0 : 'auto',
+                    marginRight: finalEffectiveAlign === 'center' ? 'auto' : 0,
+                  }}
+                />
+              )}
+
+              <h1
+                style={
+                  hasCustomFinalStyle && finalTextStyle && finalFontMeta
+                    ? {
+                        fontFamily: finalFontMeta.cssFamily,
+                        fontWeight: finalTextStyle.fontWeight === 'semibold' ? 600 : 400,
+                        fontSize: `${Math.min(
+                          isPortrait ? 24 : 34,
+                          Math.max(
+                            16,
+                            Math.round(
+                              (finalTextStyle.fontSize + finalFontMeta.opticalSizeBoost) *
+                                1.28,
+                            ),
+                          ),
+                        )}px`,
+                        lineHeight: Math.min(1.65, finalTextStyle.lineHeight),
+                        color: finalTextStyle.color,
+                        textShadow: resolveTextShadowCss(
+                          finalTextStyle.shadow,
+                          globalGlow.hex,
+                        ),
+                      }
+                    : undefined
+                }
+                className="font-display text-lg sm:text-2xl lg:text-3xl font-bold text-gl-text leading-snug drop-shadow-[0_2px_16px_rgba(0,0,0,0.85)] [text-wrap:balance] break-words [overflow-wrap:anywhere]"
+              >
                 {project.finalMessage}
               </h1>
               {signatureText && (
-                <p className="text-xs sm:text-sm text-gl-text-secondary/90 italic">
+                <p
+                  style={
+                    hasCustomFinalStyle && finalTextStyle
+                      ? { color: finalTextStyle.color, opacity: 0.78 }
+                      : undefined
+                  }
+                  className="text-xs sm:text-sm text-gl-text-secondary/90 italic"
+                >
                   {signatureText}
                 </p>
               )}

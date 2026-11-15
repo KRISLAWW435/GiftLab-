@@ -76,6 +76,10 @@ export class CameraController {
     this.controls.enableZoom = enabled;
   }
 
+  public setControlsEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
   public setArrangeMouseMode(isArrange: boolean): void {
     if (isArrange) {
       this.controls.mouseButtons = {
@@ -84,14 +88,14 @@ export class CameraController {
         RIGHT: THREE.MOUSE.ROTATE,
       };
       this.controls.touches = {
-        ONE: null,
+        ONE: THREE.TOUCH.ROTATE,
         TWO: THREE.TOUCH.DOLLY_PAN,
       };
     } else {
       this.controls.mouseButtons = {
         LEFT: THREE.MOUSE.ROTATE,
         MIDDLE: THREE.MOUSE.DOLLY,
-        RIGHT: THREE.MOUSE.PAN,
+        RIGHT: THREE.MOUSE.ROTATE,
       };
       this.controls.touches = {
         ONE: THREE.TOUCH.ROTATE,
