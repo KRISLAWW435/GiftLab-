@@ -4,9 +4,11 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type {
+  ConstellationAnimationId,
   ConstellationStar,
   CosmicPaletteId,
   DeviceConstellationLayout,
+  DeviceLayoutKey,
   EditorInteractionMode,
   EnvelopeSettings,
   GlowColorId,
@@ -18,8 +20,12 @@ import {
   COSMIC_PALETTES,
   GLOW_COLORS,
   buildLegacySequentialConnections,
+  computeEnvelopeWorldOffsetY,
+  resolveEnvelopeEffectiveWorldScale,
+  resolveEnvelopeOffsetY,
   resolveStarGlowHex,
   resolveStarShape,
+  resolveViewportDeviceMode,
 } from './paletteConfig';
 import {
   createGlowSpriteTexture,
@@ -70,8 +76,10 @@ export interface ConstellationSceneState {
   finaleActive: boolean;
   lowPerformance: boolean;
   reducedMotion: boolean;
+  deviceMode?: DeviceLayoutKey;
   constellationLayout?: DeviceConstellationLayout;
   envelopeSettings?: EnvelopeSettings;
+  constellationAnimation?: ConstellationAnimationId;
 }
 
 const _ndc = new THREE.Vector2();
@@ -284,6 +292,7 @@ export class ConstellationEngine {
   private lastDragClientY = 0;
   private wasShiftDragging = false;
   private dragPlaneUsesWorldZ = true;
+  private lastStarDragAt = -10;
 
   private resizeObserver?: ResizeObserver;
 
@@ -478,12 +487,29 @@ export class ConstellationEngine {
     return { scale: scale / rootScale, isPortrait };
   }
 
+  private syncEnvelopeScale(state: ConstellationSceneState = this.state): void {
+    if (!this.envelope) return;
+    const width = Math.max(1, this.container.clientWidth || window.innerWidth);
+    const height = Math.max(1, this.container.clientHeight || window.innerHeight);
+    const aspect = width / height;
+    const device = state.deviceMode ?? resolveViewportDeviceMode(width, height);
+    const effectiveScale = resolveEnvelopeEffectiveWorldScale(
+      state.envelopeSettings,
+      aspect,
+      device,
+    );
+    this.envelope.setSealedScale(effectiveScale);
+    const offsetY = resolveEnvelopeOffsetY(state.envelopeSettings, device);
+    this.envelope.setSealedOffsetY(computeEnvelopeWorldOffsetY(offsetY, aspect));
+  }
+
   private enterSealedState(): void {
     this.sealedMode = true;
     this.birthPlaying = false;
     this.finalRevealPlaying = false;
     this.introPlaying = false;
     this.constellationRoot.rotation.y = 0;
+    this.syncEnvelopeScale(this.state);
     this.envelope?.resetSealed();
     this.lines.setRevealProgress(0);
     for (const node of this.starNodes.values()) {
@@ -695,7 +721,6 @@ export class ConstellationEngine {
     const node = this.starNodes.get(starId);
     if (!node || !this.cameraCtrl) return;
     node.triggerPulse();
-    this.lines.triggerSegmentPulse(starId);
     node.group.getWorldPosition(_worldTmp);
     this.cameraCtrl.focusStar(_worldTmp);
   }
@@ -846,6 +871,7 @@ export class ConstellationEngine {
             state.envelopeSettings,
           );
         }
+        this.syncEnvelopeScale(state);
         if (recipientPhaseChanged || !this.sealedMode) {
           this.enterSealedState();
         }
@@ -961,7 +987,6 @@ export class ConstellationEngine {
     }
 
     // Editor mode
-    this.constellationRoot.rotation.y = 0;
     for (const [id, node] of this.starNodes.entries()) {
       node.setInteractionState({
         hovered: this.hoveredStarId === id,
@@ -993,19 +1018,21 @@ export class ConstellationEngine {
   }
 
   private syncDragPlane(
-    nodePos: THREE.Vector3,
+    node: StarNode,
     clientX: number,
     clientY: number,
   ): void {
     this.camera.getWorldDirection(_camForward);
     this.dragPlaneUsesWorldZ = Math.abs(_camForward.z) >= 0.25;
     const planeNormal = this.dragPlaneUsesWorldZ ? _zAxis : _camForward;
-    _dragPlane.setFromNormalAndCoplanarPoint(planeNormal, nodePos);
+    this.constellationRoot.updateMatrixWorld();
+    node.group.getWorldPosition(_worldTmp);
+    _dragPlane.setFromNormalAndCoplanarPoint(planeNormal, _worldTmp);
 
     this.updateNdc(clientX, clientY);
     _raycaster.setFromCamera(_ndc, this.camera);
     if (_raycaster.ray.intersectPlane(_dragPlane, _hitPoint)) {
-      this.dragOffset.copy(nodePos).sub(_hitPoint);
+      this.dragOffset.copy(_worldTmp).sub(_hitPoint);
     } else {
       this.dragOffset.set(0, 0, 0);
     }
@@ -1044,6 +1071,7 @@ export class ConstellationEngine {
       if (commit && node) {
         this.callbacks.onMoveStar?.(movedId, this.roundPosition(node.group.position));
       }
+      this.lastStarDragAt = this.elapsed;
       this.callbacks.onDragEnd?.();
       this.cameraCtrl.setControlsEnabled(true);
       this.applySceneState(this.state);
@@ -1095,9 +1123,11 @@ export class ConstellationEngine {
               this.callbacks.onSelectStar?.(hitId);
             }
 
-            this.syncDragPlane(node.group.position, e.clientX, e.clientY);
+            this.syncDragPlane(node, e.clientX, e.clientY);
             canvas.setPointerCapture(e.pointerId);
             canvas.style.cursor = e.shiftKey ? 'ns-resize' : 'grabbing';
+            this.lastStarDragAt = this.elapsed;
+            this.currentSpinSpeed = 0;
             this.callbacks.onDragStar?.(
               hitId,
               this.roundPosition(node.group.position),
@@ -1143,7 +1173,7 @@ export class ConstellationEngine {
 
         if (this.wasShiftDragging) {
           this.wasShiftDragging = false;
-          this.syncDragPlane(node.group.position, e.clientX, e.clientY);
+          this.syncDragPlane(node, e.clientX, e.clientY);
           this.callbacks.onDragStar?.(
             this.draggingStarId,
             this.roundPosition(node.group.position),
@@ -1156,6 +1186,8 @@ export class ConstellationEngine {
         _raycaster.setFromCamera(_ndc, this.camera);
         if (_raycaster.ray.intersectPlane(_dragPlane, _hitPoint)) {
           _hitPoint.add(this.dragOffset);
+          this.constellationRoot.updateMatrixWorld();
+          this.constellationRoot.worldToLocal(_hitPoint);
           const clampedX = THREE.MathUtils.clamp(_hitPoint.x, -8.5, 8.5);
           const clampedY = THREE.MathUtils.clamp(_hitPoint.y, -5.5, 5.5);
           const nextZ = this.dragPlaneUsesWorldZ
@@ -1163,6 +1195,7 @@ export class ConstellationEngine {
             : THREE.MathUtils.clamp(_hitPoint.z, -5.5, 5.5);
 
           node.group.position.set(clampedX, clampedY, nextZ);
+          this.lastStarDragAt = this.elapsed;
           this.refreshLinesFromNodes();
           this.callbacks.onDragStar?.(
             this.draggingStarId,
@@ -1346,7 +1379,6 @@ export class ConstellationEngine {
     const node = this.starNodes.get(starId);
     if (node) {
       node.triggerPulse();
-      this.lines.triggerSegmentPulse(starId);
     }
     this.callbacks.onSelectStar?.(starId);
   }
@@ -1399,6 +1431,9 @@ export class ConstellationEngine {
         Math.max(1, Math.floor(width * bloomScale)),
         Math.max(1, Math.floor(height * bloomScale)),
       );
+    }
+    if (this.sealedMode || this.state.recipientPhase === 'sealed') {
+      this.syncEnvelopeScale(this.state);
     }
     if (this.state.interactionMode === 'recipient' && this.state.recipientPhase === 'starStory') {
       this.applySceneState(this.state);
@@ -1580,16 +1615,32 @@ export class ConstellationEngine {
       }
     }
 
-    // 360-degree constellation rotation in final constellation view (pauses when dragging)
-    if (
-      this.state.interactionMode === 'recipient' &&
-      this.state.recipientPhase === 'constellation' &&
-      !this.state.reducedMotion
-    ) {
+    const animMode = this.state.constellationAnimation ?? 'rotation';
+    const sceneReducedMotion = this.state.reducedMotion || animMode === 'none';
+
+    // 360-degree constellation rotation when animationMode === 'rotation' (pauses when orbiting or dragging stars)
+    const isRecipientStoryView =
+      this.state.interactionMode === 'recipient' && this.state.recipientPhase === 'starStory';
+    const allowRotation =
+      animMode === 'rotation' &&
+      !this.state.reducedMotion &&
+      !this.sealedMode &&
+      !this.birthPlaying &&
+      !this.finalRevealPlaying &&
+      (this.state.interactionMode !== 'recipient' ||
+        this.state.recipientPhase === 'constellation');
+
+    if (allowRotation) {
+      const targetRotateSpeed =
+        this.state.interactionMode === 'recipient'
+          ? FINALE_ROTATE_SPEED
+          : FINALE_ROTATE_SPEED * 0.72;
       const wantSpin =
+        !this.draggingStarId &&
         !this.cameraCtrl.isUserInteracting &&
-        this.cameraCtrl.timeSinceLastInteraction >= 1.5;
-      const targetSpeed = wantSpin ? FINALE_ROTATE_SPEED : 0;
+        this.cameraCtrl.timeSinceLastInteraction >= 1.2 &&
+        this.elapsed - this.lastStarDragAt >= 1.2;
+      const targetSpeed = wantSpin ? targetRotateSpeed : 0;
       const accel = wantSpin ? 2.2 : 8.0;
       this.currentSpinSpeed = THREE.MathUtils.lerp(
         this.currentSpinSpeed,
@@ -1599,11 +1650,13 @@ export class ConstellationEngine {
       this.constellationRoot.rotation.y += this.currentSpinSpeed * dt;
     } else {
       this.currentSpinSpeed = 0;
-      if (this.state.interactionMode === 'recipient' && this.state.recipientPhase === 'starStory') {
-        // Shortest-angle smooth reset back to front orientation for consistent 2-column framing
+      if (this.sealedMode || this.birthPlaying || this.finalRevealPlaying) {
+        this.constellationRoot.rotation.y = 0;
+      } else if (isRecipientStoryView || animMode !== 'rotation') {
+        // Shortest-angle smooth reset back to front orientation
         const curY = this.constellationRoot.rotation.y;
         const wrapped = Math.atan2(Math.sin(curY), Math.cos(curY));
-        this.constellationRoot.rotation.y = this.state.reducedMotion
+        this.constellationRoot.rotation.y = sceneReducedMotion
           ? 0
           : THREE.MathUtils.lerp(wrapped, 0, 1 - Math.exp(-7 * dt));
       } else {
@@ -1629,13 +1682,13 @@ export class ConstellationEngine {
       }
     }
 
-    this.nebula.update(this.elapsed, this.state.reducedMotion);
-    this.particles.update(this.elapsed, dt, this.state.reducedMotion);
-    this.lines.update(this.elapsed, dt, this.state.reducedMotion);
+    this.nebula.update(this.elapsed, sceneReducedMotion);
+    this.particles.update(this.elapsed, dt, this.state.reducedMotion, animMode);
+    this.lines.update(this.elapsed, dt, sceneReducedMotion);
     this.birthBurst.update(dt, this.state.reducedMotion);
 
     for (const node of this.starNodes.values()) {
-      node.update(this.elapsed, dt, this.camera.quaternion, this.state.reducedMotion);
+      node.update(this.elapsed, dt, this.camera.quaternion, this.state.reducedMotion, animMode);
     }
   }
 

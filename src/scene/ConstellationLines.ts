@@ -27,19 +27,14 @@ export class ConstellationLines {
   private lineMat: THREE.LineBasicMaterial;
   private selectedLineMat: THREE.LineBasicMaterial;
 
-  private pulseSprite: THREE.Sprite;
-  private pulseMat: THREE.SpriteMaterial;
-
   private slots: EdgeSlot[] = [];
   private positionsById = new Map<string, THREE.Vector3>();
   private connections: StarConnection[] = [];
   private selectedConnectionId: string | null = null;
   private revealProgress = 1;
   private finaleHighlight = false;
-  private selectionPulseEdgeIdx = -1;
-  private selectionPulseT = 0;
 
-  constructor(tintHex: string, glowTex: THREE.Texture) {
+  constructor(tintHex: string, _glowTex?: THREE.Texture) {
     this.tubeUnitGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 8, 1, true);
     this.hitUnitGeo = new THREE.CylinderGeometry(0.16, 0.16, 1, 6, 1, true);
 
@@ -76,19 +71,6 @@ export class ConstellationLines {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-
-    this.pulseMat = new THREE.SpriteMaterial({
-      map: glowTex,
-      color: '#ffffff',
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    this.pulseSprite = new THREE.Sprite(this.pulseMat);
-    this.pulseSprite.scale.set(0.55, 0.55, 1);
-    this.pulseSprite.visible = false;
-    this.group.add(this.pulseSprite);
   }
 
   public setTint(tintHex: string): void {
@@ -109,15 +91,6 @@ export class ConstellationLines {
     if (this.selectedConnectionId === connectionId) return;
     this.selectedConnectionId = connectionId;
     this.rebuildVisuals();
-  }
-
-  public triggerSegmentPulse(starId: string): void {
-    if (this.slots.length === 0) return;
-    const idx = this.slots.findIndex((s) => s.from === starId || s.to === starId);
-    if (idx >= 0) {
-      this.selectionPulseEdgeIdx = idx;
-      this.selectionPulseT = 0;
-    }
   }
 
   public setGraph(
@@ -258,56 +231,11 @@ export class ConstellationLines {
     }
   }
 
-  public update(elapsed: number, dt: number, reducedMotion: boolean): void {
+  public update(elapsed: number, _dt: number, reducedMotion: boolean): void {
     const baseOpacity = this.finaleHighlight ? 0.85 : 0.44;
     const pulse = reducedMotion ? 1 : 0.86 + 0.14 * Math.sin(elapsed * 2.2);
     this.tubeMat.opacity = baseOpacity * pulse;
     this.lineMat.opacity = Math.min(0.95, (baseOpacity + 0.25) * pulse);
-
-    if (this.slots.length === 0 || this.revealProgress < 0.99 || reducedMotion) {
-      this.pulseSprite.visible = false;
-      return;
-    }
-
-    if (
-      this.selectionPulseEdgeIdx >= 0 &&
-      this.selectionPulseEdgeIdx < this.slots.length
-    ) {
-      const slot = this.slots[this.selectionPulseEdgeIdx];
-      const a = this.positionsById.get(slot.from);
-      const b = this.positionsById.get(slot.to);
-      this.selectionPulseT += dt * 1.9;
-      if (!a || !b || this.selectionPulseT >= 1) {
-        this.selectionPulseEdgeIdx = -1;
-      } else {
-        this.pulseSprite.visible = true;
-        this.pulseSprite.position.lerpVectors(a, b, this.selectionPulseT);
-        this.pulseSprite.scale.setScalar(0.75);
-        this.pulseMat.opacity = 0.95;
-        return;
-      }
-    }
-
-    // Continuous gentle light pulse gliding along the constellation edges
-    const totalEdges = this.slots.length;
-    const cycleSpeed = this.finaleHighlight ? 0.55 : 0.22;
-    const tTotal = ((elapsed * cycleSpeed) % 1) * totalEdges;
-    const edgeIdx = Math.min(totalEdges - 1, Math.floor(tTotal));
-    const localT = tTotal - edgeIdx;
-    const slot = this.slots[edgeIdx];
-    const a = this.positionsById.get(slot.from);
-    const b = this.positionsById.get(slot.to);
-
-    if (!a || !b) {
-      this.pulseSprite.visible = false;
-      return;
-    }
-
-    this.pulseSprite.visible = true;
-    this.pulseSprite.position.lerpVectors(a, b, localT);
-    const sz = this.finaleHighlight ? 0.72 : 0.45;
-    this.pulseSprite.scale.setScalar(sz);
-    this.pulseMat.opacity = this.finaleHighlight ? 0.95 : 0.65;
   }
 
   public dispose(): void {
@@ -322,6 +250,5 @@ export class ConstellationLines {
     this.hitMat.dispose();
     this.lineMat.dispose();
     this.selectedLineMat.dispose();
-    this.pulseMat.dispose();
   }
 }

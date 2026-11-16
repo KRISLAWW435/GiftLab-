@@ -843,7 +843,13 @@ totalEmissiveRadiance = totalEmissiveRadiance * mix(vec3(1.0), crystalNeon, 0.82
     this.pulseRingMesh.scale.setScalar(0.8);
   }
 
-  public update(elapsed: number, dt: number, cameraQuat: THREE.Quaternion, reducedMotion: boolean): void {
+  public update(
+    elapsed: number,
+    dt: number,
+    cameraQuat: THREE.Quaternion,
+    reducedMotion: boolean,
+    animationMode: 'rotation' | 'breathe' | 'dust' | 'none' = 'rotation',
+  ): void {
     if (this.useDesiredPosition) {
       if (reducedMotion) {
         this.group.position.copy(this.desiredPosition);
@@ -853,9 +859,14 @@ totalEmissiveRadiance = totalEmissiveRadiance * mix(vec3(1.0), crystalNeon, 0.82
       }
     }
 
-    const shimmer = reducedMotion
+    const staticMode = reducedMotion || animationMode === 'none';
+    const isBreathe = !staticMode && animationMode === 'breathe';
+
+    const shimmer = staticMode
       ? 1
-      : 0.9 + 0.1 * Math.sin(elapsed * 2.1 + this.phaseOffset);
+      : isBreathe
+        ? 0.78 + 0.28 * Math.sin(elapsed * 2.2 + this.phaseOffset)
+        : 0.9 + 0.1 * Math.sin(elapsed * 2.1 + this.phaseOffset);
 
     const roleScale = this.isStoryHero
       ? this.storyHeroScale
@@ -873,15 +884,20 @@ totalEmissiveRadiance = totalEmissiveRadiance * mix(vec3(1.0), crystalNeon, 0.82
                   ? 1.16
                   : 1.0;
 
-    const baseTargetScale = roleScale * this.targetReveal;
+    const breathFactor =
+      isBreathe && !this.isDragging && !this.isStoryBackground
+        ? 1 + 0.085 * Math.sin(elapsed * 2.2 + this.phaseOffset)
+        : 1;
+
+    const baseTargetScale = roleScale * this.targetReveal * breathFactor;
 
     const dampFactor = reducedMotion ? 1 : 1 - Math.exp(-7.5 * dt);
     this.currentScale = THREE.MathUtils.lerp(this.currentScale, baseTargetScale, dampFactor);
     this.group.scale.setScalar(Math.max(0.001, this.currentScale));
     this.group.visible = this.targetReveal > 0.002 || this.currentScale > 0.015;
 
-    // Smooth 360° idle spin & shimmer across ALL 7 shapes; stabilizes smoothly under user drag or reduced motion
-    if (reducedMotion) {
+    // Smooth 360° idle spin & shimmer across ALL 7 shapes; stabilizes smoothly under user drag, reduced motion, or 'none' mode
+    if (staticMode) {
       this.crystalGroup.position.y = 0;
       this.bodyPivot.rotation.set(0, 0, 0);
     } else if (this.isDragging) {
@@ -931,11 +947,11 @@ totalEmissiveRadiance = totalEmissiveRadiance * mix(vec3(1.0), crystalNeon, 0.82
                   : 1.0;
 
     this.bodyMat.emissiveIntensity = 0.12 * boost * shimmer;
-    this.bodyMat.iridescence = reducedMotion ? 0.56 : 0.64 + 0.18 * Math.sin(elapsed * 1.6 + this.phaseOffset);
+    this.bodyMat.iridescence = staticMode ? 0.56 : 0.64 + 0.18 * Math.sin(elapsed * 1.6 + this.phaseOffset);
     this.gemMat.emissiveIntensity = 0.4 * boost * shimmer;
     this.edgeMat.opacity = Math.min(0.56, 0.32 * boost * shimmer);
-    this.haloMat.opacity = Math.min(0.32, 0.17 * boost * shimmer);
-    this.flareMat.opacity = Math.min(0.24, 0.12 * boost * shimmer);
+    this.haloMat.opacity = Math.min(0.38, (isBreathe ? 0.22 : 0.17) * boost * shimmer);
+    this.flareMat.opacity = Math.min(0.28, (isBreathe ? 0.16 : 0.12) * boost * shimmer);
 
     const haloSize =
       (this.isStoryHero
@@ -955,9 +971,9 @@ totalEmissiveRadiance = totalEmissiveRadiance * mix(vec3(1.0), crystalNeon, 0.82
     if (this.isSelected && !this.isStoryHero && !this.isFinaleActive && !this.isPendingLink) {
       this.selectionRingMesh.visible = true;
       this.selectionRingMesh.quaternion.copy(cameraQuat);
-      const breathe = reducedMotion ? 1.05 : 1.04 + 0.06 * Math.sin(elapsed * 3.1);
+      const breathe = staticMode ? 1.05 : 1.04 + 0.06 * Math.sin(elapsed * 3.1);
       this.selectionRingMesh.scale.setScalar(breathe);
-      this.selectionRingMat.opacity = reducedMotion ? 0.72 : 0.62 + 0.18 * Math.sin(elapsed * 3.1);
+      this.selectionRingMat.opacity = staticMode ? 0.72 : 0.62 + 0.18 * Math.sin(elapsed * 3.1);
     } else {
       this.selectionRingMesh.visible = false;
     }

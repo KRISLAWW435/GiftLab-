@@ -11,10 +11,8 @@ import {
   Mail,
   Maximize,
   Minimize,
-  Monitor,
   Move,
   RotateCcw,
-  Smartphone,
   Sparkles,
   Type,
 } from 'lucide-react';
@@ -26,11 +24,16 @@ import {
   DEFAULT_ENVELOPE_TEXTS,
   DEFAULT_STAR_IMAGE_SETTINGS,
   ENVELOPE_COLOR_SWATCHES,
+  ENVELOPE_MAX_SCALE,
+  ENVELOPE_MIN_SCALE,
+  ENVELOPE_OFFSET_MAX,
+  ENVELOPE_OFFSET_MIN,
+  ENVELOPE_TEXT_OFFSET_MAX,
+  ENVELOPE_TEXT_OFFSET_MIN,
   GLOW_COLORS,
   LIGHT_PAPER_TEXT_COLORS,
   MESSAGE_FONTS,
   MESSAGE_FONT_CATEGORIES,
-  OCCASION_PRESETS,
   SEAL_COLOR_SWATCHES,
   buildProjectCardDevicePatch,
   buildProjectFinalTextDevicePatch,
@@ -44,7 +47,10 @@ import {
   resolveEffectiveFinalTextStyle,
   resolveEffectiveIllustrationLayout,
   resolveEffectiveStarTextStyle,
+  resolveEnvelopeOffsetY,
   resolveEnvelopeSettings,
+  resolveEnvelopeTextOffsetY,
+  resolveEnvelopeUserScale,
   resolveStarImageSettings,
   sanitizeEnvelopeSettings,
 } from '../scene/paletteConfig';
@@ -62,7 +68,6 @@ import type {
   MessageTextAlign,
   MessageTextShadow,
   MessageTextWeight,
-  OccasionId,
   RecipientPhase,
   StarIllustrationLayout,
   StarIllustrationRef,
@@ -83,7 +88,6 @@ interface CardEditorPanelProps {
   cardStarIndex: number;
   activeTab: CardEditorTab;
   focusedField?: EditableTextField | null;
-  onChangeDevice: (device: PreviewDeviceId) => void;
   onChangeTab: (tab: CardEditorTab, target?: EditableCardTarget) => void;
   onSelectCardTargetView: (
     phase: 'sealed' | 'constellation' | 'starStory',
@@ -101,7 +105,6 @@ export function CardEditorPanel({
   cardStarIndex,
   activeTab,
   focusedField = null,
-  onChangeDevice,
   onChangeTab,
   onSelectCardTargetView,
   onPatchProject,
@@ -136,6 +139,15 @@ export function CardEditorPanel({
   const activeImgSettings = resolveStarImageSettings(activeStar);
   const activeCardLayout = resolveEffectiveCardLayout(project, device);
   const resolvedEnvelope = resolveEnvelopeSettings(project);
+  const activeEnvelopeScale = resolveEnvelopeUserScale(project.envelopeSettings, device);
+  const activeEnvelopeTextOffsetY = resolveEnvelopeTextOffsetY(
+    project.envelopeSettings,
+    device,
+  );
+  const activeEnvelopeOffsetY = resolveEnvelopeOffsetY(
+    project.envelopeSettings,
+    device,
+  );
   const paletteGlow = GLOW_COLORS[project.globalGlowColor] ?? GLOW_COLORS.gold;
 
   const resolvedCardColors = resolveCardColors(project);
@@ -304,142 +316,192 @@ export function CardEditorPanel({
 
   return (
     <div className="space-y-3.5">
-      {/* Device & Card View Header */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 space-y-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-1 p-0.5 rounded-xl bg-gl-input border border-white/10">
-            <button
-              type="button"
-              data-testid="card-panel-device-phone"
-              data-selected={device === 'phone'}
-              onClick={() => onChangeDevice('phone')}
-              className="gl-tab !min-h-[30px] !px-2 text-[11px] inline-flex items-center gap-1"
-            >
-              <Smartphone className="w-3 h-3 shrink-0" />
-              <span>Телефон</span>
-            </button>
-            <button
-              type="button"
-              data-testid="card-panel-device-desktop"
-              data-selected={device === 'desktop'}
-              onClick={() => onChangeDevice('desktop')}
-              className="gl-tab !min-h-[30px] !px-2 text-[11px] inline-flex items-center gap-1"
-            >
-              <Monitor className="w-3 h-3 shrink-0" />
-              <span>Компьютер</span>
-            </button>
-          </div>
-
-          <button
-            type="button"
-            data-testid="reset-device-layout-btn"
-            onClick={handleResetDeviceLayout}
-            title={`Сбросить расположение только для «${device === 'phone' ? 'Телефон' : 'Компьютер'}»`}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-[11px] font-medium text-gl-text-secondary hover:text-gl-text cursor-pointer shrink-0"
-          >
-            <RotateCcw className="w-3 h-3 text-gl-accent-light" />
-            <span>{resetLayoutNotice ? 'Сброшено!' : 'Сброс'}</span>
-          </button>
-        </div>
-
-        {/* Target card switcher inside panel too for quick access on mobile/desktop */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-          <button
-            type="button"
-            data-testid="card-view-envelope-pill"
-            data-selected={isEnvelopePhase}
-            onClick={() => onSelectCardTargetView('sealed')}
-            className="gl-choice px-2.5 py-1 text-[11px] font-semibold shrink-0 inline-flex items-center gap-1"
-          >
-            <Mail className="w-3 h-3 text-violet-300" />
-            <span>Конверт</span>
-          </button>
-          <button
-            type="button"
-            data-testid="card-view-finale-pill"
-            data-selected={isFinaleCard}
-            onClick={() => onSelectCardTargetView('constellation')}
-            className="gl-choice px-2.5 py-1 text-[11px] font-semibold shrink-0 inline-flex items-center gap-1"
-          >
-            <Sparkles className="w-3 h-3 text-amber-300" />
-            <span>Финал</span>
-          </button>
-          {project.stars.map((s, idx) => {
-            const active = cardPhase === 'starStory' && safeStarIndex === idx;
+      {/* 4 Clean Card Editing Tabs (shown when editing Final Card or Star Cards) */}
+      {!isEnvelopePhase && (
+        <div
+          data-testid="card-editor-tabs"
+          className="rounded-2xl border border-white/10 bg-white/[0.03] p-1.5 grid grid-cols-4 gap-1"
+        >
+          {(
+            [
+              { id: 'theme', label: 'Темы', icon: LayoutTemplate, target: 'card' as EditableCardTarget },
+              { id: 'text', label: 'Текст', icon: Type, target: 'text' as EditableCardTarget },
+              { id: 'illustration', label: 'Фото', icon: ImageIcon, target: 'illustration' as EditableCardTarget },
+              { id: 'card', label: 'Макет', icon: Frame, target: 'card' as EditableCardTarget },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const selected = activeTab === tab.id;
             return (
               <button
-                key={s.id}
+                key={tab.id}
                 type="button"
-                data-testid={`card-view-star-${idx}`}
-                data-selected={active}
-                onClick={() => onSelectCardTargetView('starStory', idx)}
-                title={s.title || `Звезда ${idx + 1}`}
-                className="gl-choice px-2 py-1 text-[11px] font-semibold shrink-0 tabular-nums"
+                data-testid={`card-tab-${tab.id}`}
+                data-selected={selected}
+                onClick={() => {
+                  onChangeTab(tab.id, tab.target);
+                  if (tab.id === 'illustration' && isFinaleCard) {
+                    onSelectCardTargetView('starStory', safeStarIndex);
+                  }
+                }}
+                className="gl-tab !min-h-[42px] !px-1 !py-1.5 flex flex-col items-center justify-center gap-0.5 text-[11px]"
               >
-                ★ {idx + 1}
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate max-w-full">{tab.label}</span>
               </button>
             );
           })}
         </div>
-
-        {/* 4 Clean Card Editing Tabs (shown when editing Final Card or Star Cards) */}
-        {!isEnvelopePhase && (
-          <div className="grid grid-cols-4 gap-1">
-            {(
-              [
-                { id: 'theme', label: 'Темы', icon: LayoutTemplate, target: 'card' as EditableCardTarget },
-                { id: 'text', label: 'Текст', icon: Type, target: 'text' as EditableCardTarget },
-                { id: 'illustration', label: 'Фото', icon: ImageIcon, target: 'illustration' as EditableCardTarget },
-                { id: 'card', label: 'Макет', icon: Frame, target: 'card' as EditableCardTarget },
-              ] as const
-            ).map((tab) => {
-              const Icon = tab.icon;
-              const selected = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  data-testid={`card-tab-${tab.id}`}
-                  data-selected={selected}
-                  onClick={() => {
-                    onChangeTab(tab.id, tab.target);
-                    if (tab.id === 'illustration' && isFinaleCard) {
-                      onSelectCardTargetView('starStory', safeStarIndex);
-                    }
-                  }}
-                  className="gl-tab !min-h-[42px] !px-1 !py-1.5 flex flex-col items-center justify-center gap-0.5 text-[11px]"
-                >
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate max-w-full">{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ENVELOPE MODE: Customization of the Sealed Greeting Screen */}
       {isEnvelopePhase && (
         <div data-testid="envelope-editor-panel" className="space-y-3.5">
-          <div className="rounded-xl border border-violet-300/25 bg-violet-500/10 px-3 py-2.5 text-xs text-gl-text-secondary leading-snug">
-            Нажми на любую надпись или кнопку прямо на конверте слева, чтобы поправить текст, или настрой цвета ниже.
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-xl bg-violet-500/20 border border-violet-300/30 flex items-center justify-center shrink-0">
+                <Mail className="w-3.5 h-3.5 text-violet-200" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-display text-sm font-semibold text-gl-text truncate">
+                  Настройки конверта
+                </h3>
+                <p className="text-[11px] text-gl-text-muted truncate">
+                  Тексты, цвета, сургуч и размер
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              data-testid="envelope-reset-btn"
+              onClick={resetEnvelopeSettings}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Сброс
+            </button>
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-xs font-semibold text-gl-text">
+                  Размер конверта ({device === 'phone' ? 'Телефон' : 'Компьютер'})
+                </span>
+                <span className="text-gl-text-muted tabular-nums">
+                  {Math.round(activeEnvelopeScale * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={ENVELOPE_MIN_SCALE}
+                max={ENVELOPE_MAX_SCALE}
+                step={0.05}
+                value={activeEnvelopeScale}
+                data-testid="envelope-scale-slider"
+                aria-label="Размер конверта на экране"
+                onChange={(e) =>
+                  updateEnvelopeSettings({
+                    [device === 'phone' ? 'phoneScale' : 'desktopScale']: Number(
+                      e.target.value,
+                    ),
+                  })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <label className="block space-y-1 pt-2 border-t border-white/10">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-xs font-semibold text-gl-text">
+                  Положение конверта по высоте
+                </span>
+                {activeEnvelopeOffsetY !== 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateEnvelopeSettings({
+                        [device === 'phone' ? 'phoneOffsetY' : 'desktopOffsetY']: 0,
+                      })
+                    }
+                    className="text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                  >
+                    По центру
+                  </button>
+                ) : (
+                  <span className="text-gl-text-muted">Выше — Ниже</span>
+                )}
+              </div>
+              <input
+                type="range"
+                min={ENVELOPE_OFFSET_MIN}
+                max={ENVELOPE_OFFSET_MAX}
+                step={4}
+                value={activeEnvelopeOffsetY}
+                data-testid="envelope-offset-y-slider"
+                aria-label="Положение конверта по высоте"
+                onChange={(e) =>
+                  updateEnvelopeSettings({
+                    [device === 'phone' ? 'phoneOffsetY' : 'desktopOffsetY']: Number(
+                      e.target.value,
+                    ),
+                  })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <p className="text-[11px] text-gl-text-muted leading-snug">
+              Конверт можно двигать вверх-вниз и менять его размер за золотые уголки на превью.
+            </p>
           </div>
 
           <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-gl-text">Тексты на конверте</span>
-              <button
-                type="button"
-                data-testid="envelope-reset-btn"
-                onClick={resetEnvelopeSettings}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                Сброс
-              </button>
             </div>
 
             <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-xs text-gl-text-secondary font-medium">
+                  Положение текста по высоте
+                </span>
+                {activeEnvelopeTextOffsetY !== 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateEnvelopeSettings({
+                        [device === 'phone' ? 'phoneTextOffsetY' : 'desktopTextOffsetY']: 0,
+                      })
+                    }
+                    className="text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                  >
+                    Сбросить
+                  </button>
+                ) : (
+                  <span className="text-gl-text-muted">Выше — Ниже</span>
+                )}
+              </div>
+              <input
+                type="range"
+                min={ENVELOPE_TEXT_OFFSET_MIN}
+                max={ENVELOPE_TEXT_OFFSET_MAX}
+                step={2}
+                value={activeEnvelopeTextOffsetY}
+                data-testid="envelope-text-offset-y-slider"
+                aria-label="Положение текста по высоте"
+                onChange={(e) =>
+                  updateEnvelopeSettings({
+                    [device === 'phone' ? 'phoneTextOffsetY' : 'desktopTextOffsetY']: Number(
+                      e.target.value,
+                    ),
+                  })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <label className="block space-y-1 pt-1 border-t border-white/10">
               <span className="text-xs text-gl-text-muted block">Подпись сверху</span>
               <input
                 type="text"
@@ -470,7 +532,7 @@ export function CardEditorPanel({
             </label>
 
             <label className="block space-y-1">
-              <span className="text-xs text-gl-text-muted block">Подсказка внизу</span>
+              <span className="text-xs text-gl-text-muted block">Подпись внизу</span>
               <input
                 type="text"
                 maxLength={120}
@@ -701,44 +763,6 @@ export function CardEditorPanel({
                   }`}
                 />
               </label>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <label className="block space-y-1">
-                  <span className="text-xs text-gl-text-muted block">Повод</span>
-                  <select
-                    value={project.occasion}
-                    onChange={(e) => {
-                      const occId = e.target.value as OccasionId;
-                      const found = OCCASION_PRESETS.find((p) => p.id === occId);
-                      onPatchProject({
-                        occasion: occId,
-                        occasionLabel: found?.label ?? 'Свой повод',
-                      });
-                    }}
-                    className="gl-select text-[13px]"
-                  >
-                    {OCCASION_PRESETS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="text-xs text-gl-text-muted block">Подпись внизу</span>
-                  <input
-                    type="text"
-                    maxLength={36}
-                    value={project.occasionLabel}
-                    data-testid="card-input-occasionLabel"
-                    onChange={(e) => onPatchProject({ occasionLabel: e.target.value })}
-                    className={`gl-input text-[13px] ${
-                      focusedField === 'occasionLabel' ? 'ring-2 ring-gl-accent-light' : ''
-                    }`}
-                  />
-                </label>
-              </div>
             </div>
           ) : activeStar ? (
             <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
@@ -1339,8 +1363,32 @@ export function CardEditorPanel({
             </div>
           </div>
 
-          <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-3">
-            <div className="flex items-center justify-between gap-2">
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-medium text-gl-text-secondary">
+                  Масштаб открытки
+                </span>
+                <span className="text-gl-text-muted tabular-nums">
+                  {Math.round((activeCardLayout.scale ?? 1) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.55}
+                max={1.25}
+                step={0.05}
+                value={activeCardLayout.scale ?? 1}
+                data-testid="card-scale-slider"
+                aria-label="Общий масштаб открытки"
+                onChange={(e) =>
+                  updateActiveCardLayout({ scale: Number(e.target.value) })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
               <span className="text-[11px] font-medium text-gl-text-secondary">
                 Ширина открытки
               </span>
@@ -1448,7 +1496,18 @@ export function CardEditorPanel({
               />
             </label>
 
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
+              <button
+                type="button"
+                data-testid="reset-device-layout-btn"
+                onClick={handleResetDeviceLayout}
+                title={`Сбросить всё для режима «${device === 'phone' ? 'Телефон' : 'Компьютер'}»`}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-text-muted hover:text-gl-text cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>{resetLayoutNotice ? 'Сброшено!' : 'Сбросить всё для экрана'}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => updateActiveCardLayout({ offsetY: 0 })}

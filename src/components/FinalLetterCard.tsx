@@ -74,27 +74,27 @@ const CARD_CORNERS: Array<{
 }> = [
   {
     kind: 'final-card-resize-nw',
-    pos: '-top-1.5 -left-1.5',
+    pos: '-top-2.5 -left-2.5',
     cursor: 'cursor-nwse-resize',
-    label: 'Изменить размер открытки (верхний левый угол)',
+    label: 'Уменьшить или увеличить открытку (верхний левый угол)',
   },
   {
     kind: 'final-card-resize-ne',
-    pos: '-top-1.5 -right-1.5',
+    pos: '-top-2.5 -right-2.5',
     cursor: 'cursor-nesw-resize',
-    label: 'Изменить размер открытки (верхний правый угол)',
+    label: 'Уменьшить или увеличить открытку (верхний правый угол)',
   },
   {
     kind: 'final-card-resize-sw',
-    pos: '-bottom-1.5 -left-1.5',
+    pos: '-bottom-2.5 -left-2.5',
     cursor: 'cursor-nesw-resize',
-    label: 'Изменить размер открытки (нижний левый угол)',
+    label: 'Уменьшить или увеличить открытку (нижний левый угол)',
   },
   {
     kind: 'final-card-resize-se',
-    pos: '-bottom-1.5 -right-1.5',
+    pos: '-bottom-2.5 -right-2.5',
     cursor: 'cursor-nwse-resize',
-    label: 'Изменить размер открытки (нижний правый угол)',
+    label: 'Уменьшить или увеличить открытку (нижний правый угол)',
   },
 ];
 
@@ -156,6 +156,14 @@ export function FinalLetterCard({
 }: FinalLetterCardProps) {
   const inlineInputRef = useRef<HTMLInputElement | null>(null);
   const inlineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const swipeCloseRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    scrollTopAtStart: number;
+  }>({ active: false, pointerId: null, startX: 0, startY: 0, scrollTopAtStart: 0 });
 
   useEffect(() => {
     if (!editMode || !activeInlineField) return;
@@ -231,6 +239,11 @@ export function FinalLetterCard({
       Math.round((resolvedText.fontSize + fontMeta.opticalSizeBoost) * 1.15),
     ),
   );
+  const headerPx = Math.max(
+    12,
+    Math.min(isPortrait ? 15 : 20, Math.round(bodyPx * 0.68)),
+  );
+  const signaturePx = Math.max(15, Math.min(24, Math.round(bodyPx * 0.8)));
 
   const effectiveAccent = resolvedText.accent;
   const accentStroke = cardColors.accentColor || globalGlow.hex;
@@ -309,19 +322,68 @@ export function FinalLetterCard({
     cardLayout.verticalAlign === 'top' ? 'items-start' : 'items-center';
 
   const cardShiftY = Math.round(cardLayout.offsetY * 1.4);
+  const cardScale = cardLayout.scale ?? 1;
   const textMarginLeftPct = computeTextBlockMarginLeftPct(
     resolvedText.widthPct,
     resolvedText.offsetX,
   );
   const textShiftY = Math.round(resolvedText.offsetY * 0.25);
 
+  const topPadClass =
+    cardLayout.verticalAlign === 'top'
+      ? isCompactLandscape
+        ? 'pt-14 pb-3'
+        : 'pt-16 sm:pt-20 pb-4'
+      : isCompactLandscape
+        ? 'pt-8 pb-3'
+        : 'pt-10 sm:pt-12 pb-4';
+
+  const handleRecipientSwipeDown = (e: React.PointerEvent<HTMLElement>) => {
+    if (editMode) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, a, input, textarea, select')) return;
+    const sel = window.getSelection?.();
+    if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
+
+    swipeCloseRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollTopAtStart: bodyScrollRef.current?.scrollTop ?? 0,
+    };
+  };
+
+  const handleRecipientSwipeUp = (e: React.PointerEvent<HTMLElement>) => {
+    const s = swipeCloseRef.current;
+    if (!s.active || s.pointerId !== e.pointerId) return;
+    swipeCloseRef.current = { active: false, pointerId: null, startX: 0, startY: 0, scrollTopAtStart: 0 };
+
+    const sel = window.getSelection?.();
+    if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
+
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    const isHorizontalSwipe = absX >= 55 && absX > absY * 1.2;
+    const isDownwardSwipe = dy >= 65 && absY > absX * 1.2 && s.scrollTopAtStart <= 2;
+    if (isHorizontalSwipe || isDownwardSwipe) {
+      onClose();
+    }
+  };
+
+  const resetRecipientSwipe = () => {
+    swipeCloseRef.current = { active: false, pointerId: null, startX: 0, startY: 0, scrollTopAtStart: 0 };
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
         <div
-          className={`pointer-events-none fixed inset-x-0 top-0 bottom-20 z-20 flex ${alignItemsClass} justify-center px-3 sm:px-6 ${
-            isCompactLandscape ? 'pt-10 pb-2' : 'pt-14 sm:pt-16 pb-4'
-          }`}
+          className={`pointer-events-none fixed inset-x-0 top-0 bottom-0 z-[25] flex ${alignItemsClass} justify-center px-3 sm:px-6 ${topPadClass}`}
         >
           <motion.article
             ref={letterContainerRef}
@@ -332,31 +394,36 @@ export function FinalLetterCard({
             data-device={activeDevice}
             data-card-width={cardLayout.width}
             data-card-padding={cardLayout.padding}
+            data-card-scale={cardScale}
             initial={
               reducedMotion
-                ? { opacity: 0, y: cardShiftY }
-                : { opacity: 0, y: cardShiftY + 145, scale: 0.86 }
+                ? { opacity: 0, y: cardShiftY, scale: cardScale }
+                : { opacity: 0, y: cardShiftY + 145, scale: cardScale * 0.86 }
             }
             animate={
               reducedMotion
-                ? { opacity: 1, y: cardShiftY }
-                : { opacity: 1, y: cardShiftY, scale: 1 }
+                ? { opacity: 1, y: cardShiftY, scale: cardScale }
+                : { opacity: 1, y: cardShiftY, scale: cardScale }
             }
             exit={
               reducedMotion
-                ? { opacity: 0, y: cardShiftY }
-                : { opacity: 0, y: cardShiftY + 115, scale: 0.9 }
+                ? { opacity: 0, y: cardShiftY, scale: cardScale }
+                : { opacity: 0, y: cardShiftY + 115, scale: cardScale * 0.9 }
             }
             transition={{
               duration: reducedMotion ? 0.1 : 0.65,
               ease: [0.16, 1, 0.3, 1],
             }}
+            onPointerDown={handleRecipientSwipeDown}
+            onPointerUp={handleRecipientSwipeUp}
+            onPointerCancel={resetRecipientSwipe}
             onClick={(e) => {
               if (editMode && e.target === e.currentTarget) {
                 onSelectTarget?.('card');
               }
             }}
             style={{
+              transformOrigin: 'center center',
               width: cardLayout.customWidthPx ? `${cardLayout.customWidthPx}px` : undefined,
               minHeight: cardLayout.customHeightPx ? `${cardLayout.customHeightPx}px` : undefined,
               background: isFrostedDark
@@ -373,13 +440,13 @@ export function FinalLetterCard({
               isFrostedDark ? 'backdrop-blur-2xl gl-card-holo-rim' : ''
             } ${
               editMode && selectedTarget === 'card'
-                ? 'ring-2 ring-amber-400/90'
+                ? 'ring-2 ring-dashed ring-amber-300/95'
                 : editMode
-                  ? 'ring-1 ring-white/15 hover:ring-amber-300/60'
+                  ? 'ring-1 ring-dashed ring-amber-300/55 hover:ring-amber-300/85'
                   : ''
             }`}
           >
-            {/* 4 Corner Card Resize Handles (unclipped outside backdrop layer) */}
+            {/* 4 Golden/White Corner Scale Handles for Entire Final Card */}
             {editMode && onBeginElementDrag && (
               <>
                 {CARD_CORNERS.map((corner) => (
@@ -388,16 +455,16 @@ export function FinalLetterCard({
                     type="button"
                     data-testid={corner.kind}
                     aria-label={corner.label}
+                    title="Потяни за уголок, чтобы уменьшить или увеличить открытку"
                     onPointerDown={(e) => onBeginElementDrag(corner.kind, e)}
                     onPointerMove={onMoveElementDrag}
                     onPointerUp={onEndElementDrag}
                     onPointerCancel={onEndElementDrag}
-                    className={`absolute ${corner.pos} w-3.5 h-3.5 rounded-full border-2 border-white ${corner.cursor} touch-none shadow-md z-30 transition-transform hover:scale-125 ${
-                      selectedTarget === 'card'
-                        ? 'bg-amber-400 opacity-100'
-                        : 'bg-amber-300/80 opacity-75 hover:opacity-100'
-                    }`}
-                  />
+                    onClick={(e) => e.stopPropagation()}
+                    className={`absolute ${corner.pos} w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-400 border-2 border-white ${corner.cursor} touch-none shadow-[0_2px_10px_rgba(0,0,0,0.65)] z-30 transition-transform hover:scale-110 flex items-center justify-center`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#181236]" />
+                  </button>
                 ))}
               </>
             )}
@@ -458,14 +525,14 @@ export function FinalLetterCard({
                     }
                   : undefined
               }
-              className={`relative z-10 flex items-center justify-between gap-3 ${headerPadClass} shrink-0 ${
+              className={`relative z-10 flex items-start justify-between gap-2.5 sm:gap-3 ${headerPadClass} shrink-0 ${
                 editMode ? 'cursor-grab active:cursor-grabbing touch-none' : ''
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="flex items-start gap-2.5 min-w-0 flex-1">
                 {isMinimalist ? (
                   <span
-                    className="inline-block w-2.5 h-2.5 rotate-45 border shrink-0"
+                    className="mt-1 inline-block w-2.5 h-2.5 rotate-45 border shrink-0"
                     style={{
                       borderColor: cardColors.accentColor,
                       backgroundColor: `${cardColors.accentColor}26`,
@@ -488,8 +555,8 @@ export function FinalLetterCard({
 
                 {editMode ? (
                   <div
-                    className="flex flex-wrap items-center gap-1 min-w-0 flex-1 text-xs sm:text-sm font-semibold tracking-wide"
-                    style={{ color: cardColors.badgeColor }}
+                    className="flex flex-wrap items-center gap-1 min-w-0 flex-1 font-semibold tracking-wide"
+                    style={{ color: cardColors.badgeColor, fontSize: `${headerPx}px` }}
                   >
                     {activeInlineField === 'recipientName' ? (
                       <input
@@ -509,15 +576,19 @@ export function FinalLetterCard({
                           }
                         }}
                         onBlur={() => onCloseInlineEdit?.()}
-                        style={{ color: cardColors.badgeColor, borderColor: `${cardColors.accentColor}88` }}
-                        className="w-32 sm:w-40 rounded-md border bg-white/15 px-1.5 py-0.5 text-xs sm:text-sm font-semibold outline-none"
+                        style={{
+                          color: cardColors.badgeColor,
+                          borderColor: `${cardColors.accentColor}88`,
+                          fontSize: `${headerPx}px`,
+                        }}
+                        className="w-32 sm:w-40 rounded-md border bg-white/15 px-1.5 py-0.5 font-semibold outline-none"
                       />
                     ) : (
                       <span
                         data-inline-field="recipientName"
                         data-testid="card-text-recipientName"
                         title="Нажми, чтобы изменить имя получателя"
-                        className="inline-flex items-center gap-1 rounded px-1 -mx-0.5 py-0.5 cursor-text hover:bg-black/10 transition-colors truncate max-w-[180px]"
+                        className="inline-flex items-center gap-1 rounded px-1 -mx-0.5 py-0.5 cursor-text hover:bg-black/10 transition-colors whitespace-normal break-words [overflow-wrap:anywhere] leading-snug"
                       >
                         {project.recipientName.trim()
                           ? `Для ${project.recipientName}`
@@ -545,15 +616,19 @@ export function FinalLetterCard({
                           }
                         }}
                         onBlur={() => onCloseInlineEdit?.()}
-                        style={{ color: cardColors.badgeColor, borderColor: `${cardColors.accentColor}88` }}
-                        className="min-w-[120px] flex-1 rounded-md border bg-white/15 px-1.5 py-0.5 text-xs sm:text-sm font-semibold outline-none"
+                        style={{
+                          color: cardColors.badgeColor,
+                          borderColor: `${cardColors.accentColor}88`,
+                          fontSize: `${headerPx}px`,
+                        }}
+                        className="min-w-[120px] flex-1 rounded-md border bg-white/15 px-1.5 py-0.5 font-semibold outline-none"
                       />
                     ) : (
                       <span
                         data-inline-field="title"
                         data-testid="card-text-title"
                         title="Нажми, чтобы изменить заголовок открытки"
-                        className="inline-flex items-center gap-1 rounded px-1 py-0.5 cursor-text hover:bg-black/10 transition-colors truncate max-w-[220px]"
+                        className="inline-flex items-center gap-1 rounded px-1 py-0.5 cursor-text hover:bg-black/10 transition-colors whitespace-normal break-words [overflow-wrap:anywhere] leading-snug"
                       >
                         {project.title.trim() || 'Название открытки'}
                       </span>
@@ -561,13 +636,15 @@ export function FinalLetterCard({
                   </div>
                 ) : (
                   <p
-                    className={`truncate ${
+                    data-testid="final-letter-header-text"
+                    className={`min-w-0 flex-1 whitespace-normal break-words [overflow-wrap:anywhere] leading-snug font-semibold ${
                       isMinimalist
-                        ? 'text-[11px] sm:text-xs font-semibold uppercase tracking-[0.14em]'
-                        : 'text-xs sm:text-sm font-semibold tracking-wide'
+                        ? 'uppercase tracking-[0.1em]'
+                        : 'tracking-wide'
                     }`}
                     style={{
                       color: cardColors.badgeColor,
+                      fontSize: `${headerPx}px`,
                       fontFamily: isMinimalist ? sansFontMeta.cssFamily : undefined,
                     }}
                   >
@@ -578,23 +655,25 @@ export function FinalLetterCard({
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={onClose}
-                title="Скрыть письмо и любоваться созвездием"
-                aria-label="Скрыть письмо"
-                data-testid="close-final-letter-btn"
-                style={{
-                  color: cardColors.badgeColor,
-                  borderColor: `${cardColors.borderColor}66`,
-                  backgroundColor: cardColors.isLightPaper
-                    ? 'rgba(255,255,255,0.65)'
-                    : 'rgba(255,255,255,0.08)',
-                }}
-                className="inline-flex items-center justify-center w-8 h-8 rounded-full border transition-transform hover:scale-105 active:scale-95 cursor-pointer shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              {!editMode && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  title="Скрыть письмо и любоваться созвездием"
+                  aria-label="Скрыть письмо"
+                  data-testid="close-final-letter-btn"
+                  style={{
+                    color: cardColors.badgeColor,
+                    borderColor: `${cardColors.borderColor}66`,
+                    backgroundColor: cardColors.isLightPaper
+                      ? 'rgba(255,255,255,0.65)'
+                      : 'rgba(255,255,255,0.08)',
+                  }}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-full border transition-transform hover:scale-105 active:scale-95 cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             {/* Subtle Hatched / Diamond / Hairline Divider */}
@@ -620,7 +699,7 @@ export function FinalLetterCard({
             </div>
 
             {/* Scrollable Body for Short or Long Greeting Text */}
-            <div className={`relative z-10 flex-1 overflow-y-auto overscroll-contain ${bodyPadClass}`}>
+            <div ref={bodyScrollRef} className={`relative z-10 flex-1 overflow-y-auto overscroll-contain ${bodyPadClass}`}>
               <div
                 data-testid="finale-text-block"
                 data-selected={editMode && selectedTarget === 'text'}
@@ -799,12 +878,13 @@ export function FinalLetterCard({
                     onBlur={() => onCloseInlineEdit?.()}
                     style={{
                       fontFamily: fontMeta.cssFamily,
+                      fontSize: `${signaturePx}px`,
                       color: effectiveTextColor,
                       textShadow: textShadowCss,
                       textAlign: effectiveAlign,
                       borderColor: `${cardColors.accentColor}88`,
                     }}
-                    className="w-48 max-w-full rounded-lg border bg-black/15 px-2 py-0.5 text-sm sm:text-base italic outline-none"
+                    className="w-48 max-w-full rounded-lg border bg-black/15 px-2 py-0.5 italic outline-none"
                   />
                 ) : (signatureText || editMode) ? (
                   <p
@@ -814,11 +894,12 @@ export function FinalLetterCard({
                     title={editMode ? 'Нажми, чтобы изменить подпись' : undefined}
                     style={{
                       fontFamily: fontMeta.cssFamily,
+                      fontSize: `${signaturePx}px`,
                       color: effectiveTextColor,
-                      opacity: signatureText ? 0.8 : 0.52,
+                      opacity: signatureText ? 0.84 : 0.54,
                       textShadow: textShadowCss,
                     }}
-                    className={`pt-1 text-sm sm:text-base italic ${
+                    className={`pt-1.5 italic ${
                       editMode
                         ? 'select-none cursor-text rounded-lg px-1 -mx-1 hover:bg-black/10 transition-colors inline-flex items-center gap-1'
                         : 'select-text'
@@ -828,7 +909,7 @@ export function FinalLetterCard({
                       `— ${signatureText}`
                     ) : (
                       <>
-                        <Pencil className="w-3 h-3 opacity-70" />
+                        <Pencil className="w-3.5 h-3.5 opacity-70" />
                         <span>— Добавить подпись</span>
                       </>
                     )}
@@ -837,64 +918,7 @@ export function FinalLetterCard({
               </div>
             </div>
 
-            {/* Subtle Bottom Seal Footer */}
-            <div className={`relative z-10 ${footerPadClass} flex items-center justify-between gap-2 shrink-0`}>
-              {editMode && activeInlineField === 'occasionLabel' ? (
-                <input
-                  ref={inlineInputRef}
-                  type="text"
-                  maxLength={36}
-                  value={project.occasionLabel}
-                  placeholder="Повод"
-                  data-testid="inline-edit-occasionLabel"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => onPatchProject?.({ occasionLabel: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === 'Escape') {
-                      e.preventDefault();
-                      onCloseInlineEdit?.();
-                    }
-                  }}
-                  onBlur={() => onCloseInlineEdit?.()}
-                  style={{
-                    color: cardColors.badgeColor,
-                    borderColor: `${cardColors.accentColor}88`,
-                  }}
-                  className="w-40 rounded-md border bg-white/15 px-1.5 py-0.5 text-[11px] outline-none"
-                />
-              ) : (
-                <span
-                  data-inline-field={editMode ? 'occasionLabel' : undefined}
-                  data-testid="card-text-occasionLabel"
-                  onClick={
-                    editMode
-                      ? (e) => {
-                          e.stopPropagation();
-                          onSelectTarget?.('text', 'occasionLabel');
-                        }
-                      : undefined
-                  }
-                  title={editMode ? 'Нажми, чтобы изменить подпись повода' : undefined}
-                  className={`text-[11px] opacity-75 truncate ${
-                    editMode
-                      ? 'cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-black/10 transition-colors'
-                      : ''
-                  }`}
-                  style={{ color: cardColors.badgeColor }}
-                >
-                  {project.occasionLabel || (editMode ? 'Добавить повод' : '')}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ color: cardColors.badgeColor }}
-                className="text-[11px] font-semibold underline underline-offset-4 decoration-current/40 hover:opacity-100 opacity-85 cursor-pointer"
-              >
-                Скрыть письмо
-              </button>
-            </div>
+            <div className={`relative z-10 ${footerPadClass} shrink-0`} aria-hidden="true" />
           </motion.article>
         </div>
       )}

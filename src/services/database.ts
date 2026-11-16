@@ -1,10 +1,15 @@
 import { normalizeProject } from '../scene/paletteConfig';
-import type { ConstellationProject, StoredImageRecord } from '../types/project';
+import type {
+  ConstellationProject,
+  StoredAudioRecord,
+  StoredImageRecord,
+} from '../types/project';
 
 const DB_NAME = 'giftlab_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROJECTS = 'projects';
 const STORE_IMAGES = 'images';
+const STORE_AUDIO = 'audio';
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -19,6 +24,10 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_IMAGES)) {
         const imgStore = db.createObjectStore(STORE_IMAGES, { keyPath: 'id' });
         imgStore.createIndex('projectId', 'projectId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_AUDIO)) {
+        const audioStore = db.createObjectStore(STORE_AUDIO, { keyPath: 'id' });
+        audioStore.createIndex('projectId', 'projectId', { unique: false });
       }
     };
 
@@ -75,12 +84,17 @@ export async function saveProject(project: ConstellationProject): Promise<Conste
 export async function deleteProject(projectId: string): Promise<void> {
   const db = await openDatabase();
   const images = await listImagesForProject(projectId);
+  const audioList = await listAudioForProject(projectId);
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction([STORE_PROJECTS, STORE_IMAGES], 'readwrite');
+    const tx = db.transaction([STORE_PROJECTS, STORE_IMAGES, STORE_AUDIO], 'readwrite');
     tx.objectStore(STORE_PROJECTS).delete(projectId);
     const imgStore = tx.objectStore(STORE_IMAGES);
     for (const img of images) {
       imgStore.delete(img.id);
+    }
+    const audioStore = tx.objectStore(STORE_AUDIO);
+    for (const aud of audioList) {
+      audioStore.delete(aud.id);
     }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -134,6 +148,60 @@ export async function listImagesForProject(projectId: string): Promise<StoredIma
   });
 }
 
+export async function saveAudioBlob(
+  audioId: string,
+  projectId: string,
+  blob: Blob,
+  fileName: string,
+): Promise<StoredAudioRecord> {
+  const db = await openDatabase();
+  const record: StoredAudioRecord = {
+    id: audioId,
+    projectId,
+    blob,
+    fileName,
+    mimeType: blob.type || (fileName.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg'),
+    size: blob.size,
+    updatedAt: Date.now(),
+  };
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_AUDIO, 'readwrite');
+    tx.objectStore(STORE_AUDIO).put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  return record;
+}
+
+export async function getAudioRecord(audioId: string): Promise<StoredAudioRecord | null> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_AUDIO, 'readonly');
+    const req = tx.objectStore(STORE_AUDIO).get(audioId);
+    req.onsuccess = () => {
+      const rec = req.result as StoredAudioRecord | undefined;
+      resolve(rec ?? null);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getAudioBlob(audioId: string): Promise<Blob | null> {
+  const rec = await getAudioRecord(audioId);
+  return rec ? rec.blob : null;
+}
+
+export async function listAudioForProject(projectId: string): Promise<StoredAudioRecord[]> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_AUDIO, 'readonly');
+    const index = tx.objectStore(STORE_AUDIO).index('projectId');
+    const req = index.getAll(projectId);
+    req.onsuccess = () => resolve((req.result as StoredAudioRecord[]) ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function duplicateProject(source: ConstellationProject): Promise<ConstellationProject> {
   const normalizedSource = normalizeProject(source);
   const now = Date.now();
@@ -147,10 +215,25 @@ export async function duplicateProject(source: ConstellationProject): Promise<Co
     await saveImageBlob(newImgId, newProjectId, img.blob);
   }
 
+  let clonedCustomMusicId = normalizedSource.customMusicId;
+  if (normalizedSource.customMusicId) {
+    const sourceAudio = await getAudioRecord(normalizedSource.customMusicId);
+    if (sourceAudio) {
+      clonedCustomMusicId = `aud_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      await saveAudioBlob(
+        clonedCustomMusicId,
+        newProjectId,
+        sourceAudio.blob,
+        sourceAudio.fileName,
+      );
+    }
+  }
+
   const cloned: ConstellationProject = {
     ...normalizedSource,
     id: newProjectId,
     title: `${normalizedSource.title} (копия)`,
+    customMusicId: clonedCustomMusicId,
     createdAt: now,
     updatedAt: now,
     stars: normalizedSource.stars.map((star) => ({
@@ -186,6 +269,24 @@ export async function cleanupUnusedProjectImages(project: ConstellationProject):
     const store = tx.objectStore(STORE_IMAGES);
     for (const img of unused) {
       store.delete(img.id);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function cleanupUnusedProjectAudio(project: ConstellationProject): Promise<void> {
+  const usedId = project.customMusicId;
+  const existing = await listAudioForProject(project.id);
+  const unused = existing.filter((aud) => aud.id !== usedId);
+  if (unused.length === 0) return;
+
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_AUDIO, 'readwrite');
+    const store = tx.objectStore(STORE_AUDIO);
+    for (const aud of unused) {
+      store.delete(aud.id);
     }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

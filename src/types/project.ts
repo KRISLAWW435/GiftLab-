@@ -10,7 +10,17 @@ export type CompositionPresetId = 'free' | 'heart' | 'flower';
 
 export type OccasionId = 'new_year' | 'mothers_day' | 'birthday' | 'teachers_day' | 'custom';
 
-export type MusicTrackId = 'none' | 'stardust' | 'aurora_chimes' | 'galaxy_waltz';
+export type MusicTrackId =
+  | 'none'
+  | 'magical_cover'
+  | 'cosmic_drift'
+  | 'cosmic_genesis'
+  | 'custom'
+  | 'stardust'
+  | 'aurora_chimes'
+  | 'galaxy_waltz';
+
+export type ConstellationAnimationId = 'rotation' | 'breathe' | 'dust' | 'none';
 
 export type EditorInteractionMode = 'arrange' | 'connect' | 'orbit';
 
@@ -157,6 +167,8 @@ export interface DeviceCardLayout {
   width: CardWidthPreset;
   /** Bounded vertical offset for card / finale letter (-60..60) */
   offsetY: number;
+  /** Overall proportional card scale multiplier (0.55..1.25) */
+  scale?: number;
   /** Optional direct-dragged card width in px for this device */
   customWidthPx?: number;
   /** Optional direct-dragged card height in px for this device */
@@ -170,6 +182,24 @@ export interface EnvelopeSettings {
   ctaText?: string;
   envelopeColor?: string;
   sealColor?: string;
+  /** Legacy shared scale multiplier */
+  scale?: number;
+  /** Envelope visual scale multiplier for phone viewport (0.55..1.35) */
+  phoneScale?: number;
+  /** Envelope visual scale multiplier for desktop viewport (0.55..1.35) */
+  desktopScale?: number;
+  /** Legacy shared header text vertical offset (-20..100) */
+  textOffsetY?: number;
+  /** Envelope header text vertical offset for phone viewport (-20..100) */
+  phoneTextOffsetY?: number;
+  /** Envelope header text vertical offset for desktop viewport (-20..100) */
+  desktopTextOffsetY?: number;
+  /** Legacy shared envelope vertical offset (-100..100) */
+  offsetY?: number;
+  /** Envelope vertical offset for phone viewport (-100..100) */
+  phoneOffsetY?: number;
+  /** Envelope vertical offset for desktop viewport (-100..100) */
+  desktopOffsetY?: number;
 }
 
 export interface StarDeviceLayoutEntry {
@@ -253,7 +283,10 @@ export interface ConstellationProject {
   deviceLayouts?: ProjectDeviceLayouts;
   /** Sealed envelope texts & colors */
   envelopeSettings?: EnvelopeSettings;
+  constellationAnimation?: ConstellationAnimationId;
   musicTrackId: MusicTrackId;
+  customMusicId?: string;
+  customMusicName?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -262,6 +295,16 @@ export interface StoredImageRecord {
   id: string;
   projectId: string;
   blob: Blob;
+  mimeType: string;
+  size: number;
+  updatedAt: number;
+}
+
+export interface StoredAudioRecord {
+  id: string;
+  projectId: string;
+  blob: Blob;
+  fileName: string;
   mimeType: string;
   size: number;
   updatedAt: number;

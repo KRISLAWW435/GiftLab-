@@ -42,6 +42,8 @@ export class EnvelopeProp {
   private state: 'sealed' | 'opening' | 'finaleOpening' | 'hidden' = 'sealed';
   private openProgress = 0; // 0..1 during opening animation
   private isHovered = false;
+  private sealedScale = 1;
+  private sealedOffsetY = 0;
 
   constructor(
     palette: CosmicPaletteConfig,
@@ -312,6 +314,20 @@ export class EnvelopeProp {
     this.isHovered = hovered;
   }
 
+  public setSealedScale(scale: number): void {
+    this.sealedScale = Math.max(0.22, Math.min(1.5, scale));
+    if (this.state === 'sealed') {
+      this.group.scale.setScalar(this.sealedScale);
+    }
+  }
+
+  public setSealedOffsetY(offsetY: number): void {
+    this.sealedOffsetY = Math.max(-1.2, Math.min(1.2, offsetY));
+    if (this.state === 'sealed') {
+      this.group.position.y = this.sealedOffsetY;
+    }
+  }
+
   public getHitMeshes(): THREE.Object3D[] {
     return [this.baseMesh, this.pocketMesh, this.flapMesh, this.sealDiscMesh];
   }
@@ -320,9 +336,9 @@ export class EnvelopeProp {
     this.state = 'sealed';
     this.openProgress = 0;
     this.group.visible = true;
-    this.group.position.set(0, 0, 0);
+    this.group.position.set(0, this.sealedOffsetY, 0);
     this.group.rotation.set(0, 0, 0);
-    this.group.scale.setScalar(1);
+    this.group.scale.setScalar(this.sealedScale);
     this.bodyGroup.visible = true;
     this.bodyGroup.scale.setScalar(1);
     this.flapPivot.rotation.x = 0;
@@ -439,10 +455,12 @@ export class EnvelopeProp {
 
     if (this.state === 'sealed') {
       if (!reducedMotion) {
-        this.group.position.y = Math.sin(elapsed * 1.45) * 0.08;
+        this.group.position.y = this.sealedOffsetY + Math.sin(elapsed * 1.45) * 0.08;
         this.group.rotation.y = Math.sin(elapsed * 0.7) * 0.12;
         this.group.rotation.x = Math.cos(elapsed * 0.85) * 0.05;
         this.sealStarMesh.rotation.z = Math.sin(elapsed * 0.9) * 0.08;
+      } else {
+        this.group.position.y = this.sealedOffsetY;
       }
 
       const targetScale = this.isHovered ? 1.05 : 1.0;

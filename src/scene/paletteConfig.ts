@@ -7,6 +7,7 @@ import type {
   CardVerticalAlign,
   CardWidthPreset,
   CompositionPresetId,
+  ConstellationAnimationId,
   ConstellationProject,
   ConstellationStar,
   CosmicPaletteId,
@@ -199,6 +200,54 @@ export const COMPOSITION_PRESETS: CompositionPresetMeta[] = [
     description: 'Центр и лепестки вокруг него',
   },
 ];
+
+export interface ConstellationAnimationMeta {
+  id: ConstellationAnimationId;
+  name: string;
+  description: string;
+}
+
+export const CONSTELLATION_ANIMATIONS: ConstellationAnimationMeta[] = [
+  {
+    id: 'rotation',
+    name: 'Плавное вращение',
+    description: 'Созвездие нежно поворачивается в пространстве',
+  },
+  {
+    id: 'breathe',
+    name: 'Дыхание',
+    description: 'Звёзды мягко переливаются и пульсируют светом',
+  },
+  {
+    id: 'dust',
+    name: 'Звёздная пыль',
+    description: 'Вокруг созвездия кружатся золотистые космические искорки',
+  },
+  {
+    id: 'none',
+    name: 'Без анимации',
+    description: 'Спокойное неподвижное созвездие без вращения',
+  },
+];
+
+export const VALID_CONSTELLATION_ANIMATIONS = new Set<ConstellationAnimationId>(
+  CONSTELLATION_ANIMATIONS.map((a) => a.id),
+);
+
+export function resolveConstellationAnimation(
+  holder?: { constellationAnimation?: ConstellationAnimationId } | ConstellationAnimationId | null,
+): ConstellationAnimationId {
+  const id =
+    typeof holder === 'string'
+      ? holder
+      : holder && typeof holder === 'object'
+        ? holder.constellationAnimation
+        : undefined;
+  if (id && VALID_CONSTELLATION_ANIMATIONS.has(id)) {
+    return id;
+  }
+  return 'rotation';
+}
 
 export interface OccasionPreset {
   id: OccasionId;
@@ -429,16 +478,60 @@ export const OCCASION_PRESETS: OccasionPreset[] = [
   },
 ];
 
-export const MUSIC_TRACKS: Array<{
+export interface BuiltinMusicTrackMeta {
   id: MusicTrackId;
   name: string;
   mood: string;
-}> = [
-  { id: 'none', name: 'Без музыки', mood: 'Тишина космического пространства' },
-  { id: 'stardust', name: 'Колыбельная звёзд', mood: 'Нежная челеста и мягкие аккорды' },
-  { id: 'aurora_chimes', name: 'Переливы сияния', mood: 'Кристальные колокольчики и арфа' },
-  { id: 'galaxy_waltz', name: 'Звёздный вальс', mood: 'Тёплая музыкальная шкатулка' },
+  assetPath?: string;
+  filename?: string;
+}
+
+export const MUSIC_TRACKS: BuiltinMusicTrackMeta[] = [
+  {
+    id: 'magical_cover',
+    name: 'Волшебная мелодия',
+    mood: 'Тёплая космическая мелодия (по умолчанию)',
+    assetPath: '/assets/audio/Magical_and_Joyful_Cover.mp3',
+    filename: 'Magical_and_Joyful_Cover.mp3',
+  },
+  {
+    id: 'cosmic_drift',
+    name: 'Космический дрейф',
+    mood: 'Спокойное звёздное парение',
+    assetPath: '/assets/audio/CosmicDrift.mp3',
+    filename: 'CosmicDrift.mp3',
+  },
+  {
+    id: 'cosmic_genesis',
+    name: 'Рождение вселенной',
+    mood: 'Вдохновляющее сияние космоса',
+    assetPath: '/assets/audio/CosmicGenesis.mp3',
+    filename: 'CosmicGenesis.mp3',
+  },
+  {
+    id: 'none',
+    name: 'Без музыки',
+    mood: 'Тишина космического пространства',
+  },
 ];
+
+export const LEGACY_SYNTH_TRACK_NAMES: Partial<Record<MusicTrackId, string>> = {
+  stardust: 'Колыбельная звёзд',
+  aurora_chimes: 'Переливы сияния',
+  galaxy_waltz: 'Звёздный вальс',
+};
+
+export function resolveMusicTrackName(
+  project: Pick<ConstellationProject, 'musicTrackId' | 'customMusicName'>,
+): string | null {
+  if (project.musicTrackId === 'none') return null;
+  if (project.musicTrackId === 'custom') {
+    return project.customMusicName?.trim() || 'Своя музыка';
+  }
+  const builtin = MUSIC_TRACKS.find((t) => t.id === project.musicTrackId);
+  if (builtin) return builtin.name;
+  return LEGACY_SYNTH_TRACK_NAMES[project.musicTrackId] ?? 'Фоновая музыка';
+}
 
 /** Default 3D layout positions forming a graceful spatial constellation arc */
 export const DEFAULT_STAR_POSITIONS: StarPosition3D[] = [
@@ -952,8 +1045,8 @@ export const DEFAULT_CONSTELLATION_LAYOUT: Record<
 };
 
 export const DEFAULT_CARD_LAYOUT: Record<DeviceLayoutKey, DeviceCardLayout> = {
-  phone: { padding: 'compact', verticalAlign: 'center', width: 'standard', offsetY: 0 },
-  desktop: { padding: 'normal', verticalAlign: 'center', width: 'standard', offsetY: 0 },
+  phone: { padding: 'compact', verticalAlign: 'center', width: 'standard', offsetY: 0, scale: 1 },
+  desktop: { padding: 'normal', verticalAlign: 'center', width: 'standard', offsetY: 0, scale: 1 },
 };
 
 export function getDefaultDeviceTextLayout(device: DeviceLayoutKey): DeviceTextLayout {
@@ -1173,6 +1266,10 @@ export function resolveEffectiveCardLayout(
     typeof raw.offsetY === 'number' && Number.isFinite(raw.offsetY)
       ? Math.max(-60, Math.min(60, Math.round(raw.offsetY)))
       : fallback.offsetY;
+  const scale =
+    typeof raw.scale === 'number' && Number.isFinite(raw.scale)
+      ? Math.max(0.55, Math.min(1.25, Number(raw.scale.toFixed(2))))
+      : 1;
   const minW = device === 'phone' ? 240 : 340;
   const maxW = device === 'phone' ? 366 : 840;
   const maxH = device === 'phone' ? 640 : 560;
@@ -1189,6 +1286,7 @@ export function resolveEffectiveCardLayout(
     verticalAlign,
     width,
     offsetY,
+    scale,
     ...(customWidthPx !== undefined ? { customWidthPx } : {}),
     ...(customHeightPx !== undefined ? { customHeightPx } : {}),
   };
@@ -1706,6 +1804,124 @@ export const DEFAULT_ENVELOPE_TEXTS = {
   ctaText: 'Открыть созвездие',
 };
 
+export const ENVELOPE_WORLD_W = 3.14;
+export const ENVELOPE_WORLD_H = 2.08;
+/** Vertical world span at z=0 from envelope camera (z=5.2, fov=48deg) */
+export const ENVELOPE_VISIBLE_WORLD_H = 2 * 5.2 * Math.tan((48 * Math.PI) / 360);
+export const ENVELOPE_MIN_SCALE = 0.55;
+export const ENVELOPE_MAX_SCALE = 1.35;
+export const ENVELOPE_TEXT_OFFSET_MIN = -20;
+export const ENVELOPE_TEXT_OFFSET_MAX = 100;
+export const ENVELOPE_OFFSET_MIN = -100;
+export const ENVELOPE_OFFSET_MAX = 100;
+
+export function clampEnvelopeScale(val: unknown): number | undefined {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return undefined;
+  return Math.max(ENVELOPE_MIN_SCALE, Math.min(ENVELOPE_MAX_SCALE, Number(val.toFixed(2))));
+}
+
+export function clampEnvelopeTextOffsetY(val: unknown): number | undefined {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return undefined;
+  return Math.max(
+    ENVELOPE_TEXT_OFFSET_MIN,
+    Math.min(ENVELOPE_TEXT_OFFSET_MAX, Math.round(val)),
+  );
+}
+
+export function clampEnvelopeOffsetY(val: unknown): number | undefined {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return undefined;
+  return Math.max(ENVELOPE_OFFSET_MIN, Math.min(ENVELOPE_OFFSET_MAX, Math.round(val)));
+}
+
+export function resolveEnvelopeUserScale(
+  settings: EnvelopeSettings | undefined,
+  device: DeviceLayoutKey,
+): number {
+  const raw =
+    device === 'phone'
+      ? settings?.phoneScale ?? settings?.scale
+      : settings?.desktopScale ?? settings?.scale;
+  return clampEnvelopeScale(raw) ?? 1;
+}
+
+export function resolveEnvelopeTextOffsetY(
+  settings: EnvelopeSettings | undefined,
+  device: DeviceLayoutKey,
+): number {
+  const raw =
+    device === 'phone'
+      ? settings?.phoneTextOffsetY ?? settings?.textOffsetY
+      : settings?.desktopTextOffsetY ?? settings?.textOffsetY;
+  return clampEnvelopeTextOffsetY(raw) ?? 0;
+}
+
+export function resolveEnvelopeOffsetY(
+  settings: EnvelopeSettings | undefined,
+  device: DeviceLayoutKey,
+): number {
+  const raw =
+    device === 'phone'
+      ? settings?.phoneOffsetY ?? settings?.offsetY
+      : settings?.desktopOffsetY ?? settings?.offsetY;
+  return clampEnvelopeOffsetY(raw) ?? 0;
+}
+
+export function computeEnvelopeTextTranslateYPx(
+  textOffsetY: number,
+  viewportHeight: number,
+  isPortrait: boolean,
+): number {
+  const h = Math.max(320, viewportHeight);
+  if (textOffsetY >= 0) {
+    const maxDownFrac = isPortrait ? 0.25 : 0.14;
+    return Math.round((textOffsetY / 100) * h * maxDownFrac);
+  }
+  const maxUpFrac = isPortrait ? 0.018 : 0.025;
+  return Math.round((textOffsetY / 20) * h * maxUpFrac);
+}
+
+export function computeEnvelopeWorldOffsetY(
+  offsetY: number,
+  aspect: number,
+): number {
+  const isPortrait = aspect < 1;
+  const maxFrac = isPortrait ? 0.16 : 0.11;
+  // Positive offsetY = lower on screen = negative Three.js world Y
+  return -(offsetY / 100) * ENVELOPE_VISIBLE_WORLD_H * maxFrac;
+}
+
+export function computeEnvelopeScreenOffsetYPx(
+  offsetY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  const aspect = Math.max(0.25, viewportWidth / Math.max(1, viewportHeight));
+  const worldY = computeEnvelopeWorldOffsetY(offsetY, aspect);
+  const pxPerUnit = Math.max(1, viewportHeight) / ENVELOPE_VISIBLE_WORLD_H;
+  return Math.round(-worldY * pxPerUnit);
+}
+
+export function computeEnvelopeBaseFitScale(aspect: number): number {
+  const safeAspect = Math.max(0.25, aspect);
+  const visW = ENVELOPE_VISIBLE_WORLD_H * safeAspect;
+  const maxByW = (visW * 0.74) / ENVELOPE_WORLD_W;
+  const maxByH = (ENVELOPE_VISIBLE_WORLD_H * 0.44) / ENVELOPE_WORLD_H;
+  return Math.min(0.9, maxByW, maxByH);
+}
+
+export function resolveEnvelopeEffectiveWorldScale(
+  settings: EnvelopeSettings | undefined,
+  aspect: number,
+  device: DeviceLayoutKey,
+): number {
+  const safeAspect = Math.max(0.25, aspect);
+  const visW = ENVELOPE_VISIBLE_WORLD_H * safeAspect;
+  const maxWidthSafeScale = (visW * 0.91) / ENVELOPE_WORLD_W;
+  const baseFit = computeEnvelopeBaseFitScale(safeAspect);
+  const userScale = resolveEnvelopeUserScale(settings, device);
+  return Math.min(maxWidthSafeScale, Math.max(0.22, baseFit * userScale));
+}
+
 export function sanitizeEnvelopeSettings(
   raw?: EnvelopeSettings,
 ): EnvelopeSettings | undefined {
@@ -1728,6 +1944,42 @@ export function sanitizeEnvelopeSettings(
   }
   if (typeof raw.sealColor === 'string' && HEX_COLOR_RE.test(raw.sealColor)) {
     clean.sealColor = raw.sealColor.toUpperCase();
+  }
+  const cleanScale = clampEnvelopeScale(raw.scale);
+  if (cleanScale !== undefined && cleanScale !== 1) {
+    clean.scale = cleanScale;
+  }
+  const cleanPhoneScale = clampEnvelopeScale(raw.phoneScale);
+  if (cleanPhoneScale !== undefined && cleanPhoneScale !== 1) {
+    clean.phoneScale = cleanPhoneScale;
+  }
+  const cleanDesktopScale = clampEnvelopeScale(raw.desktopScale);
+  if (cleanDesktopScale !== undefined && cleanDesktopScale !== 1) {
+    clean.desktopScale = cleanDesktopScale;
+  }
+  const cleanTextOffsetY = clampEnvelopeTextOffsetY(raw.textOffsetY);
+  if (cleanTextOffsetY !== undefined && cleanTextOffsetY !== 0) {
+    clean.textOffsetY = cleanTextOffsetY;
+  }
+  const cleanPhoneTextOffsetY = clampEnvelopeTextOffsetY(raw.phoneTextOffsetY);
+  if (cleanPhoneTextOffsetY !== undefined && cleanPhoneTextOffsetY !== 0) {
+    clean.phoneTextOffsetY = cleanPhoneTextOffsetY;
+  }
+  const cleanDesktopTextOffsetY = clampEnvelopeTextOffsetY(raw.desktopTextOffsetY);
+  if (cleanDesktopTextOffsetY !== undefined && cleanDesktopTextOffsetY !== 0) {
+    clean.desktopTextOffsetY = cleanDesktopTextOffsetY;
+  }
+  const cleanOffsetY = clampEnvelopeOffsetY(raw.offsetY);
+  if (cleanOffsetY !== undefined && cleanOffsetY !== 0) {
+    clean.offsetY = cleanOffsetY;
+  }
+  const cleanPhoneOffsetY = clampEnvelopeOffsetY(raw.phoneOffsetY);
+  if (cleanPhoneOffsetY !== undefined && cleanPhoneOffsetY !== 0) {
+    clean.phoneOffsetY = cleanPhoneOffsetY;
+  }
+  const cleanDesktopOffsetY = clampEnvelopeOffsetY(raw.desktopOffsetY);
+  if (cleanDesktopOffsetY !== undefined && cleanDesktopOffsetY !== 0) {
+    clean.desktopOffsetY = cleanDesktopOffsetY;
   }
   return Object.keys(clean).length > 0 ? clean : undefined;
 }
@@ -2153,6 +2405,7 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
   const normalizedBase: ConstellationProject = {
     ...project,
     composition: project.composition ?? 'free',
+    constellationAnimation: resolveConstellationAnimation(project),
     cardTheme,
     cardColors,
     envelopeSettings: sanitizeEnvelopeSettings(project.envelopeSettings),
@@ -2319,7 +2572,8 @@ export function createNewProject(
     stars: composed.stars,
     connections: composed.connections,
     finalMessage: preset.defaultFinalMessage,
-    musicTrackId: 'stardust',
+    constellationAnimation: 'rotation',
+    musicTrackId: 'magical_cover',
     createdAt: now,
     updatedAt: now,
   };

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AlertCircle, CheckCircle2, Download, X } from 'lucide-react';
+import { resolveMusicTrackName } from '../scene/paletteConfig';
 import { exportProjectToZip } from '../services/zipExporter';
 import {
   canExportProject,
@@ -151,7 +152,9 @@ export function ExportModal({
           <p>• index.html — автономная 3D-сцена созвездия (без внешних ссылок)</p>
           <p>• assets/images/ — только выбранные иллюстрации звёзд</p>
           {project.musicTrackId !== 'none' && (
-            <p>• assets/music/ — встроенная фоновая композиция</p>
+            <p>
+              • assets/music/ — {resolveMusicTrackName(project)}
+            </p>
           )}
           <p>• ИНСТРУКЦИЯ.txt — подсказка для получателя</p>
         </div>

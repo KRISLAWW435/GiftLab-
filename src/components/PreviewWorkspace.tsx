@@ -1,18 +1,12 @@
 import { useState } from 'react';
 import {
   ArrowLeft,
-  Download,
-  Mail,
   Monitor,
-  Palette,
   RotateCcw,
   Smartphone,
-  Sparkles,
-  Star,
 } from 'lucide-react';
 import type { ConstellationProject } from '../types/project';
 import {
-  DEVICE_PRESETS,
   LivePreviewStage,
   getPreviewProjectRegistry,
   type PreviewDeviceId,
@@ -27,8 +21,6 @@ interface PreviewWorkspaceProps {
   returnLabel: string;
   embedded?: boolean;
   onExitPreview: () => void;
-  onJumpToStep?: (step: 'stars' | 'constellation' | 'card' | 'atmosphere') => void;
-  onOpenExport?: () => void;
 }
 
 export function PreviewWorkspace({
@@ -36,16 +28,11 @@ export function PreviewWorkspace({
   returnLabel,
   embedded = false,
   onExitPreview,
-  onJumpToStep,
-  onOpenExport,
 }: PreviewWorkspaceProps) {
   const [device, setDevice] = useState<PreviewDeviceId>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'phone' : 'desktop',
   );
   const [sessionKey, setSessionKey] = useState(0);
-  const [scale, setScale] = useState(1);
-
-  const preset = DEVICE_PRESETS[device];
 
   const handleRestartScenario = () => {
     setSessionKey((k) => k + 1);
@@ -57,81 +44,33 @@ export function PreviewWorkspace({
       data-palette={project.paletteId}
       className={
         embedded
-          ? 'h-full w-full min-h-0 flex-1 overflow-hidden bg-transparent text-gl-text flex flex-col'
-          : 'gl-h-screen w-screen overflow-hidden bg-transparent text-gl-text flex flex-col'
+          ? 'relative h-full w-full min-h-0 flex-1 overflow-hidden bg-transparent text-gl-text'
+          : 'relative gl-h-screen w-screen overflow-hidden bg-transparent text-gl-text'
       }
     >
-      {/* Top Recipient Preview Control Bar */}
-      <header
-        className={`gl-preview-header relative z-20 shrink-0 border-b gl-glass-header px-2.5 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 ${
-          embedded ? 'min-h-12' : 'min-h-14 gl-safe-top'
-        }`}
+      {/* Floating Glassmorphism Controls over Cosmos (0px layout height) */}
+      <div
+        data-testid="preview-floating-controls"
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 gl-safe-top px-3 sm:px-5 pt-2.5 sm:pt-3.5 flex items-center justify-between gap-2"
       >
-        {/* Left Zone: Return to Editor + Quick Step Links */}
-        <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+        {/* Top-Left: Return to Editor */}
+        <div className="pointer-events-auto flex items-center min-w-0">
           <button
             type="button"
             data-testid="preview-return-btn"
             onClick={onExitPreview}
-            className="gl-btn-secondary !min-h-[36px] !px-2.5 sm:!px-3 !py-1 text-xs text-gl-text shrink-0 max-w-full"
+            className="inline-flex items-center gap-1.5 min-h-[34px] px-3 py-1.5 rounded-full backdrop-blur-md bg-[#0b0816]/45 hover:bg-[#0b0816]/68 border border-white/15 hover:border-white/30 text-xs font-medium text-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.4)] transition-all cursor-pointer max-w-[42vw] sm:max-w-none"
           >
             <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">{returnLabel}</span>
           </button>
-
-          {onJumpToStep && (
-            <div className="hidden lg:flex items-center gap-1 pl-1.5 border-l border-white/10">
-              <button
-                type="button"
-                data-testid="preview-jump-stars"
-                onClick={() => onJumpToStep('stars')}
-                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
-              >
-                <Star className="w-3 h-3 text-gl-accent-light shrink-0" />
-                <span>Звёзды</span>
-              </button>
-              <button
-                type="button"
-                data-testid="preview-jump-constellation"
-                onClick={() => onJumpToStep('constellation')}
-                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
-              >
-                <Sparkles className="w-3 h-3 text-gl-accent-light shrink-0" />
-                <span>Созвездие</span>
-              </button>
-              <button
-                type="button"
-                data-testid="preview-jump-card"
-                onClick={() => onJumpToStep('card')}
-                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
-              >
-                <Mail className="w-3 h-3 text-gl-accent-light shrink-0" />
-                <span>Открытка</span>
-              </button>
-              <button
-                type="button"
-                data-testid="preview-jump-atmosphere"
-                onClick={() => onJumpToStep('atmosphere')}
-                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
-              >
-                <Palette className="w-3 h-3 text-gl-accent-light shrink-0" />
-                <span>Атмосфера</span>
-              </button>
-            </div>
-          )}
-
-          {!embedded && (
-            <span className="hidden 2xl:block text-sm font-medium text-gl-text-secondary truncate max-w-[200px]">
-              {project.title || 'Предпросмотр подарка'}
-            </span>
-          )}
         </div>
 
-        {/* Center Zone: Phone / Desktop Switcher */}
+        {/* Top-Center: Phone / Desktop Switcher */}
         <div
           role="group"
           aria-label="Выбор устройства для предпросмотра"
-          className="inline-flex items-center gap-1 p-1 rounded-xl bg-gl-input border border-white/10 shrink-0 max-w-full"
+          className="pointer-events-auto inline-flex items-center gap-1 p-1 rounded-full backdrop-blur-md bg-[#0b0816]/45 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.4)] shrink-0"
         >
           <button
             type="button"
@@ -139,13 +78,14 @@ export function PreviewWorkspace({
             onClick={() => setDevice('phone')}
             aria-pressed={device === 'phone'}
             data-selected={device === 'phone'}
-            className="gl-tab !min-h-[32px] sm:!min-h-[34px] !px-2.5 text-xs inline-flex items-center gap-1.5"
+            className={`min-h-[28px] px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+              device === 'phone'
+                ? 'bg-gradient-to-r from-violet-600/85 to-purple-500/85 text-white shadow-[0_2px_10px_rgba(139,92,246,0.45)]'
+                : 'text-white/75 hover:text-white hover:bg-white/10'
+            }`}
           >
             <Smartphone className="w-3.5 h-3.5 shrink-0" />
-            <span>Телефон</span>
-            <span className="hidden 2xl:inline text-[11px] opacity-80 tabular-nums">
-              390×844
-            </span>
+            <span className="hidden xs:inline sm:inline">Телефон</span>
           </button>
 
           <button
@@ -154,54 +94,39 @@ export function PreviewWorkspace({
             onClick={() => setDevice('desktop')}
             aria-pressed={device === 'desktop'}
             data-selected={device === 'desktop'}
-            className="gl-tab !min-h-[32px] sm:!min-h-[34px] !px-2.5 text-xs inline-flex items-center gap-1.5"
+            className={`min-h-[28px] px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+              device === 'desktop'
+                ? 'bg-gradient-to-r from-violet-600/85 to-purple-500/85 text-white shadow-[0_2px_10px_rgba(139,92,246,0.45)]'
+                : 'text-white/75 hover:text-white hover:bg-white/10'
+            }`}
           >
             <Monitor className="w-3.5 h-3.5 shrink-0" />
-            <span>Компьютер</span>
-            <span className="hidden 2xl:inline text-[11px] opacity-80 tabular-nums">
-              1280×720
-            </span>
+            <span className="hidden xs:inline sm:inline">Компьютер</span>
           </button>
         </div>
 
-        {/* Right Zone: Scale + Restart + Export */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <span className="hidden 2xl:inline text-xs text-gl-text-muted tabular-nums whitespace-nowrap">
-            {preset.width}×{preset.height} · {Math.round(scale * 100)}%
-          </span>
-
+        {/* Top-Right: Restart */}
+        <div className="pointer-events-auto flex items-center shrink-0">
           <button
             type="button"
             data-testid="preview-restart-btn"
             onClick={handleRestartScenario}
             title="Запустить сценарий подарка с начала"
-            className="gl-btn-secondary !min-h-[36px] !px-2.5 sm:!px-3 !py-1 text-xs shrink-0"
+            className="inline-flex items-center gap-1.5 min-h-[34px] px-3 py-1.5 rounded-full backdrop-blur-md bg-[#0b0816]/45 hover:bg-[#0b0816]/68 border border-white/15 hover:border-white/30 text-xs font-medium text-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.4)] transition-all cursor-pointer shrink-0"
           >
             <RotateCcw className="w-3.5 h-3.5 shrink-0" />
             <span>С начала</span>
           </button>
-
-          {onOpenExport && (
-            <button
-              type="button"
-              onClick={onOpenExport}
-              className="gl-btn-primary !min-h-[36px] !px-3 !py-1 text-xs shrink-0"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Скачать ZIP</span>
-            </button>
-          )}
         </div>
-      </header>
+      </div>
 
-      {/* Pure Recipient Walkthrough Stage */}
-      <main className="flex-1 min-w-0 min-h-0 flex overflow-hidden">
+      {/* Fullscreen Pure Recipient Walkthrough Stage */}
+      <main className="w-full h-full min-w-0 min-h-0 flex overflow-hidden">
         <LivePreviewStage
           project={project}
           device={device}
           editMode={false}
           sessionKey={sessionKey}
-          onScaleChange={setScale}
         />
       </main>
     </div>

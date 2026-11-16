@@ -14,7 +14,6 @@ import {
   Minimize2,
   Monitor,
   Orbit,
-  Palette,
   RotateCcw,
   SlidersHorizontal,
   Smartphone,
@@ -58,7 +57,7 @@ import {
   type PreviewDeviceId,
 } from './LivePreviewStage';
 import { PreviewWorkspace } from './PreviewWorkspace';
-import { StarEditor, type StarEditStep } from './StarEditor';
+import { StarEditor, type StarEditorSection } from './StarEditor';
 import { StarList } from './StarList';
 
 interface EditorLayoutProps {
@@ -73,7 +72,6 @@ export type WorkshopStepId =
   | 'stars'
   | 'constellation'
   | 'card'
-  | 'atmosphere'
   | 'preview';
 
 type MobilePane = 'panel' | 'scene';
@@ -87,10 +85,9 @@ interface WorkshopStepMeta {
 
 const WORKSHOP_STEPS: WorkshopStepMeta[] = [
   { id: 'stars', num: 1, label: 'Мои звёзды', icon: Star },
-  { id: 'constellation', num: 2, label: 'Созвездие', icon: Sparkles },
+  { id: 'constellation', num: 2, label: 'Созвездие и атмосфера', icon: Sparkles },
   { id: 'card', num: 3, label: 'Открытка', icon: Mail },
-  { id: 'atmosphere', num: 4, label: 'Атмосфера', icon: Palette },
-  { id: 'preview', num: 5, label: 'Предпросмотр', icon: Eye },
+  { id: 'preview', num: 4, label: 'Предпросмотр', icon: Eye },
 ];
 
 export function EditorLayout({
@@ -108,9 +105,6 @@ export function EditorLayout({
   const [activeStep, setActiveStep] = useState<WorkshopStepId>('stars');
   const [lastEditStep, setLastEditStep] =
     useState<Exclude<WorkshopStepId, 'preview'>>('stars');
-  const [visitedSteps, setVisitedSteps] = useState<Set<WorkshopStepId>>(
-    () => new Set(['stars']),
-  );
   const [interactionMode, setInteractionMode] =
     useState<EditorInteractionMode>('arrange');
   const [pendingLinkStarId, setPendingLinkStarId] = useState<string | null>(null);
@@ -134,8 +128,10 @@ export function EditorLayout({
   const [cardDevice, setCardDevice] = useState<PreviewDeviceId>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'phone' : 'desktop',
   );
-  const [starEditStep, setStarEditStep] = useState<StarEditStep>('shape');
-  const [starSubStepById, setStarSubStepById] = useState<Record<string, StarEditStep>>({});
+  const [requestedStarSection, setRequestedStarSection] = useState<{
+    key: number;
+    section: StarEditorSection;
+  } | null>(null);
   const [starsCenterView, setStarsCenterView] = useState<'3d' | 'card'>('3d');
   const [starCardSelectedTarget, setStarCardSelectedTarget] =
     useState<EditableCardTarget | null>('text');
@@ -147,15 +143,15 @@ export function EditorLayout({
 
   const [cardTab, setCardTab] = useState<CardEditorTab>('theme');
   const [cardSelectedTarget, setCardSelectedTarget] =
-    useState<EditableCardTarget | null>('text');
+    useState<EditableCardTarget | null>('envelope');
   const [cardFocusedField, setCardFocusedField] =
     useState<EditableTextField | null>(null);
   const [cardIframePhase, setCardIframePhase] =
-    useState<RecipientPhase>('constellation');
+    useState<RecipientPhase>('sealed');
   const [cardIframeStarIndex, setCardIframeStarIndex] = useState(0);
   const [cardJumpTo, setCardJumpTo] = useState<PreviewJumpTarget | null>({
     nonce: 1,
-    phase: 'constellation',
+    phase: 'sealed',
   });
 
   const [tutorialOpen, setTutorialOpen] = useState<boolean>(false);
@@ -248,14 +244,19 @@ export function EditorLayout({
     } else if (nextStep !== 'preview') {
       setLastEditStep(nextStep);
     }
+    if (nextStep === 'stars' && activeStep !== 'stars') {
+      if (starsCenterView === 'card') {
+        syncStarCardPreview(activeStarIndex);
+      }
+    }
     if (nextStep === 'card' && activeStep !== 'card') {
       jumpNonceRef.current += 1;
       setCardJumpTo({
         nonce: jumpNonceRef.current,
-        phase: 'constellation',
+        phase: 'sealed',
       });
-      setCardIframePhase('constellation');
-      setCardSelectedTarget('text');
+      setCardIframePhase('sealed');
+      setCardSelectedTarget('envelope');
       setCardFocusedField(null);
     }
     if (nextStep === 'constellation' && activeStep !== 'constellation') {
@@ -271,12 +272,6 @@ export function EditorLayout({
       }
     }
     setActiveStep(nextStep);
-    setVisitedSteps((prev) => {
-      if (prev.has(nextStep)) return prev;
-      const next = new Set(prev);
-      next.add(nextStep);
-      return next;
-    });
   };
 
   const handleCardSelectTarget = (
@@ -294,28 +289,17 @@ export function EditorLayout({
   const handleStarCardSelectTarget = (target: EditableCardTarget | null) => {
     setStarCardSelectedTarget(target);
     if (target === 'illustration') {
-      setStarEditStep('look');
-      if (activeStar) {
-        setStarSubStepById((prev) => ({ ...prev, [activeStar.id]: 'look' }));
-      }
+      jumpNonceRef.current += 1;
+      setRequestedStarSection({ key: jumpNonceRef.current, section: 'look' });
     } else if (target === 'text') {
-      setStarEditStep('message');
-      if (activeStar) {
-        setStarSubStepById((prev) => ({ ...prev, [activeStar.id]: 'message' }));
-      }
+      jumpNonceRef.current += 1;
+      setRequestedStarSection({ key: jumpNonceRef.current, section: 'message' });
     } else if (target === 'decor') {
-      goToStep('card');
+      setLastEditStep('card');
+      setActiveStep('card');
+      handleCardSelectTargetView('starStory', activeStarIndex);
+      setCardSelectedTarget('decor');
       setCardTab('theme');
-    }
-  };
-
-  const handleStarEditStepChange = (nextSubStep: StarEditStep) => {
-    setStarEditStep(nextSubStep);
-    if (activeStar) {
-      setStarSubStepById((prev) => ({ ...prev, [activeStar.id]: nextSubStep }));
-    }
-    if (nextSubStep === 'shape') {
-      setStarsCenterView('3d');
     }
   };
 
@@ -359,11 +343,12 @@ export function EditorLayout({
   };
 
   const handleSelectStarFromList = (starId: string) => {
-    const rememberedStep = starSubStepById[starId] ?? 'shape';
+    const nextIdx = Math.max(0, project.stars.findIndex((s) => s.id === starId));
     setSelectedStarId(starId);
-    setStarEditStep(rememberedStep);
+    if (starsCenterView === 'card') {
+      syncStarCardPreview(nextIdx);
+    }
     if (activeStep !== 'stars') {
-      setStarsCenterView('3d');
       goToStep('stars');
     }
   };
@@ -477,11 +462,11 @@ export function EditorLayout({
       stars: [...prev.stars, newStar],
     }));
     setSelectedStarId(newStar.id);
-    setStarSubStepById((prev) => ({ ...prev, [newStar.id]: 'shape' }));
-    setStarEditStep('shape');
-    setStarsCenterView('3d');
     if (activeStep !== 'stars') {
+      setStarsCenterView('3d');
       goToStep('stars');
+    } else if (starsCenterView === 'card') {
+      syncStarCardPreview(idx);
     }
   };
 
@@ -530,25 +515,11 @@ export function EditorLayout({
   const hasTitle = project.title.trim().length > 0;
   const hasFinalMessage = project.finalMessage.trim().length > 0;
   const readyToExport = canExportProject(project);
-  const hasNextStar = activeStarIndex + 1 < project.stars.length;
-
-  const handleNextStarOrConstellation = () => {
-    if (hasNextStar) {
-      const nextStar = project.stars[activeStarIndex + 1];
-      setSelectedStarId(nextStar.id);
-      setStarSubStepById((prev) => ({ ...prev, [nextStar.id]: 'shape' }));
-      setStarEditStep('shape');
-      setStarsCenterView('3d');
-    } else {
-      goToStep('constellation');
-    }
-  };
 
   const stepCompleted: Record<WorkshopStepId, boolean> = {
     stars: project.stars.length >= 5 && project.stars.every(isStarComplete),
     constellation: project.connections.length > 0,
     card: hasTitle && hasFinalMessage,
-    atmosphere: visitedSteps.has('atmosphere'),
     preview: readyToExport,
   };
 
@@ -567,120 +538,122 @@ export function EditorLayout({
       data-palette={project.paletteId}
       className="gl-h-screen w-screen overflow-hidden bg-transparent text-gl-text flex flex-col"
     >
-      {/* Top Studio Header + Horizontal 5-Step Progress Bar */}
-      <header className="gl-workshop-header relative z-30 shrink-0 border-b gl-glass-header gl-safe-top">
-        <div className="min-h-[50px] px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={onBackToProjects}
-              title="К списку проектов"
-              aria-label="К списку проектов"
-              className="gl-btn-secondary !min-h-[36px] !px-3 !py-1.5 text-xs shrink-0"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Проекты</span>
-            </button>
+      {/* Compact Top Studio Header + Inline Step Progress Bar (hidden in fullscreen Preview) */}
+      {activeStep !== 'preview' && (
+        <header className="gl-workshop-header relative z-30 shrink-0 border-b gl-glass-header gl-safe-top">
+          <div className="min-h-[44px] px-3 sm:px-4 py-1.5 flex flex-wrap lg:flex-nowrap items-center justify-between gap-x-2.5 gap-y-1.5">
+            {/* Left: Back button + Project title + Saved indicator */}
+            <div className="order-1 flex items-center gap-2 min-w-0 shrink-0 max-w-[60%] lg:max-w-[260px] xl:max-w-[300px]">
+              <button
+                type="button"
+                onClick={onBackToProjects}
+                title="К списку проектов"
+                aria-label="К списку проектов"
+                className="gl-btn-secondary !min-h-[32px] !px-2.5 !py-1 text-xs shrink-0"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Проекты</span>
+              </button>
 
-            <div className="flex items-baseline gap-2.5 min-w-0">
-              <h1 className="font-display text-sm sm:text-base font-bold text-gl-text truncate">
-                {project.title || 'Новое созвездие'}
-              </h1>
-              <span className="text-[11px] text-gl-text-muted shrink-0 hidden sm:inline">
-                {saveState === 'saving' ? 'Сохранение...' : 'Сохранено'}
-              </span>
+              <div className="flex items-baseline gap-2 min-w-0">
+                <h1 className="font-display text-xs sm:text-sm font-bold text-gl-text truncate">
+                  {project.title || 'Новое созвездие'}
+                </h1>
+                <span className="text-[11px] text-gl-text-muted shrink-0 hidden xl:inline">
+                  {saveState === 'saving' ? 'Сохранение...' : 'Сохранено'}
+                </span>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {activeStep !== 'preview' && (
+            {/* Center: Horizontal Step Progress Bar */}
+            <nav
+              data-testid="workshop-top-nav"
+              aria-label="Этапы создания подарка"
+              className="gl-workshop-stepper order-3 lg:order-2 w-full lg:w-auto lg:flex-1 lg:min-w-0 border-t border-white/[0.07] bg-white/[0.02] pt-1.5 pb-1 lg:border-t-0 lg:bg-transparent lg:p-0 overflow-x-auto"
+            >
+              <div className="flex items-center justify-start md:justify-center gap-1 xl:gap-1.5 min-w-max mx-auto">
+                {WORKSHOP_STEPS.map((step, idx) => {
+                  const Icon = step.icon;
+                  const isCurrent = activeStep === step.id;
+                  const isDone = stepCompleted[step.id];
+
+                  return (
+                    <div key={step.id} className="flex items-center gap-1 xl:gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        data-step={step.id}
+                        data-selected={isCurrent}
+                        aria-current={isCurrent ? 'step' : undefined}
+                        onClick={() => goToStep(step.id)}
+                        className={`gl-workshop-step min-h-[30px] px-2 xl:px-2.5 py-1 rounded-xl border text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                          isCurrent
+                            ? 'border-violet-300/70 bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-[0_0_16px_-4px_rgba(139,92,246,0.65)]'
+                            : isDone
+                              ? 'border-emerald-400/25 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/20'
+                              : 'border-white/10 bg-white/[0.035] text-gl-text-secondary hover:bg-white/[0.08] hover:text-gl-text'
+                        }`}
+                      >
+                        <span
+                          className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums shrink-0 ${
+                            isCurrent
+                              ? 'bg-white/22 text-white'
+                              : isDone
+                                ? 'bg-emerald-500/25 text-emerald-200'
+                                : 'bg-white/10 text-gl-text-muted'
+                          }`}
+                        >
+                          {step.num}
+                        </span>
+                        <Icon className="w-3 h-3 shrink-0 opacity-90 sm:hidden 2xl:inline" />
+                        <span>{step.label}</span>
+                        {isDone && (
+                          <Check
+                            className={`w-3 h-3 shrink-0 ${
+                              isCurrent ? 'text-emerald-200' : 'text-emerald-300'
+                            }`}
+                            aria-label="Этап заполнен"
+                          />
+                        )}
+                      </button>
+
+                      {idx < WORKSHOP_STEPS.length - 1 && (
+                        <ArrowRight
+                          aria-hidden="true"
+                          className="w-3 h-3 text-violet-300/60 shrink-0"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </nav>
+
+            {/* Right: Preview + Download ZIP */}
+            <div className="order-2 lg:order-3 flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => goToStep('preview')}
                 title="Перейти к предпросмотру подарка"
-                className="gl-btn-secondary !min-h-[36px] !px-3 !py-1.5 text-xs text-gl-text"
+                className="gl-btn-secondary !min-h-[32px] !px-2.5 !py-1 text-xs text-gl-text"
               >
                 <Eye className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline">Предпросмотр</span>
               </button>
-            )}
 
-            <button
-              type="button"
-              onClick={() => setShowExport(true)}
-              title="Скачать подарок в ZIP"
-              className="gl-btn-primary !min-h-[36px] !px-3.5 !py-1.5 text-xs"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Скачать ZIP</span>
-              <span className="sm:hidden">ZIP</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setShowExport(true)}
+                title="Скачать подарок в ZIP"
+                className="gl-btn-primary !min-h-[32px] !px-3 !py-1 text-xs"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Скачать ZIP</span>
+                <span className="sm:hidden">ZIP</span>
+              </button>
+            </div>
           </div>
-        </div>
-
-        {/* Clickable Horizontal Progress Bar (1 -> 2 -> 3 -> 4 -> 5) */}
-        <nav
-          data-testid="workshop-top-nav"
-          aria-label="Этапы создания подарка"
-          className="gl-workshop-stepper border-t border-white/[0.07] bg-white/[0.02] px-4 sm:px-6 py-2.5 overflow-x-auto"
-        >
-          <div className="flex items-center justify-start md:justify-center gap-1.5 sm:gap-2 min-w-max mx-auto">
-            {WORKSHOP_STEPS.map((step, idx) => {
-              const Icon = step.icon;
-              const isCurrent = activeStep === step.id;
-              const isDone = stepCompleted[step.id];
-
-              return (
-                <div key={step.id} className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                  <button
-                    type="button"
-                    data-step={step.id}
-                    data-selected={isCurrent}
-                    aria-current={isCurrent ? 'step' : undefined}
-                    onClick={() => goToStep(step.id)}
-                    className={`gl-workshop-step min-h-[36px] px-3 sm:px-3.5 py-1.5 rounded-2xl border text-xs sm:text-[13px] font-semibold flex items-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                      isCurrent
-                        ? 'border-violet-300/70 bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-[0_0_20px_-4px_rgba(139,92,246,0.65)]'
-                        : isDone
-                          ? 'border-emerald-400/25 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/20'
-                          : 'border-white/10 bg-white/[0.035] text-gl-text-secondary hover:bg-white/[0.08] hover:text-gl-text'
-                    }`}
-                  >
-                    <span
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums shrink-0 ${
-                        isCurrent
-                          ? 'bg-white/22 text-white'
-                          : isDone
-                            ? 'bg-emerald-500/25 text-emerald-200'
-                            : 'bg-white/10 text-gl-text-muted'
-                      }`}
-                    >
-                      {step.num}
-                    </span>
-                    <Icon className="w-3.5 h-3.5 shrink-0 opacity-90 sm:hidden lg:inline" />
-                    <span>{step.label}</span>
-                    {isDone && (
-                      <Check
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          isCurrent ? 'text-emerald-200' : 'text-emerald-300'
-                        }`}
-                        aria-label="Этап заполнен"
-                      />
-                    )}
-                  </button>
-
-                  {idx < WORKSHOP_STEPS.length - 1 && (
-                    <ArrowRight
-                      aria-hidden="true"
-                      className="w-4 h-4 text-violet-300/65 shrink-0 mx-0.5"
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </nav>
-      </header>
+        </header>
+      )}
 
       {/* Main Workspace: Embedded Preview on Step 5 OR strict 3-Column Flex (Left Stars | Center Stage | Right Step Panel) */}
       <div className="flex-1 min-h-0 flex flex-col md:flex-row relative overflow-hidden">
@@ -695,8 +668,6 @@ export function EditorLayout({
               saveState={saveState}
               returnLabel="Вернуться к редактированию"
               onExitPreview={() => goToStep(lastEditStep)}
-              onJumpToStep={(step) => goToStep(step)}
-              onOpenExport={() => setShowExport(true)}
             />
           </div>
         ) : (
@@ -736,8 +707,8 @@ export function EditorLayout({
                   mobilePane === 'scene' ? 'flex' : 'hidden'
                 } md:flex flex-1 min-w-0 min-h-0 relative flex-col bg-transparent`}
               >
-                <div className="shrink-0 border-b border-white/10 bg-black/25 backdrop-blur-md px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1 overflow-x-auto max-w-full">
+                <div className="shrink-0 border-b border-white/10 bg-black/25 backdrop-blur-md px-2.5 sm:px-3 py-1.5 flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto">
                     <button
                       type="button"
                       data-testid="card-stage-envelope-btn"
@@ -747,20 +718,6 @@ export function EditorLayout({
                     >
                       <Mail className="w-3 h-3 text-violet-300" />
                       <span>Конверт</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="card-stage-finale-btn"
-                      data-selected={
-                        cardIframePhase === 'constellation' ||
-                        cardIframePhase === 'finalReveal'
-                      }
-                      onClick={() => handleCardSelectTargetView('constellation')}
-                      className="gl-choice px-2.5 py-1 text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
-                    >
-                      <Sparkles className="w-3 h-3 text-amber-300" />
-                      <span>Финал</span>
                     </button>
 
                     {project.stars.map((s, idx) => {
@@ -780,6 +737,20 @@ export function EditorLayout({
                         </button>
                       );
                     })}
+
+                    <button
+                      type="button"
+                      data-testid="card-stage-finale-btn"
+                      data-selected={
+                        cardIframePhase === 'constellation' ||
+                        cardIframePhase === 'finalReveal'
+                      }
+                      onClick={() => handleCardSelectTargetView('constellation')}
+                      className="gl-choice px-2.5 py-1 text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-300" />
+                      <span>Финал</span>
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -848,7 +819,7 @@ export function EditorLayout({
 
                 <div className="hidden sm:flex items-center justify-center px-3 py-1 border-t border-white/8 bg-gl-input/55 text-[11px] text-gl-text-muted">
                   {cardIframePhase === 'sealed'
-                    ? 'Нажми на любую надпись или кнопку прямо на конверте, чтобы отредактировать их'
+                    ? 'Нажми на надпись для правки, перетащи текст или конверт по высоте и тяни за уголки для размера'
                     : 'Нажми на текст открытки для правки или потяни за уголки открытки и текста, чтобы изменить размер'}
                 </div>
               </main>
@@ -860,7 +831,7 @@ export function EditorLayout({
                 } md:flex flex-1 min-w-0 min-h-0 relative flex-col bg-transparent`}
               >
                 {activeStep === 'stars' && (
-                  <div className="shrink-0 border-b border-white/10 bg-black/25 backdrop-blur-md px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="shrink-0 border-b border-white/10 bg-black/25 backdrop-blur-md px-2.5 sm:px-3 py-1.5 flex items-center justify-between gap-2">
                     <div
                       role="group"
                       aria-label="Режим предпросмотра этапа звёзд"
@@ -978,6 +949,7 @@ export function EditorLayout({
                       pendingLinkStarId={pendingLinkStarId}
                       interactionMode={interactionMode}
                       finaleActive={activeStep === 'constellation'}
+                      constellationAnimation={project.constellationAnimation ?? 'rotation'}
                       lowPerformance={typeof window !== 'undefined' && window.innerWidth < 768}
                       reducedMotion={reducedMotion}
                       onSelectStar={handleSelectStarOnScene}
@@ -1216,10 +1188,7 @@ export function EditorLayout({
                         star={activeStar}
                         starIndex={activeStarIndex}
                         globalGlowColor={project.globalGlowColor}
-                        editStep={starEditStep}
-                        hasNextStar={hasNextStar}
-                        onEditStepChange={handleStarEditStepChange}
-                        onNextStarOrConstellation={handleNextStarOrConstellation}
+                        requestedSection={requestedStarSection}
                         onChange={handleUpdateStar}
                       />
                     ) : (
@@ -1248,7 +1217,6 @@ export function EditorLayout({
                       cardStarIndex={cardIframeStarIndex}
                       activeTab={cardTab}
                       focusedField={cardFocusedField}
-                      onChangeDevice={setCardDevice}
                       onChangeTab={(tab, target) => {
                         setCardTab(tab);
                         setCardFocusedField(null);
@@ -1263,10 +1231,10 @@ export function EditorLayout({
                     />
                   )}
 
-                  {(activeStep === 'constellation' || activeStep === 'atmosphere') && (
+                  {activeStep === 'constellation' && (
                     <ConstellationSettings
                       project={project}
-                      section={activeStep}
+                      section="cosmos"
                       selectedConnectionId={selectedConnectionId}
                       reducedMotion={reducedMotion}
                       onChange={(patch) =>
@@ -1361,15 +1329,19 @@ export function EditorLayout({
           project={project}
           onClose={() => setShowExport(false)}
           onSelectStar={(starId) => {
-            const target = project.stars.find((s) => s.id === starId);
-            const targetSubStep: StarEditStep =
-              target && target.title.trim().length === 0
-                ? 'title'
-                : 'message';
+            const targetIdx = Math.max(0, project.stars.findIndex((s) => s.id === starId));
+            const target = project.stars[targetIdx];
+            const targetSection: StarEditorSection =
+              target && target.title.trim().length === 0 ? 'basics' : 'message';
             setSelectedStarId(starId);
-            setStarSubStepById((prev) => ({ ...prev, [starId]: targetSubStep }));
-            setStarEditStep(targetSubStep);
-            setStarsCenterView('3d');
+            jumpNonceRef.current += 1;
+            setRequestedStarSection({
+              key: jumpNonceRef.current,
+              section: targetSection,
+            });
+            setStarsCenterView('card');
+            setStarCardSelectedTarget('text');
+            syncStarCardPreview(targetIdx);
             goToStep('stars');
             setMobilePane('panel');
           }}

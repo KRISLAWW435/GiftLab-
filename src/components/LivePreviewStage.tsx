@@ -258,8 +258,8 @@ export function LivePreviewStage({
 
   const preset = DEVICE_PRESETS[device];
   const isCompactHost = stageSize.width < 640;
-  const stageMargin = isCompactHost ? 12 : 24;
-  const bezelAllowance = isCompactHost ? 10 : 14;
+  const stageMargin = device === 'phone' ? 8 : isCompactHost ? 12 : 20;
+  const bezelAllowance = device === 'phone' ? 12 : isCompactHost ? 10 : 14;
 
   const availW = Math.max(120, stageSize.width - stageMargin - bezelAllowance);
   const availH = Math.max(120, stageSize.height - stageMargin - bezelAllowance);
@@ -292,7 +292,7 @@ export function LivePreviewStage({
         data-logical-width={preset.width}
         data-logical-height={preset.height}
         className={`relative z-10 bg-[#0c1229] border border-white/15 shadow-[0_24px_80px_rgba(0,0,0,0.75)] transition-[border-radius] duration-200 ${
-          isCompactHost ? 'p-1.5' : 'p-2'
+          isCompactHost || device === 'phone' ? 'p-1.5' : 'p-2'
         } ${device === 'phone' ? 'rounded-[24px]' : 'rounded-2xl'}`}
       >
         <div

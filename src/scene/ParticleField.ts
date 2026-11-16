@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ConstellationAnimationId } from '../types/project';
 
 interface ShootingStarSlot {
   line: THREE.Line;
@@ -183,14 +184,22 @@ export class ParticleField {
     slot.line.visible = true;
   }
 
-  public update(elapsed: number, dt: number, reducedMotion: boolean): void {
+  public update(
+    elapsed: number,
+    dt: number,
+    reducedMotion: boolean,
+    animationMode: ConstellationAnimationId = 'rotation',
+  ): void {
     this.finaleSwirl = THREE.MathUtils.lerp(
       this.finaleSwirl,
       this.targetFinaleSwirl,
       1 - Math.exp(-2.5 * dt),
     );
 
-    if (reducedMotion) {
+    const staticMode = reducedMotion || animationMode === 'none';
+    if (staticMode) {
+      this.dustMat.size = 0.22;
+      this.dustMat.opacity = 0.55;
       for (const s of this.shootingStars) {
         s.active = false;
         s.line.visible = false;
@@ -198,11 +207,17 @@ export class ParticleField {
       return;
     }
 
-    this.bgPoints.rotation.y = elapsed * 0.012;
+    const isDustMode = animationMode === 'dust';
+    this.bgPoints.rotation.y = elapsed * (isDustMode ? 0.02 : 0.012);
 
     const posAttr = this.dustGeo.getAttribute('position') as THREE.BufferAttribute;
     const arr = posAttr.array as Float32Array;
     const pull = 1 - this.finaleSwirl * 0.42;
+    const driftAmp = isDustMode ? 0.72 : 0.34;
+    const swirlAngle =
+      this.finaleSwirl * elapsed * 0.45 + (isDustMode ? elapsed * 0.18 : 0);
+    const cosA = Math.cos(swirlAngle);
+    const sinA = Math.sin(swirlAngle);
 
     for (let i = 0; i < this.dustCount; i++) {
       const i3 = i * 3;
@@ -211,20 +226,20 @@ export class ParticleField {
       const by = this.dustBasePositions[i3 + 1] * pull;
       const bz = this.dustBasePositions[i3 + 2] * pull;
 
-      const swirlAngle = this.finaleSwirl * elapsed * 0.45;
-      const cosA = Math.cos(swirlAngle);
-      const sinA = Math.sin(swirlAngle);
-
       const rx = bx * cosA - bz * sinA;
       const rz = bx * sinA + bz * cosA;
 
-      arr[i3] = rx + Math.sin(elapsed * 0.35 + ph) * 0.35;
-      arr[i3 + 1] = by + Math.cos(elapsed * 0.28 + ph * 1.3) * 0.32;
-      arr[i3 + 2] = rz + Math.sin(elapsed * 0.31 + ph * 0.7) * 0.35;
+      const freq = isDustMode ? 0.55 : 0.35;
+      arr[i3] = rx + Math.sin(elapsed * freq + ph) * driftAmp;
+      arr[i3 + 1] = by + Math.cos(elapsed * (freq * 0.85) + ph * 1.3) * driftAmp;
+      arr[i3 + 2] = rz + Math.sin(elapsed * (freq * 0.9) + ph * 0.7) * driftAmp;
     }
 
     posAttr.needsUpdate = true;
-    this.dustMat.opacity = 0.62 + this.finaleSwirl * 0.28;
+    this.dustMat.size = isDustMode ? 0.32 : 0.22;
+    this.dustMat.opacity = isDustMode
+      ? Math.min(0.95, 0.85 + 0.1 * Math.sin(elapsed * 1.6))
+      : 0.62 + this.finaleSwirl * 0.28;
 
     // Update background shooting stars
     this.nextShootCooldown -= dt;

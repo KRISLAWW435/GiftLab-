@@ -4,9 +4,11 @@ import {
   type ConstellationSceneState,
 } from '../scene/ConstellationEngine';
 import type {
+  ConstellationAnimationId,
   ConstellationStar,
   CosmicPaletteId,
   DeviceConstellationLayout,
+  DeviceLayoutKey,
   EditorInteractionMode,
   EnvelopeSettings,
   GlowColorId,
@@ -43,8 +45,10 @@ interface Constellation3DProps {
   finaleActive?: boolean;
   lowPerformance?: boolean;
   reducedMotion?: boolean;
+  deviceMode?: DeviceLayoutKey;
   constellationLayout?: DeviceConstellationLayout;
   envelopeSettings?: EnvelopeSettings;
+  constellationAnimation?: ConstellationAnimationId;
   force2DFallback?: boolean;
   playIntroOnMount?: boolean;
   startSealed?: boolean;
@@ -78,8 +82,10 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       finaleActive = false,
       lowPerformance = false,
       reducedMotion = false,
+      deviceMode,
       constellationLayout,
       envelopeSettings,
+      constellationAnimation = 'rotation',
       force2DFallback = false,
       playIntroOnMount = false,
       startSealed = false,
@@ -143,8 +149,10 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       finaleActive,
       lowPerformance,
       reducedMotion,
+      deviceMode,
       constellationLayout,
       envelopeSettings,
+      constellationAnimation,
     };
 
     const initialStateRef = useRef(sceneState);
@@ -222,6 +230,7 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
           finaleActive={finaleActive}
           reducedMotion={reducedMotion}
           constellationLayout={constellationLayout}
+          constellationAnimation={constellationAnimation}
           onSelectStar={onSelectStar}
           onSelectConnection={onSelectConnection}
           onMoveStar={onMoveStar}

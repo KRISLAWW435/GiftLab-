@@ -2,35 +2,37 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
-  Monitor,
   Music,
   Pause,
   Play,
-  RotateCcw,
   SlidersHorizontal,
-  Smartphone,
+  Sparkles,
   Trash2,
   Type,
+  Upload,
 } from 'lucide-react';
 import { CompositionPresetPreview } from '../assets/shapePreviews';
 import {
   COMPOSITION_PRESETS,
+  CONSTELLATION_ANIMATIONS,
   COSMIC_PALETTES,
-  DEFAULT_CONSTELLATION_LAYOUT,
   GLOW_COLORS,
   MUSIC_TRACKS,
   OCCASION_PRESETS,
   applyCompositionPreset,
-  buildProjectConstellationDevicePatch,
-  resolveEffectiveConstellationLayout,
+  resolveConstellationAnimation,
+  resolveMusicTrackName,
 } from '../scene/paletteConfig';
-import { getMusicTrackBlob } from '../services/musicEngine';
+import { saveAudioBlob } from '../services/database';
+import {
+  formatAudioTime,
+  resolveProjectMusicForPreview,
+  validateCustomAudioFile,
+} from '../services/musicEngine';
 import type {
   CompositionPresetId,
   ConstellationProject,
   CosmicPaletteId,
-  DeviceConstellationLayout,
-  DeviceLayoutKey,
   GlowColorId,
   MusicTrackId,
   OccasionId,
@@ -40,7 +42,7 @@ import { TextStyleEditor } from './TextStyleEditor';
 
 interface ConstellationSettingsProps {
   project: ConstellationProject;
-  section?: 'constellation' | 'card' | 'atmosphere' | 'space' | 'all';
+  section?: 'constellation' | 'card' | 'atmosphere' | 'cosmos' | 'space' | 'all';
   selectedConnectionId?: string | null;
   reducedMotion?: boolean;
   onChange: (patch: Partial<ConstellationProject>) => void;
@@ -59,74 +61,199 @@ export function ConstellationSettings({
   onDeleteConnection,
   onToggleReducedMotion,
 }: ConstellationSettingsProps) {
-  const [auditionTrackId, setAuditionTrackId] = useState<MusicTrackId | null>(null);
-  const [constellationAdvancedOpen, setConstellationAdvancedOpen] = useState(false);
-  const [constellationDevice, setConstellationDevice] = useState<DeviceLayoutKey>(() =>
-    typeof window !== 'undefined' && window.innerWidth < 768 ? 'phone' : 'desktop',
-  );
   const [cardAdvancedOpen, setCardAdvancedOpen] = useState(false);
   const [atmosphereAdvancedOpen, setAtmosphereAdvancedOpen] = useState(false);
   const [finalStyleOpen, setFinalStyleOpen] = useState(false);
+
+  // Music audition player state
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const urlRef = useRef<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const playOnLoadRef = useRef(false);
 
-  const activeConstellationLayout = resolveEffectiveConstellationLayout(
-    project,
-    constellationDevice,
-  );
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
 
-  const updateConstellationLayout = (patch: Partial<DeviceConstellationLayout>) => {
-    onChange(
-      buildProjectConstellationDevicePatch(project, constellationDevice, patch),
-    );
-  };
-
-  const resetConstellationLayout = () => {
-    onChange(
-      buildProjectConstellationDevicePatch(
-        project,
-        constellationDevice,
-        DEFAULT_CONSTELLATION_LAYOUT[constellationDevice],
-      ),
-    );
-  };
-
+  // Load audio element whenever active track or custom music ID changes
   useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    let cancelled = false;
+
+    const cleanupAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
     };
-  }, []);
 
-  const toggleAudition = (trackId: MusicTrackId) => {
-    if (trackId === 'none') return;
+    cleanupAudio();
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setAudioError(null);
 
-    if (auditionTrackId === trackId) {
-      audioRef.current?.pause();
-      setAuditionTrackId(null);
+    if (project.musicTrackId === 'none') {
+      playOnLoadRef.current = false;
+      setAudioLoading(false);
+      return cleanupAudio;
+    }
+
+    setAudioLoading(true);
+    void resolveProjectMusicForPreview(project).then((resolved) => {
+      if (cancelled) {
+        if (resolved?.revokeOnDispose) {
+          URL.revokeObjectURL(resolved.url);
+        }
+        return;
+      }
+
+      if (!resolved) {
+        setAudioLoading(false);
+        playOnLoadRef.current = false;
+        return;
+      }
+
+      if (resolved.revokeOnDispose) {
+        objectUrlRef.current = resolved.url;
+      }
+
+      const audio = new Audio(resolved.url);
+      audio.preload = 'metadata';
+      audio.volume = 0.6;
+      audioRef.current = audio;
+
+      const onMeta = () => {
+        if (cancelled) return;
+        setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+      };
+      const onTime = () => {
+        if (cancelled) return;
+        setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+      };
+      const onEnded = () => {
+        if (cancelled) return;
+        setIsPlaying(false);
+        setCurrentTime(0);
+      };
+      const onPlay = () => {
+        if (!cancelled) setIsPlaying(true);
+      };
+      const onPause = () => {
+        if (!cancelled) setIsPlaying(false);
+      };
+      const onError = () => {
+        if (!cancelled) {
+          setAudioError('Не удалось воспроизвести аудиофайл');
+          setIsPlaying(false);
+        }
+      };
+
+      audio.addEventListener('loadedmetadata', onMeta);
+      audio.addEventListener('durationchange', onMeta);
+      audio.addEventListener('timeupdate', onTime);
+      audio.addEventListener('ended', onEnded);
+      audio.addEventListener('play', onPlay);
+      audio.addEventListener('pause', onPause);
+      audio.addEventListener('error', onError);
+
+      setAudioLoading(false);
+
+      if (playOnLoadRef.current) {
+        playOnLoadRef.current = false;
+        audio.play().catch(() => {
+          if (!cancelled) setIsPlaying(false);
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cleanupAudio();
+    };
+  }, [project.musicTrackId, project.customMusicId]);
+
+  const handleTogglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio || project.musicTrackId === 'none') return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch(() => {
+        setAudioError('Нажми ещё раз, чтобы воспроизвести');
+        setIsPlaying(false);
+      });
+    }
+  };
+
+  const handleSelectAndPlayTrack = (trackId: MusicTrackId) => {
+    if (trackId === 'none') {
+      playOnLoadRef.current = false;
+      onChange({ musicTrackId: 'none' });
       return;
     }
 
-    audioRef.current?.pause();
-    if (urlRef.current) {
-      URL.revokeObjectURL(urlRef.current);
-      urlRef.current = null;
+    if (project.musicTrackId === trackId) {
+      handleTogglePlay();
+      return;
     }
 
-    const blob = getMusicTrackBlob(trackId);
-    if (!blob) return;
+    playOnLoadRef.current = true;
+    onChange({ musicTrackId: trackId });
+  };
 
-    const url = URL.createObjectURL(blob);
-    urlRef.current = url;
-    const audio = new Audio(url);
-    audio.loop = true;
-    audio.volume = 0.55;
-    audioRef.current = audio;
+  const handleSeek = (nextSec: number) => {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(nextSec)) return;
+    audio.currentTime = nextSec;
+    setCurrentTime(nextSec);
+  };
 
-    audio
-      .play()
-      .then(() => setAuditionTrackId(trackId))
-      .catch(() => setAuditionTrackId(null));
+  const handleUploadAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (audioInputRef.current) audioInputRef.current.value = '';
+    if (!file) return;
+
+    setAudioError(null);
+    const validationError = validateCustomAudioFile(file);
+    if (validationError) {
+      setAudioError(validationError);
+      return;
+    }
+
+    setUploadingAudio(true);
+    try {
+      const audioId = `aud_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      await saveAudioBlob(audioId, project.id, file, file.name);
+      playOnLoadRef.current = true;
+      onChange({
+        musicTrackId: 'custom',
+        customMusicId: audioId,
+        customMusicName: file.name,
+      });
+    } catch (err) {
+      setAudioError(
+        err instanceof Error ? err.message : 'Не удалось сохранить аудиофайл.',
+      );
+    } finally {
+      setUploadingAudio(false);
+    }
+  };
+
+  const handleRemoveCustomMusic = () => {
+    playOnLoadRef.current = false;
+    onChange({
+      musicTrackId: project.musicTrackId === 'custom' ? 'magical_cover' : project.musicTrackId,
+      customMusicId: undefined,
+      customMusicName: undefined,
+    });
   };
 
   const handleApplyComposition = (presetId: CompositionPresetId) => {
@@ -142,10 +269,18 @@ export function ConstellationSettings({
     project.stars.map((s, idx) => [s.id, s.title.trim() || `Звезда ${idx + 1}`]),
   );
 
-  const showConstellation = section === 'all' || section === 'constellation';
+  const showConstellation =
+    section === 'all' || section === 'constellation' || section === 'cosmos';
   const showCard = section === 'all' || section === 'space' || section === 'card';
   const showAtmosphere =
-    section === 'all' || section === 'space' || section === 'atmosphere';
+    section === 'all' ||
+    section === 'space' ||
+    section === 'atmosphere' ||
+    section === 'cosmos';
+
+  const activeAnim = resolveConstellationAnimation(project);
+  const activeTrackName = resolveMusicTrackName(project);
+  const hasCustomTrack = Boolean(project.customMusicId);
 
   return (
     <div className="space-y-4">
@@ -156,7 +291,7 @@ export function ConstellationSettings({
               Сборка созвездия
             </h3>
             <p className="text-[11px] text-gl-text-muted mt-0.5">
-              Расставь звёзды на небе и соедини их линиями
+              Расставь звёзды, соедини линиями и выбери характер движения
             </p>
           </div>
 
@@ -202,7 +337,7 @@ export function ConstellationSettings({
                 Линий пока нет. Выбери готовую форму выше или включи «Связи» на панели внизу сцены и нажми на две звезды.
               </p>
             ) : (
-              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-0.5">
                 {project.connections.map((conn) => {
                   const isSelected = conn.id === selectedConnectionId;
                   const fromName = starTitleById.get(conn.from) ?? 'Звезда';
@@ -241,137 +376,34 @@ export function ConstellationSettings({
             )}
           </div>
 
-          {/* Collapsible Device Framing & 3D Navigation Tips */}
-          <div className="rounded-xl border border-white/10 bg-white/[0.025] overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setConstellationAdvancedOpen((o) => !o)}
-              aria-expanded={constellationAdvancedOpen}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-gl-text-secondary hover:text-gl-text hover:bg-white/[0.04] transition-colors cursor-pointer"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
-                Положение на экране и подсказки
-              </span>
-              {constellationAdvancedOpen ? (
-                <ChevronUp className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
-              )}
-            </button>
-
-            {constellationAdvancedOpen && (
-              <div className="border-t border-white/10 p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-gl-input border border-white/10">
-                    <button
-                      type="button"
-                      data-selected={constellationDevice === 'phone'}
-                      onClick={() => setConstellationDevice('phone')}
-                      className="gl-tab !min-h-[28px] !px-2 text-[11px] inline-flex items-center gap-1"
-                    >
-                      <Smartphone className="w-3 h-3" />
-                      <span>Телефон</span>
-                    </button>
-                    <button
-                      type="button"
-                      data-selected={constellationDevice === 'desktop'}
-                      onClick={() => setConstellationDevice('desktop')}
-                      className="gl-tab !min-h-[28px] !px-2 text-[11px] inline-flex items-center gap-1"
-                    >
-                      <Monitor className="w-3 h-3" />
-                      <span>Компьютер</span>
-                    </button>
-                  </div>
-
+          {/* Constellation Animation Presets */}
+          <div className="space-y-2 pt-2 border-t border-white/10">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
+              <span className="gl-label block">Анимация созвездия</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {CONSTELLATION_ANIMATIONS.map((anim) => {
+                const active = activeAnim === anim.id;
+                return (
                   <button
+                    key={anim.id}
                     type="button"
-                    onClick={resetConstellationLayout}
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                    data-testid={`constellation-anim-${anim.id}`}
+                    data-selected={active}
+                    onClick={() => onChange({ constellationAnimation: anim.id })}
+                    className="gl-choice p-2.5 text-left space-y-0.5"
                   >
-                    <RotateCcw className="w-3 h-3" />
-                    Сброс
+                    <div className="text-xs font-semibold text-gl-text leading-snug">
+                      {anim.name}
+                    </div>
+                    <p className="text-[10px] text-gl-text-muted leading-snug">
+                      {anim.description}
+                    </p>
                   </button>
-                </div>
-
-                <label className="block space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-gl-text-secondary font-medium">
-                      Масштаб в открытке
-                    </span>
-                    <span className="text-gl-text-muted">Дальше — Крупнее</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.55}
-                    max={1.45}
-                    step={0.05}
-                    value={activeConstellationLayout.scale}
-                    aria-label="Размер созвездия на экране"
-                    onChange={(e) =>
-                      updateConstellationLayout({ scale: Number(e.target.value) })
-                    }
-                    className="w-full accent-gl-accent cursor-pointer"
-                  />
-                </label>
-
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(
-                    [
-                      { label: 'Левее', value: -35 },
-                      { label: 'Центр', value: 0 },
-                      { label: 'Правее', value: 35 },
-                    ] as const
-                  ).map((pos) => (
-                    <button
-                      key={pos.label}
-                      type="button"
-                      data-selected={
-                        Math.abs(activeConstellationLayout.offsetX - pos.value) < 15
-                      }
-                      onClick={() => updateConstellationLayout({ offsetX: pos.value })}
-                      className="gl-choice py-1.5 text-[11px] font-medium"
-                    >
-                      {pos.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(
-                    [
-                      { label: 'Выше', value: 28 },
-                      { label: 'Середина', value: constellationDevice === 'phone' ? 8 : 0 },
-                      { label: 'Ниже', value: -28 },
-                    ] as const
-                  ).map((pos) => (
-                    <button
-                      key={pos.label}
-                      type="button"
-                      data-selected={
-                        Math.abs(activeConstellationLayout.offsetY - pos.value) < 12
-                      }
-                      onClick={() => updateConstellationLayout({ offsetY: pos.value })}
-                      className="gl-choice py-1.5 text-[11px] font-medium"
-                    >
-                      {pos.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="space-y-1.5 pt-2 border-t border-white/10 text-[11px] text-gl-text-muted leading-relaxed">
-                  <p>
-                    <span className="text-gl-text font-medium">Глубина:</span> удерживай{' '}
-                    <span className="text-amber-200 font-semibold">Shift</span> при
-                    перетаскивании звезды вверх или вниз.
-                  </p>
-                  <p>
-                    <span className="text-gl-text font-medium">Поворот:</span> крути сцену
-                    правой кнопкой мыши или одним пальцем по пустому небу.
-                  </p>
-                </div>
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
         </>
       )}
@@ -528,12 +560,12 @@ export function ConstellationSettings({
 
       {showAtmosphere && (
         <>
-          <div>
+          <div className={showConstellation ? 'pt-2 border-t border-white/10' : undefined}>
             <h3 className="font-display text-sm font-semibold text-gl-text">
-              Атмосфера космоса
+              Атмосфера и музыка
             </h3>
             <p className="text-[11px] text-gl-text-muted mt-0.5">
-              Выбери фон неба, цвет сияния звёзд и музыку
+              Выбери фон неба, цвет сияния звёзд и мелодию для открытки
             </p>
           </div>
 
@@ -591,22 +623,77 @@ export function ConstellationSettings({
             </div>
           </div>
 
-          {/* Music Selector */}
-          <div className="space-y-2">
+          {/* Music Selector + Inline Player + Custom Upload */}
+          <div className="space-y-2.5 pt-1 border-t border-white/10">
             <span className="gl-label block">Музыка</span>
+
+            {/* Inline Audio Player when a track is selected */}
+            {project.musicTrackId !== 'none' && (
+              <div
+                data-testid="music-inline-player"
+                className="rounded-xl border border-gl-accent/35 bg-white/[0.04] p-2.5 space-y-2"
+              >
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    data-testid="music-player-toggle"
+                    disabled={audioLoading}
+                    onClick={handleTogglePlay}
+                    title={isPlaying ? 'Пауза' : 'Прослушать'}
+                    aria-label={isPlaying ? 'Пауза' : 'Прослушать'}
+                    className="gl-btn-primary !min-w-[34px] !min-h-[34px] !w-[34px] !h-[34px] !p-0 !rounded-lg shrink-0"
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-3.5 h-3.5" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5 ml-0.5" />
+                    )}
+                  </button>
+
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="font-semibold text-gl-text truncate">
+                        {activeTrackName}
+                      </span>
+                      <span className="text-gl-text-muted tabular-nums shrink-0">
+                        {formatAudioTime(currentTime)} / {formatAudioTime(duration)}
+                      </span>
+                    </div>
+
+                    <input
+                      type="range"
+                      min={0}
+                      max={duration > 0 ? duration : 1}
+                      step={0.1}
+                      value={Math.min(currentTime, duration > 0 ? duration : 1)}
+                      disabled={audioLoading || duration <= 0}
+                      aria-label="Перемотка мелодии"
+                      onChange={(e) => handleSeek(Number(e.target.value))}
+                      className="w-full h-1.5 accent-gl-accent cursor-pointer disabled:opacity-45"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Built-in + Custom Tracks List */}
             <div className="space-y-1.5">
               {MUSIC_TRACKS.map((track) => {
                 const active = project.musicTrackId === track.id;
-                const playing = auditionTrackId === track.id;
+                const playingThis = active && isPlaying;
                 return (
                   <div
                     key={track.id}
                     data-selected={active}
+                    data-testid={`music-track-${track.id}`}
                     className="gl-choice flex items-center justify-between gap-2 px-3 py-2"
                   >
                     <button
                       type="button"
-                      onClick={() => onChange({ musicTrackId: track.id })}
+                      onClick={() => {
+                        playOnLoadRef.current = false;
+                        onChange({ musicTrackId: track.id });
+                      }}
                       className="flex-1 min-w-0 text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2 text-xs font-semibold text-gl-text">
@@ -621,11 +708,11 @@ export function ConstellationSettings({
                     {track.id !== 'none' && (
                       <button
                         type="button"
-                        onClick={() => toggleAudition(track.id)}
-                        title={playing ? 'Остановить прослушивание' : 'Прослушать'}
-                        className="gl-btn-icon !min-w-[34px] !min-h-[34px] shrink-0"
+                        onClick={() => handleSelectAndPlayTrack(track.id)}
+                        title={playingThis ? 'Пауза' : 'Прослушать'}
+                        className="gl-btn-icon !min-w-[32px] !min-h-[32px] !w-8 !h-8 !p-0 shrink-0"
                       >
-                        {playing ? (
+                        {playingThis ? (
                           <Pause className="w-3.5 h-3.5" />
                         ) : (
                           <Play className="w-3.5 h-3.5" />
@@ -635,7 +722,92 @@ export function ConstellationSettings({
                   </div>
                 );
               })}
+
+              {/* Custom uploaded audio item (if uploaded) */}
+              {hasCustomTrack && (
+                <div
+                  data-selected={project.musicTrackId === 'custom'}
+                  data-testid="music-track-custom"
+                  className="gl-choice flex items-center justify-between gap-2 px-3 py-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playOnLoadRef.current = false;
+                      onChange({ musicTrackId: 'custom' });
+                    }}
+                    className="flex-1 min-w-0 text-left cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 text-xs font-semibold text-gl-text">
+                      <Music className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                      <span className="truncate">
+                        {project.customMusicName || 'Своя музыка'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gl-text-muted truncate mt-0.5">
+                      Загруженный аудиофайл
+                    </p>
+                  </button>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectAndPlayTrack('custom')}
+                      title={project.musicTrackId === 'custom' && isPlaying ? 'Пауза' : 'Прослушать'}
+                      className="gl-btn-icon !min-w-[32px] !min-h-[32px] !w-8 !h-8 !p-0"
+                    >
+                      {project.musicTrackId === 'custom' && isPlaying ? (
+                        <Pause className="w-3.5 h-3.5" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="music-remove-custom"
+                      onClick={handleRemoveCustomMusic}
+                      title="Удалить свою музыку"
+                      aria-label="Удалить свою музыку"
+                      className="gl-btn-icon !min-w-[32px] !min-h-[32px] !w-8 !h-8 !p-0 text-gl-text-muted hover:text-rose-300"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Custom Upload Button */}
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept=".mp3,.wav,audio/mpeg,audio/wav"
+              onChange={handleUploadAudio}
+              className="hidden"
+            />
+            <button
+              type="button"
+              data-testid="music-upload-btn"
+              disabled={uploadingAudio}
+              onClick={() => audioInputRef.current?.click()}
+              className="gl-btn-secondary w-full !min-h-[38px] text-xs font-medium"
+            >
+              <Upload className="w-3.5 h-3.5 shrink-0 text-gl-accent-light" />
+              <span>
+                {uploadingAudio
+                  ? 'Сохранение аудио...'
+                  : hasCustomTrack
+                    ? 'Заменить свою музыку (MP3, WAV до 10 МБ)'
+                    : 'Загрузить свою музыку (MP3, WAV до 10 МБ)'}
+              </span>
+            </button>
+
+            {audioError && (
+              <p className="text-xs text-rose-300 leading-snug" role="alert">
+                {audioError}
+              </p>
+            )}
           </div>
 
           {/* Collapsible Advanced Scene Motion */}
@@ -679,4 +851,3 @@ export function ConstellationSettings({
     </div>
   );
 }
-

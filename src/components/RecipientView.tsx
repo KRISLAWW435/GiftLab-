@@ -4,9 +4,9 @@ import {
   ChevronLeft,
   ChevronRight,
   FastForward,
+  Mail,
   MailOpen,
   Pencil,
-  RotateCcw,
   Sparkles,
   Volume2,
   VolumeX,
@@ -19,13 +19,23 @@ import type {
 } from '../preview/previewProtocol';
 import {
   COSMIC_PALETTES,
+  ENVELOPE_MAX_SCALE,
+  ENVELOPE_MIN_SCALE,
+  ENVELOPE_OFFSET_MAX,
+  ENVELOPE_OFFSET_MIN,
+  ENVELOPE_TEXT_OFFSET_MAX,
+  ENVELOPE_TEXT_OFFSET_MIN,
+  ENVELOPE_VISIBLE_WORLD_H,
+  ENVELOPE_WORLD_H,
+  ENVELOPE_WORLD_W,
   GLOW_COLORS,
-  MUSIC_TRACKS,
   buildProjectCardDevicePatch,
   buildProjectConstellationDevicePatch,
   buildProjectFinalTextDevicePatch,
   buildStarIllustrationDevicePatch,
   buildStarTextDevicePatch,
+  computeEnvelopeScreenOffsetYPx,
+  computeEnvelopeTextTranslateYPx,
   computeTextBlockMarginLeftPct,
   resolveCardColors,
   resolveCardTheme,
@@ -36,14 +46,19 @@ import {
   resolveEffectiveIllustrationLayout,
   resolveEffectiveStarDecor,
   resolveEffectiveStarTextStyle,
+  resolveEnvelopeEffectiveWorldScale,
+  resolveEnvelopeOffsetY,
   resolveEnvelopeSettings,
+  resolveEnvelopeTextOffsetY,
+  resolveEnvelopeUserScale,
   resolveMessageFont,
+  resolveMusicTrackName,
   resolveSafeCardDecorPresentation,
   resolveStarGlowHex,
   resolveTextShadowCss,
   resolveViewportDeviceMode,
 } from '../scene/paletteConfig';
-import { getMusicTrackBlob } from '../services/musicEngine';
+import { resolveProjectMusicForPreview } from '../services/musicEngine';
 import type {
   ConstellationProject,
   ConstellationStar,
@@ -184,6 +199,7 @@ export function RecipientView({
   const [unlockedCount, setUnlockedCount] = useState(0);
   const [finaleReached, setFinaleReached] = useState(false);
   const [letterOpen, setLetterOpen] = useState(false);
+  const [quickLetterOpen, setQuickLetterOpen] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [dragOffsetX, setDragOffsetX] = useState(0);
   const [activeInlineField, setActiveInlineField] = useState<EditableTextField | null>(null);
@@ -193,7 +209,6 @@ export function RecipientView({
       ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
       : false,
   );
-  const [force2D, setForce2D] = useState(false);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
 
   const [viewport, setViewport] = useState(() => ({
@@ -214,9 +229,16 @@ export function RecipientView({
       | 'card-resize-ne'
       | 'card-resize-sw'
       | 'card-resize-se'
+      | 'story-card-move'
       | 'illu-move'
       | 'illu-scale'
       | 'constellation-move'
+      | 'envelope-move'
+      | 'envelope-text-move'
+      | 'envelope-resize-nw'
+      | 'envelope-resize-ne'
+      | 'envelope-resize-sw'
+      | 'envelope-resize-se'
       | FinalLetterDragKind;
     pointerId: number;
     startX: number;
@@ -241,7 +263,6 @@ export function RecipientView({
     unlockedCount,
     finaleReached,
     reducedMotion,
-    force2D,
     webglUnavailable,
   });
   stateRef.current = {
@@ -250,7 +271,6 @@ export function RecipientView({
     unlockedCount,
     finaleReached,
     reducedMotion,
-    force2D,
     webglUnavailable,
   };
 
@@ -331,6 +351,7 @@ export function RecipientView({
       stateRef.current.unlockedCount = 0;
       stateRef.current.finaleReached = false;
       setLetterOpen(false);
+      setQuickLetterOpen(false);
       setPhase('sealed');
       setActiveIndex(0);
       setUnlockedCount(0);
@@ -346,6 +367,7 @@ export function RecipientView({
       setUnlockedCount(total);
       setFinaleReached(true);
       setLetterOpen(true);
+      setQuickLetterOpen(false);
       setPhase('constellation');
       return;
     }
@@ -362,6 +384,7 @@ export function RecipientView({
     stateRef.current.activeIndex = targetIdx;
     stateRef.current.phase = 'starStory';
     setLetterOpen(false);
+    setQuickLetterOpen(false);
     setUnlockedCount(nextUnlocked);
     setActiveIndex(targetIdx);
     setPhase('starStory');
@@ -382,6 +405,7 @@ export function RecipientView({
       stateRef.current.activeIndex = 0;
       stateRef.current.phase = 'starStory';
       setLetterOpen(false);
+      setQuickLetterOpen(false);
       setUnlockedCount(nextUnlocked);
       setActiveIndex(0);
       setPhase('starStory');
@@ -418,22 +442,50 @@ export function RecipientView({
   }, [editMode, phase, activeInlineField]);
 
   useEffect(() => {
-    if (project.musicTrackId === 'none') return;
-    const blob = getMusicTrackBlob(project.musicTrackId);
-    if (!blob) return;
+    if (project.musicTrackId === 'none') {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      return;
+    }
 
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.loop = true;
-    audio.volume = volume;
-    audioRef.current = audio;
+    let cancelled = false;
+    let activeAudio: HTMLAudioElement | null = null;
+    let revokeUrl: string | null = null;
+
+    void resolveProjectMusicForPreview(project).then((resolved) => {
+      if (cancelled) {
+        if (resolved?.revokeOnDispose) {
+          URL.revokeObjectURL(resolved.url);
+        }
+        return;
+      }
+      if (!resolved) return;
+
+      if (resolved.revokeOnDispose) {
+        revokeUrl = resolved.url;
+      }
+
+      const audio = new Audio(resolved.url);
+      audio.loop = true;
+      audio.volume = musicMuted ? 0 : volume;
+      activeAudio = audio;
+      audioRef.current = audio;
+    });
 
     return () => {
-      audio.pause();
-      URL.revokeObjectURL(url);
-      audioRef.current = null;
+      cancelled = true;
+      if (activeAudio) {
+        activeAudio.pause();
+        activeAudio.src = '';
+      }
+      if (revokeUrl) {
+        URL.revokeObjectURL(revokeUrl);
+      }
+      if (audioRef.current === activeAudio) {
+        audioRef.current = null;
+      }
     };
-  }, [project.musicTrackId]);
+  }, [project.musicTrackId, project.customMusicId]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -492,16 +544,13 @@ export function RecipientView({
 
     attemptPlayMusic();
     setLetterOpen(false);
+    setQuickLetterOpen(false);
     stateRef.current.unlockedCount = 1;
     stateRef.current.activeIndex = 0;
     setUnlockedCount(1);
     setActiveIndex(0);
 
-    if (
-      stateRef.current.force2D ||
-      stateRef.current.webglUnavailable ||
-      stateRef.current.reducedMotion
-    ) {
+    if (stateRef.current.webglUnavailable || stateRef.current.reducedMotion) {
       sceneRef.current?.skipBirthSequence();
       stateRef.current.phase = 'starStory';
       setPhase('starStory');
@@ -527,12 +576,9 @@ export function RecipientView({
     const total = project.stars.length;
     stateRef.current.unlockedCount = total;
     setUnlockedCount(total);
+    setQuickLetterOpen(false);
 
-    if (
-      stateRef.current.force2D ||
-      stateRef.current.webglUnavailable ||
-      stateRef.current.reducedMotion
-    ) {
+    if (stateRef.current.webglUnavailable || stateRef.current.reducedMotion) {
       sceneRef.current?.skipFinalReveal();
       stateRef.current.finaleReached = true;
       stateRef.current.phase = 'constellation';
@@ -555,6 +601,7 @@ export function RecipientView({
     stateRef.current.finaleReached = true;
     stateRef.current.phase = 'constellation';
     setFinaleReached(true);
+    setQuickLetterOpen(false);
     setLetterOpen(true);
     setPhase('constellation');
   };
@@ -564,6 +611,7 @@ export function RecipientView({
     stateRef.current.finaleReached = true;
     stateRef.current.phase = 'constellation';
     setFinaleReached(true);
+    setQuickLetterOpen(false);
     setLetterOpen(true);
     setPhase('constellation');
   };
@@ -581,13 +629,14 @@ export function RecipientView({
         return;
       }
 
-      const instant = snap.reducedMotion || snap.force2D || snap.webglUnavailable;
+      const instant = snap.reducedMotion || snap.webglUnavailable;
       const lockDuration = instant ? 90 : 460;
 
       if (intent.type === 'constellation') {
         if (!snap.finaleReached || snap.phase === 'constellation') return;
         acquireTransitionLock(lockDuration);
         stateRef.current.phase = 'constellation';
+        setQuickLetterOpen(false);
         setLetterOpen(true);
         setPhase('constellation');
         return;
@@ -600,6 +649,7 @@ export function RecipientView({
         stateRef.current.activeIndex = intent.index;
         stateRef.current.phase = 'starStory';
         setLetterOpen(false);
+        setQuickLetterOpen(false);
         setActiveIndex(intent.index);
         setPhase('starStory');
         return;
@@ -651,10 +701,20 @@ export function RecipientView({
     [project.stars, acquireTransitionLock, handleTriggerFinalReveal],
   );
 
-  // Keyboard navigation in StarStory
+  // Keyboard navigation in StarStory & Escape to dismiss letter overlay
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (stateRef.current.phase !== 'starStory') return;
+      if (e.key === 'Escape' && !editMode) {
+        if (quickLetterOpen) {
+          setQuickLetterOpen(false);
+          return;
+        }
+        if (stateRef.current.phase === 'constellation' && letterOpen) {
+          setLetterOpen(false);
+          return;
+        }
+      }
+      if (stateRef.current.phase !== 'starStory' || quickLetterOpen) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -678,7 +738,7 @@ export function RecipientView({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navigateStory]);
+  }, [navigateStory, editMode, quickLetterOpen, letterOpen]);
 
   const handleSelectStarFromScene = (starId: string) => {
     const idx = project.stars.findIndex((s) => s.id === starId);
@@ -782,7 +842,7 @@ export function RecipientView({
 
   const palette = COSMIC_PALETTES[project.paletteId];
   const globalGlow = GLOW_COLORS[project.globalGlowColor];
-  const trackMeta = MUSIC_TRACKS.find((t) => t.id === project.musicTrackId);
+  const trackDisplayName = resolveMusicTrackName(project);
   const activeStarGlow = activeStar
     ? GLOW_COLORS[resolveStarGlowHex(activeStar, project.globalGlowColor)]
     : globalGlow;
@@ -898,25 +958,21 @@ export function RecipientView({
         ? 'max-w-2xl'
         : 'max-w-xl';
 
-  const storyCardPaddingClass = hasExplicitCardTheme
-    ? isMinimalistTheme
-      ? cardLayout.padding === 'compact'
-        ? 'pl-7 pr-4 py-3 sm:pl-9 sm:pr-6 sm:py-4'
-        : cardLayout.padding === 'spacious'
-          ? 'pl-9 pr-6 py-5 sm:pl-12 sm:pr-9 sm:py-7'
-          : 'pl-8 pr-5 py-4 sm:pl-10 sm:pr-7 sm:py-5'
-      : cardLayout.padding === 'compact'
-        ? 'px-3 py-2 sm:px-4 sm:py-3'
-        : cardLayout.padding === 'spacious'
-          ? 'px-5 py-4 sm:px-8 sm:py-6'
-          : 'px-4 py-3 sm:px-6 sm:py-4'
-    : cardLayout.padding === 'compact'
-      ? 'px-0.5 py-0.5'
+  const storyCardPaddingClass = isMinimalistTheme
+    ? cardLayout.padding === 'compact'
+      ? 'pl-7 pr-4 py-3 sm:pl-9 sm:pr-6 sm:py-4'
       : cardLayout.padding === 'spacious'
-        ? 'px-3 sm:px-5 py-2 sm:py-3'
-        : '';
+        ? 'pl-9 pr-6 py-5 sm:pl-12 sm:pr-9 sm:py-7'
+        : 'pl-8 pr-5 py-4 sm:pl-10 sm:pr-7 sm:py-5'
+    : cardLayout.padding === 'compact'
+      ? 'px-3.5 py-2.5 sm:px-4 sm:py-3'
+      : cardLayout.padding === 'spacious'
+        ? 'px-5 py-4 sm:px-8 sm:py-6'
+        : 'px-4 py-3.5 sm:px-6 sm:py-5';
 
   const storyCardOffsetY = Math.round(cardLayout.offsetY * 0.7);
+  const storyCardScale = cardLayout.scale ?? 1;
+  const storyTextShiftY = Math.round(starTextStyle.offsetY * 0.32);
 
   const starDecor = resolveEffectiveStarDecor(activeStar ?? undefined, activeDevice);
   const safeStarDecor = resolveSafeCardDecorPresentation(starDecor, {
@@ -950,6 +1006,46 @@ export function RecipientView({
 
   const finalTextStyle = resolveEffectiveFinalTextStyle(project, activeDevice);
   const resolvedEnvelope = resolveEnvelopeSettings(project);
+  const envelopeAspect = Math.max(
+    0.25,
+    viewport.width / Math.max(1, viewport.height),
+  );
+  const envelopeUserScale = resolveEnvelopeUserScale(
+    project.envelopeSettings,
+    activeDevice,
+  );
+  const envelopeWorldScale = resolveEnvelopeEffectiveWorldScale(
+    project.envelopeSettings,
+    envelopeAspect,
+    activeDevice,
+  );
+  const envelopePxPerUnit =
+    Math.max(1, viewport.height) / ENVELOPE_VISIBLE_WORLD_H;
+  const envelopeBoxW = Math.round(
+    ENVELOPE_WORLD_W * envelopeWorldScale * envelopePxPerUnit,
+  );
+  const envelopeBoxH = Math.round(
+    ENVELOPE_WORLD_H * envelopeWorldScale * envelopePxPerUnit,
+  );
+
+  const envelopeTextOffsetY = resolveEnvelopeTextOffsetY(
+    project.envelopeSettings,
+    activeDevice,
+  );
+  const envelopeTextTranslateYPx = computeEnvelopeTextTranslateYPx(
+    envelopeTextOffsetY,
+    viewport.height,
+    isPortrait,
+  );
+  const envelopeOffsetY = resolveEnvelopeOffsetY(
+    project.envelopeSettings,
+    activeDevice,
+  );
+  const envelopeScreenOffsetYPx = computeEnvelopeScreenOffsetYPx(
+    envelopeOffsetY,
+    viewport.width,
+    viewport.height,
+  );
 
   // Interactive visual card design pointer handlers (only active in PreviewWorkspace editMode)
   const beginCanvasEdit = (
@@ -965,14 +1061,22 @@ export function RecipientView({
       | 'card-resize-ne'
       | 'card-resize-sw'
       | 'card-resize-se'
+      | 'story-card-move'
       | 'illu-move'
       | 'illu-scale'
       | 'constellation-move'
+      | 'envelope-move'
+      | 'envelope-text-move'
+      | 'envelope-resize-nw'
+      | 'envelope-resize-ne'
+      | 'envelope-resize-sw'
+      | 'envelope-resize-se'
       | FinalLetterDragKind,
     e: React.PointerEvent<HTMLElement>,
   ) => {
     if (!editMode) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.target as HTMLElement | null)?.closest('input, textarea, select')) return;
     e.stopPropagation();
 
     const targetMap: Record<typeof kind, EditableCardTarget> = {
@@ -987,9 +1091,16 @@ export function RecipientView({
       'card-resize-ne': 'card',
       'card-resize-sw': 'card',
       'card-resize-se': 'card',
+      'story-card-move': 'card',
       'illu-move': 'illustration',
       'illu-scale': 'illustration',
       'constellation-move': 'constellation',
+      'envelope-move': 'envelope',
+      'envelope-text-move': 'envelope',
+      'envelope-resize-nw': 'envelope',
+      'envelope-resize-ne': 'envelope',
+      'envelope-resize-sw': 'envelope',
+      'envelope-resize-se': 'envelope',
       'final-text-move': 'text',
       'final-text-resize-right': 'text',
       'final-text-resize-left': 'text',
@@ -1005,16 +1116,23 @@ export function RecipientView({
     };
     onSelectTarget?.(targetMap[kind]);
 
+    const isEnvelopeResize = kind.startsWith('envelope-resize-');
+    const isEnvelopeDrag =
+      isEnvelopeResize || kind === 'envelope-move' || kind === 'envelope-text-move';
     const stageEl =
-      kind === 'constellation-move'
+      kind === 'constellation-move' || isEnvelopeDrag
         ? undefined
         : kind.startsWith('final-')
           ? finaleHeaderRef.current
           : storyStageRef.current;
     const stageRect = stageEl?.getBoundingClientRect();
 
-    const containerW = Math.max(160, stageRect?.width ?? viewport.width);
-    const containerH = Math.max(140, stageRect?.height ?? viewport.height);
+    const containerW = isEnvelopeResize
+      ? Math.max(80, envelopeBoxW)
+      : Math.max(160, stageRect?.width ?? viewport.width);
+    const containerH = isEnvelopeResize
+      ? Math.max(60, envelopeBoxH)
+      : Math.max(140, stageRect?.height ?? viewport.height);
 
     let originX = 0;
     let originY = 0;
@@ -1037,21 +1155,20 @@ export function RecipientView({
       originValue = starTextStyle.widthPct;
       originFontSize = starTextStyle.fontSize;
     } else if (
-      kind === 'card-resize-nw' ||
-      kind === 'card-resize-ne' ||
-      kind === 'card-resize-sw' ||
-      kind === 'card-resize-se' ||
       kind === 'final-card-resize-nw' ||
       kind === 'final-card-resize-ne' ||
       kind === 'final-card-resize-sw' ||
-      kind === 'final-card-resize-se'
+      kind === 'final-card-resize-se' ||
+      kind === 'card-resize-nw' ||
+      kind === 'card-resize-ne' ||
+      kind === 'card-resize-sw' ||
+      kind === 'card-resize-se'
     ) {
-      originCardW =
-        cardLayout.customWidthPx ??
-        Math.round(stageRect?.width ?? (activeDevice === 'phone' ? 330 : 540));
-      originCardH =
-        cardLayout.customHeightPx ??
-        Math.round(stageRect?.height ?? (activeDevice === 'phone' ? 360 : 380));
+      originValue = cardLayout.scale ?? 1;
+    } else if (kind === 'story-card-move') {
+      originX = 0;
+      originY = cardLayout.offsetY;
+      originValue = cardLayout.offsetY;
     } else if (kind === 'illu-move' || kind === 'illu-scale') {
       originX = illuLayout.offsetX;
       originY = illuLayout.offsetY;
@@ -1060,6 +1177,12 @@ export function RecipientView({
       originX = constellationLayout.offsetX;
       originY = constellationLayout.offsetY;
       originValue = constellationLayout.scale;
+    } else if (kind === 'envelope-move') {
+      originY = envelopeOffsetY;
+    } else if (kind === 'envelope-text-move') {
+      originY = envelopeTextOffsetY;
+    } else if (kind.startsWith('envelope-resize-')) {
+      originValue = envelopeUserScale;
     } else if (
       kind === 'final-text-move' ||
       kind === 'final-text-resize-right' ||
@@ -1133,8 +1256,94 @@ export function RecipientView({
       return;
     }
 
+    if (drag.kind === 'envelope-move') {
+      const maxRangePx = Math.max(40, drag.containerH * (isPortrait ? 0.16 : 0.11));
+      const dyNorm = Math.round((dy / maxRangePx) * 100);
+      const nextOffsetY = Math.max(
+        ENVELOPE_OFFSET_MIN,
+        Math.min(ENVELOPE_OFFSET_MAX, drag.originY + dyNorm),
+      );
+      onPatchProject?.({
+        envelopeSettings: {
+          ...project.envelopeSettings,
+          [activeDevice === 'phone' ? 'phoneOffsetY' : 'desktopOffsetY']: nextOffsetY,
+        },
+      });
+      return;
+    }
+
+    if (drag.kind === 'envelope-text-move') {
+      const maxDownPx = Math.max(40, drag.containerH * (isPortrait ? 0.25 : 0.14));
+      const dyNorm = Math.round((dy / maxDownPx) * 100);
+      const nextTextOffsetY = Math.max(
+        ENVELOPE_TEXT_OFFSET_MIN,
+        Math.min(ENVELOPE_TEXT_OFFSET_MAX, drag.originY + dyNorm),
+      );
+      onPatchProject?.({
+        envelopeSettings: {
+          ...project.envelopeSettings,
+          [activeDevice === 'phone' ? 'phoneTextOffsetY' : 'desktopTextOffsetY']:
+            nextTextOffsetY,
+        },
+      });
+      return;
+    }
+
+    if (drag.kind.startsWith('envelope-resize-')) {
+      const signX = drag.kind.endsWith('-ne') || drag.kind.endsWith('-se') ? 1 : -1;
+      const signY = drag.kind.endsWith('-sw') || drag.kind.endsWith('-se') ? 1 : -1;
+      const halfW = Math.max(40, drag.containerW / 2);
+      const halfH = Math.max(30, drag.containerH / 2);
+      const ratioDelta = ((dx * signX) / halfW + (dy * signY) / halfH) / 2;
+      const nextScale = Math.max(
+        ENVELOPE_MIN_SCALE,
+        Math.min(
+          ENVELOPE_MAX_SCALE,
+          Number((drag.originValue * (1 + ratioDelta)).toFixed(2)),
+        ),
+      );
+      onPatchProject?.({
+        envelopeSettings: {
+          ...project.envelopeSettings,
+          [activeDevice === 'phone' ? 'phoneScale' : 'desktopScale']: nextScale,
+        },
+      });
+      return;
+    }
+
     if (drag.kind === 'final-card-move') {
       const nextY = Math.max(-60, Math.min(60, Math.round(drag.originY + dy / 1.4)));
+      onPatchProject?.(
+        buildProjectCardDevicePatch(project, activeDevice, { offsetY: nextY }),
+      );
+      return;
+    }
+
+    if (
+      drag.kind === 'final-card-resize-nw' ||
+      drag.kind === 'final-card-resize-ne' ||
+      drag.kind === 'final-card-resize-sw' ||
+      drag.kind === 'final-card-resize-se'
+    ) {
+      const signX = drag.kind.endsWith('-ne') || drag.kind.endsWith('-se') ? 1 : -1;
+      const signY = drag.kind.endsWith('-sw') || drag.kind.endsWith('-se') ? 1 : -1;
+      const halfW = Math.max(80, drag.containerW / 2);
+      const halfH = Math.max(80, drag.containerH / 2);
+      const ratioDelta = ((dx * signX) / halfW + (dy * signY) / halfH) / 2;
+      const nextScale = Math.max(
+        0.55,
+        Math.min(1.25, Number((drag.originValue * (1 + ratioDelta)).toFixed(2))),
+      );
+      onPatchProject?.(
+        buildProjectCardDevicePatch(project, activeDevice, {
+          scale: nextScale,
+        }),
+      );
+      return;
+    }
+
+    if (drag.kind === 'story-card-move') {
+      const nextY = Math.max(-60, Math.min(60, Math.round(drag.originY + dy / 0.7)));
       onPatchProject?.(
         buildProjectCardDevicePatch(project, activeDevice, { offsetY: nextY }),
       );
@@ -1145,36 +1354,20 @@ export function RecipientView({
       drag.kind === 'card-resize-nw' ||
       drag.kind === 'card-resize-ne' ||
       drag.kind === 'card-resize-sw' ||
-      drag.kind === 'card-resize-se' ||
-      drag.kind === 'final-card-resize-nw' ||
-      drag.kind === 'final-card-resize-ne' ||
-      drag.kind === 'final-card-resize-sw' ||
-      drag.kind === 'final-card-resize-se'
+      drag.kind === 'card-resize-se'
     ) {
-      const isRight = drag.kind.endsWith('-ne') || drag.kind.endsWith('-se');
-      const isBottom = drag.kind.endsWith('-sw') || drag.kind.endsWith('-se');
-      const signX = isRight ? 1 : -1;
-      const signY = isBottom ? 1 : -1;
-      const isCenteredH = drag.kind.startsWith('final-') || isPortrait;
-      const horizFactor = isCenteredH ? 2 : 1.2;
-      const vertFactor = drag.kind.startsWith('final-') ? 1.6 : 1;
-
-      const minW = activeDevice === 'phone' ? 240 : 340;
-      const maxW = activeDevice === 'phone' ? 366 : 840;
-      const maxH = activeDevice === 'phone' ? 640 : 560;
-
-      const nextWidthPx = Math.max(
-        minW,
-        Math.min(maxW, Math.round((drag.originCardW ?? 420) + dx * signX * horizFactor)),
-      );
-      const nextHeightPx = Math.max(
-        220,
-        Math.min(maxH, Math.round((drag.originCardH ?? 360) + dy * signY * vertFactor)),
+      const signX = drag.kind.endsWith('-ne') || drag.kind.endsWith('-se') ? 1 : -1;
+      const signY = drag.kind.endsWith('-sw') || drag.kind.endsWith('-se') ? 1 : -1;
+      const halfW = Math.max(80, drag.containerW / 2);
+      const halfH = Math.max(80, drag.containerH / 2);
+      const ratioDelta = ((dx * signX) / halfW + (dy * signY) / halfH) / 2;
+      const nextScale = Math.max(
+        0.55,
+        Math.min(1.25, Number((drag.originValue * (1 + ratioDelta)).toFixed(2))),
       );
       onPatchProject?.(
         buildProjectCardDevicePatch(project, activeDevice, {
-          customWidthPx: nextWidthPx,
-          customHeightPx: nextHeightPx,
+          scale: nextScale,
         }),
       );
       return;
@@ -1318,7 +1511,10 @@ export function RecipientView({
 
     if (!drag.hasMoved && drag.pendingInlineField) {
       setActiveInlineField(drag.pendingInlineField);
-      onSelectTarget?.('text', drag.pendingInlineField);
+      onSelectTarget?.(
+        drag.kind === 'envelope-text-move' ? 'envelope' : 'text',
+        drag.pendingInlineField,
+      );
     }
   };
 
@@ -1346,9 +1542,10 @@ export function RecipientView({
         finaleActive={phase === 'finalReveal' || phase === 'constellation' || finaleReached}
         lowPerformance={viewport.width < 768}
         reducedMotion={reducedMotion}
+        deviceMode={activeDevice}
         constellationLayout={constellationLayout}
         envelopeSettings={project.envelopeSettings}
-        force2DFallback={force2D}
+        constellationAnimation={project.constellationAnimation ?? 'rotation'}
         startSealed={true}
         onOpenEnvelope={handleOpenEnvelope}
         onBirthComplete={handleBirthComplete}
@@ -1357,10 +1554,10 @@ export function RecipientView({
         onWebGLFallback={() => setWebglUnavailable(true)}
       />
 
-      {/* 2D fallback frosted sealed envelope when 2D mode is active or WebGL2 unavailable */}
-      {phase === 'sealed' && (force2D || webglUnavailable) && (
+      {/* 2D fallback frosted sealed envelope when WebGL2 is unavailable */}
+      {phase === 'sealed' && webglUnavailable && (
         <div
-          className="absolute inset-0 z-10 flex items-center justify-center p-6"
+          className="absolute inset-0 z-10 flex items-center justify-center p-4"
           style={{
             background: `radial-gradient(ellipse 68% 54% at 50% 54%, ${
               resolvedEnvelope.envelopeColor ?? palette.nebulaPrimary
@@ -1369,12 +1566,18 @@ export function RecipientView({
         >
           <div
             onClick={editMode ? () => onSelectTarget?.('envelope') : handleOpenEnvelope}
-            className={`relative w-72 sm:w-80 h-48 rounded-[24px] border backdrop-blur-2xl flex flex-col items-center justify-center overflow-hidden shadow-[0_28px_80px_rgba(6,4,18,0.75)] cursor-pointer transition-transform hover:scale-[1.02] ${
+            className={`relative rounded-[24px] border backdrop-blur-2xl flex flex-col items-center justify-center overflow-hidden shadow-[0_28px_80px_rgba(6,4,18,0.75)] cursor-pointer transition-transform hover:scale-[1.02] ${
               editMode && selectedTarget === 'envelope'
                 ? 'ring-2 ring-amber-400/90 border-white/55'
                 : 'border-white/35'
             }`}
             style={{
+              width: `${envelopeBoxW}px`,
+              height: `${envelopeBoxH}px`,
+              transform:
+                envelopeScreenOffsetYPx !== 0
+                  ? `translateY(${envelopeScreenOffsetYPx}px)`
+                  : undefined,
               background: resolvedEnvelope.envelopeColor
                 ? `linear-gradient(155deg, ${resolvedEnvelope.envelopeColor}EE 0%, ${resolvedEnvelope.envelopeColor}AA 100%)`
                 : 'linear-gradient(155deg, rgba(255,255,255,0.88) 0%, rgba(226,220,250,0.45) 55%, rgba(167,139,250,0.28) 100%)',
@@ -1444,7 +1647,78 @@ export function RecipientView({
             aria-hidden="true"
           />
 
-          <header className="flex items-start justify-between gap-4">
+          {editMode && (
+            <div
+              data-testid="envelope-resize-frame"
+              data-selected={selectedTarget === 'envelope'}
+              onPointerDown={(e) => beginCanvasEdit('envelope-move', e)}
+              onPointerMove={moveCanvasEdit}
+              onPointerUp={endCanvasEdit}
+              onPointerCancel={endCanvasEdit}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectTarget?.('envelope');
+              }}
+              style={{
+                width: `${envelopeBoxW}px`,
+                height: `${envelopeBoxH}px`,
+                transform: `translate(-50%, calc(-50% + ${envelopeScreenOffsetYPx}px))`,
+              }}
+              title="Потяни конверт вверх или вниз, либо за золотые уголки для размера"
+              className={`pointer-events-auto absolute left-1/2 top-1/2 z-10 rounded-2xl border-2 border-dashed transition-colors cursor-grab active:cursor-grabbing touch-none ${
+                selectedTarget === 'envelope'
+                  ? 'border-amber-300/90 bg-amber-400/[0.04]'
+                  : 'border-amber-300/60 hover:border-amber-300/90'
+              }`}
+            >
+              {(
+                [
+                  {
+                    kind: 'envelope-resize-nw',
+                    pos: '-top-3 -left-3',
+                    cursor: 'cursor-nwse-resize',
+                    label: 'Изменить размер конверта (верхний левый угол)',
+                  },
+                  {
+                    kind: 'envelope-resize-ne',
+                    pos: '-top-3 -right-3',
+                    cursor: 'cursor-nesw-resize',
+                    label: 'Изменить размер конверта (верхний правый угол)',
+                  },
+                  {
+                    kind: 'envelope-resize-sw',
+                    pos: '-bottom-3 -left-3',
+                    cursor: 'cursor-nesw-resize',
+                    label: 'Изменить размер конверта (нижний левый угол)',
+                  },
+                  {
+                    kind: 'envelope-resize-se',
+                    pos: '-bottom-3 -right-3',
+                    cursor: 'cursor-nwse-resize',
+                    label: 'Изменить размер конверта (нижний правый угол)',
+                  },
+                ] as const
+              ).map((corner) => (
+                <button
+                  key={corner.kind}
+                  type="button"
+                  data-testid={corner.kind}
+                  aria-label={corner.label}
+                  title="Потяни за угол, чтобы изменить размер конверта"
+                  onPointerDown={(e) => beginCanvasEdit(corner.kind, e)}
+                  onPointerMove={moveCanvasEdit}
+                  onPointerUp={endCanvasEdit}
+                  onPointerCancel={endCanvasEdit}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`absolute ${corner.pos} w-6 h-6 rounded-full bg-amber-400 border-2 border-white ${corner.cursor} touch-none shadow-[0_2px_10px_rgba(0,0,0,0.65)] hover:scale-110 transition-transform flex items-center justify-center`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#181236]" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <header className="relative z-20 flex items-start justify-between gap-4">
             <div className="pointer-events-auto">
               {onExitPreview && (
                 <button
@@ -1458,7 +1732,31 @@ export function RecipientView({
               )}
             </div>
 
-            <div className="pointer-events-auto text-center flex-1 max-w-2xl mx-auto">
+            <div
+              data-testid="envelope-header-block"
+              onPointerDown={
+                editMode ? (e) => beginCanvasEdit('envelope-text-move', e) : undefined
+              }
+              onPointerMove={editMode ? moveCanvasEdit : undefined}
+              onPointerUp={editMode ? endCanvasEdit : undefined}
+              onPointerCancel={editMode ? endCanvasEdit : undefined}
+              style={{
+                transform:
+                  envelopeTextTranslateYPx !== 0
+                    ? `translateY(${envelopeTextTranslateYPx}px)`
+                    : undefined,
+              }}
+              title={
+                editMode
+                  ? 'Нажми на текст для правки или перетащи блок выше/ниже'
+                  : undefined
+              }
+              className={`pointer-events-auto text-center flex-1 max-w-2xl mx-auto ${
+                editMode
+                  ? 'cursor-grab active:cursor-grabbing touch-none rounded-2xl px-2 py-1 border border-transparent hover:border-amber-300/50 hover:bg-white/[0.03] transition-colors'
+                  : ''
+              }`}
+            >
               {editMode && activeInlineField === 'envelopeKicker' ? (
                 <input
                   ref={storyInlineInputRef}
@@ -1486,14 +1784,7 @@ export function RecipientView({
               ) : (
                 <p
                   data-testid="envelope-kicker-text"
-                  onClick={
-                    editMode
-                      ? () => {
-                          setActiveInlineField('envelopeKicker');
-                          onSelectTarget?.('envelope', 'envelopeKicker');
-                        }
-                      : undefined
-                  }
+                  data-inline-field="envelopeKicker"
                   className={`text-xs sm:text-sm text-gl-text-secondary font-medium mb-1 ${
                     editMode ? 'cursor-text rounded-lg px-2 py-0.5 inline-block hover:bg-white/10' : ''
                   }`}
@@ -1529,14 +1820,7 @@ export function RecipientView({
               ) : (
                 <h1
                   data-testid="envelope-headline-text"
-                  onClick={
-                    editMode
-                      ? () => {
-                          setActiveInlineField('envelopeHeadline');
-                          onSelectTarget?.('envelope', 'envelopeHeadline');
-                        }
-                      : undefined
-                  }
+                  data-inline-field="envelopeHeadline"
                   className={`gl-title-display text-2xl sm:text-4xl font-extrabold text-white leading-tight [text-wrap:balance] ${
                     editMode ? 'cursor-text rounded-xl px-2 py-0.5 hover:bg-white/10' : ''
                   }`}
@@ -1549,7 +1833,7 @@ export function RecipientView({
             <div className="w-20 hidden sm:block" />
           </header>
 
-          <div className="pointer-events-auto flex flex-col items-center gap-3 pb-4 sm:pb-6">
+          <div className="relative z-20 pointer-events-auto flex flex-col items-center gap-3 pb-4 sm:pb-6">
             {editMode && activeInlineField === 'envelopeHint' ? (
               <input
                 ref={storyInlineInputRef}
@@ -1725,7 +2009,7 @@ export function RecipientView({
 
           {/* Compact Top Bar: Exit, Star Progress Indicator, Utility Toggles */}
           <header
-            className={`relative z-10 flex items-center justify-between gap-2 shrink-0 ${
+            className={`relative z-30 flex items-center justify-between gap-2 shrink-0 ${
               isCompactLandscape ? 'px-4 pt-2.5 pb-1' : 'px-4 sm:px-7 pt-3.5 sm:pt-4 pb-1.5'
             }`}
           >
@@ -1817,7 +2101,7 @@ export function RecipientView({
                 <button
                   type="button"
                   onClick={toggleSound}
-                  title={trackMeta?.name ?? 'Музыка'}
+                  title={trackDisplayName || 'Музыка'}
                   aria-label={musicMuted || !musicPlaying ? 'Включить звук' : 'Выключить звук'}
                   className="gl-btn-secondary !bg-gl-panel/75 hover:!bg-gl-card/90 text-gl-text !px-2.5 sm:!px-3 !py-2 text-xs"
                 >
@@ -1829,21 +2113,45 @@ export function RecipientView({
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => setReducedMotion((v) => !v)}
-                className="hidden sm:inline-flex gl-btn-secondary !bg-gl-panel/65 hover:!bg-gl-card/85 !px-2.5 !py-2 text-xs font-medium"
-              >
-                {reducedMotion ? 'Обычное движение' : 'Меньше движения'}
-              </button>
+              {!editMode && (
+                <button
+                  type="button"
+                  data-testid="recipient-letter-toggle-btn"
+                  onClick={() => setQuickLetterOpen((v) => !v)}
+                  aria-pressed={quickLetterOpen}
+                  aria-label={
+                    quickLetterOpen
+                      ? 'Вернуться к звёздам'
+                      : 'Открыть финальное письмо'
+                  }
+                  title={
+                    quickLetterOpen
+                      ? 'Вернуться к звёздам'
+                      : 'Открыть финальное письмо'
+                  }
+                  className={`gl-btn-secondary !px-2.5 sm:!px-3 !py-2 text-xs transition-all ${
+                    quickLetterOpen
+                      ? '!bg-amber-400/25 !border-amber-300/60 text-amber-100 hover:!bg-amber-400/35'
+                      : '!bg-gl-panel/75 hover:!bg-gl-card/90 text-gl-text'
+                  }`}
+                >
+                  {quickLetterOpen ? (
+                    <MailOpen className="w-3.5 h-3.5 text-amber-200" />
+                  ) : (
+                    <Mail className="w-3.5 h-3.5 text-gl-text" />
+                  )}
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => setForce2D((v) => !v)}
-                className="hidden md:inline-flex gl-btn-secondary !bg-gl-panel/65 hover:!bg-gl-card/85 !px-2.5 !py-2 text-xs font-medium"
-              >
-                {force2D ? '3D' : '2D'}
-              </button>
+              {editMode && (
+                <button
+                  type="button"
+                  onClick={() => setReducedMotion((v) => !v)}
+                  className="hidden sm:inline-flex gl-btn-secondary !bg-gl-panel/65 hover:!bg-gl-card/85 !px-2.5 !py-2 text-xs font-medium"
+                >
+                  {reducedMotion ? 'Обычное движение' : 'Меньше движения'}
+                </button>
+              )}
             </div>
           </header>
 
@@ -1862,7 +2170,9 @@ export function RecipientView({
 
           {/* Orientation-adaptive split: Portrait (top 3D / bottom story) vs Landscape (left 3D / right story) */}
           <div
-            className={`relative z-10 flex-1 min-h-0 overflow-hidden ${
+            className={`relative z-10 flex-1 min-h-0 overflow-hidden transition-opacity duration-300 ${
+              quickLetterOpen && !editMode ? 'opacity-10 pointer-events-none' : ''
+            } ${
               isPortrait ? 'flex flex-col' : 'grid grid-cols-[44%_56%]'
             }`}
           >
@@ -1890,35 +2200,57 @@ export function RecipientView({
                 }
               }}
               style={{ touchAction: editMode ? 'none' : 'pan-y' }}
-              className={`relative pointer-events-auto min-h-0 flex flex-col overflow-y-auto overflow-x-hidden ${
+              className={`relative pointer-events-auto min-h-0 flex flex-col overflow-visible ${
                 isPortrait
-                  ? 'flex-1 px-4 pb-3.5 pt-1 justify-between items-center text-center'
+                  ? 'flex-1 px-5 pb-4 pt-4 justify-between items-center text-center'
                   : isCompactLandscape
-                    ? 'px-5 pr-6 pb-3 pt-1 justify-between items-start text-left'
-                    : 'px-6 sm:px-10 lg:pr-12 lg:pl-4 pb-5 pt-2 justify-between items-start text-left'
+                    ? 'px-6 pb-3 pt-3 justify-between items-start text-left'
+                    : 'px-7 sm:px-10 lg:pr-12 lg:pl-5 pb-5 pt-4 justify-between items-start text-left'
               }`}
             >
-              {/* Animated Story Content inside bounded flex stage (styled by selected CardTheme + device CardLayout) */}
+              {/* Animated Story Content inside bounded stage (styled by selected CardTheme + device CardLayout) */}
               <div
                 ref={storyStageRef}
                 data-testid="story-card-stage"
                 data-device={activeDevice}
                 data-card-width={cardLayout.width}
                 data-card-padding={cardLayout.padding}
+                data-card-scale={storyCardScale}
+                onPointerDown={
+                  editMode
+                    ? (e) => {
+                        const target = e.target as HTMLElement;
+                        if (
+                          target.closest(
+                            'button, input, textarea, [data-testid="story-illustration-box"], [data-testid="story-text-block"]',
+                          )
+                        ) {
+                          return;
+                        }
+                        beginCanvasEdit('story-card-move', e);
+                      }
+                    : undefined
+                }
+                onPointerMove={editMode ? moveCanvasEdit : undefined}
+                onPointerUp={editMode ? endCanvasEdit : undefined}
+                onPointerCancel={editMode ? endCanvasEdit : undefined}
                 onClick={(e) => {
                   if (editMode && e.target === e.currentTarget) {
                     onSelectTarget?.('card');
                   }
                 }}
                 style={{
+                  transformOrigin: 'center center',
                   width: cardLayout.customWidthPx ? `${cardLayout.customWidthPx}px` : undefined,
                   minHeight: cardLayout.customHeightPx ? `${cardLayout.customHeightPx}px` : undefined,
                   transform:
-                    dragOffsetX !== 0 || storyCardOffsetY !== 0
-                      ? `translate3d(${dragOffsetX}px, ${storyCardOffsetY}px, 0)`
+                    dragOffsetX !== 0 || storyCardOffsetY !== 0 || storyCardScale !== 1
+                      ? `translate3d(${dragOffsetX}px, ${storyCardOffsetY}px, 0) scale(${storyCardScale})`
                       : undefined,
                   transition:
-                    dragOffsetX === 0 ? 'transform 220ms ease-out' : undefined,
+                    dragOffsetX === 0 && !canvasEditDragRef.current
+                      ? 'transform 220ms ease-out'
+                      : undefined,
                   ...(hasExplicitCardTheme
                     ? {
                         background: cardColors.isLightPaper
@@ -1931,31 +2263,31 @@ export function RecipientView({
                       }
                     : {}),
                 }}
-                className={`relative z-10 flex-1 min-h-0 w-full ${
-                  cardLayout.customWidthPx ? 'max-w-full' : storyWidthClass
-                } flex flex-col ${isPortrait ? 'mx-auto' : ''} ${
-                  hasExplicitCardTheme
-                    ? `rounded-[24px] border ${storyCardPaddingClass} ${
-                        cardColors.isLightPaper ? '' : 'backdrop-blur-2xl gl-card-holo-rim'
-                      }`
-                    : storyCardPaddingClass
+                className={`relative z-10 max-h-full w-full ${
+                  cardLayout.verticalAlign === 'top' ? 'mb-auto' : 'my-auto'
                 } ${
-                  editMode && selectedTarget === 'card'
-                    ? 'ring-2 ring-amber-400/80 rounded-[24px]'
-                    : editMode
-                      ? 'ring-1 ring-white/15 rounded-[24px] hover:ring-amber-300/55'
-                      : ''
+                  cardLayout.customWidthPx ? 'max-w-full' : storyWidthClass
+                } flex flex-col ${isPortrait ? 'mx-auto' : ''} rounded-[26px] ${
+                  hasExplicitCardTheme
+                    ? `border ${cardColors.isLightPaper ? '' : 'backdrop-blur-2xl gl-card-holo-rim'}`
+                    : ''
+                } ${
+                  editMode
+                    ? selectedTarget === 'card'
+                      ? 'cursor-grab active:cursor-grabbing ring-2 ring-dashed ring-amber-300/95'
+                      : 'cursor-grab active:cursor-grabbing ring-1 ring-dashed ring-amber-300/55 hover:ring-amber-300/85'
+                    : ''
                 }`}
               >
-                {/* 4 Corner Resize Handles for Story Card (unclipped) */}
+                {/* 4 Golden/White Corner Scale Handles for Star Card (matching FinalLetterCard) */}
                 {editMode && (
                   <>
                     {(
                       [
-                        { kind: 'card-resize-nw', pos: '-top-1.5 -left-1.5', cursor: 'cursor-nwse-resize', label: 'Изменить размер карточки (верхний левый угол)' },
-                        { kind: 'card-resize-ne', pos: '-top-1.5 -right-1.5', cursor: 'cursor-nesw-resize', label: 'Изменить размер карточки (верхний правый угол)' },
-                        { kind: 'card-resize-sw', pos: '-bottom-1.5 -left-1.5', cursor: 'cursor-nesw-resize', label: 'Изменить размер карточки (нижний левый угол)' },
-                        { kind: 'card-resize-se', pos: '-bottom-1.5 -right-1.5', cursor: 'cursor-nwse-resize', label: 'Изменить размер карточки (нижний правый угол)' },
+                        { kind: 'card-resize-nw', pos: '-top-2.5 -left-2.5', cursor: 'cursor-nwse-resize', label: 'Уменьшить или увеличить карточку звезды (верхний левый угол)' },
+                        { kind: 'card-resize-ne', pos: '-top-2.5 -right-2.5', cursor: 'cursor-nesw-resize', label: 'Уменьшить или увеличить карточку звезды (верхний правый угол)' },
+                        { kind: 'card-resize-sw', pos: '-bottom-2.5 -left-2.5', cursor: 'cursor-nesw-resize', label: 'Уменьшить или увеличить карточку звезды (нижний левый угол)' },
+                        { kind: 'card-resize-se', pos: '-bottom-2.5 -right-2.5', cursor: 'cursor-nwse-resize', label: 'Уменьшить или увеличить карточку звезды (нижний правый угол)' },
                       ] as const
                     ).map((corner) => (
                       <button
@@ -1963,23 +2295,23 @@ export function RecipientView({
                         type="button"
                         data-testid={corner.kind}
                         aria-label={corner.label}
+                        title="Потяни за уголок, чтобы уменьшить или увеличить карточку"
                         onPointerDown={(e) => beginCanvasEdit(corner.kind, e)}
                         onPointerMove={moveCanvasEdit}
                         onPointerUp={endCanvasEdit}
                         onPointerCancel={endCanvasEdit}
-                        className={`absolute ${corner.pos} w-3.5 h-3.5 rounded-full border-2 border-white ${corner.cursor} touch-none shadow-md z-30 transition-transform hover:scale-125 ${
-                          selectedTarget === 'card'
-                            ? 'bg-amber-400 opacity-100'
-                            : 'bg-amber-300/80 opacity-75 hover:opacity-100'
-                        }`}
-                      />
+                        onClick={(e) => e.stopPropagation()}
+                        className={`absolute ${corner.pos} w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-400 border-2 border-white ${corner.cursor} touch-none shadow-[0_2px_10px_rgba(0,0,0,0.65)] z-30 transition-transform hover:scale-110 flex items-center justify-center`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#181236]" />
+                      </button>
                     ))}
                   </>
                 )}
 
                 {/* Clipped inner background layer for theme backdrop & passive theme decor */}
                 {hasExplicitCardTheme && (
-                  <div className="pointer-events-none absolute inset-0 rounded-[24px] overflow-hidden">
+                  <div className="pointer-events-none absolute inset-0 rounded-[26px] overflow-hidden">
                     <CardThemeBackdrop
                       pattern={cardTheme.paperPattern}
                       accentColor={cardColors.accentColor}
@@ -2030,7 +2362,7 @@ export function RecipientView({
                       duration: reducedMotion ? 0.06 : 0.24,
                       ease: [0.16, 1, 0.3, 1],
                     }}
-                    className="relative z-10 flex-1 min-h-0 w-full flex flex-col overflow-y-auto overscroll-contain"
+                    className={`relative z-10 flex-1 min-h-0 w-full flex flex-col overflow-y-auto overflow-x-hidden overscroll-contain rounded-[26px] ${storyCardPaddingClass}`}
                   >
                     <div style={{ flexGrow: topOuterGrow, flexBasis: 0 }} />
 
@@ -2102,10 +2434,15 @@ export function RecipientView({
 
                     <div style={{ flexGrow: topInnerGrow, flexBasis: 0 }} />
 
-                    {/* Bounded Customizable Message Block */}
+                    {/* Bounded Customizable Message Block (Заголовок + Послание + Подпись) */}
                     <div
                       data-testid="story-text-block"
                       data-selected={editMode && selectedTarget === 'text'}
+                      title={
+                        editMode
+                          ? 'Потяни мышкой, чтобы сдвинуть текст внутри карточки, или нажми для правки'
+                          : undefined
+                      }
                       onPointerDown={
                         editMode
                           ? (e) => {
@@ -2129,6 +2466,10 @@ export function RecipientView({
                       style={{
                         width: `${starTextStyle.widthPct}%`,
                         marginLeft: `${textMarginLeftPct}%`,
+                        transform:
+                          storyTextShiftY !== 0
+                            ? `translateY(${storyTextShiftY}px)`
+                            : undefined,
                         textAlign: effectiveAlign,
                         fontFamily: starFontMeta.cssFamily,
                         borderColor:
@@ -2146,7 +2487,7 @@ export function RecipientView({
                               : 'rgba(7,11,26,0.62)'
                             : undefined,
                       }}
-                      className={`relative shrink-0 max-w-full space-y-2 ${
+                      className={`relative shrink-0 min-w-0 max-w-full box-border space-y-2 ${
                         starTextStyle.accent === 'frame'
                           ? 'rounded-2xl border backdrop-blur-md px-4 py-3.5 sm:px-5 sm:py-4 shadow-xl'
                           : starTextStyle.accent === 'quote'
@@ -2159,7 +2500,7 @@ export function RecipientView({
                           ? `cursor-grab active:cursor-grabbing touch-none rounded-xl transition-[box-shadow] ${
                               selectedTarget === 'text'
                                 ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-transparent'
-                                : 'ring-1 ring-dashed ring-current/25 hover:ring-violet-400/75'
+                                : 'ring-1 ring-dashed ring-violet-300/45 hover:ring-violet-300/85'
                             }`
                           : ''
                       }`}
@@ -2390,11 +2731,12 @@ export function RecipientView({
                           onBlur={() => setActiveInlineField(null)}
                           style={{
                             color: effectiveStarTextColor,
+                            fontSize: `${Math.max(14, Math.min(22, Math.round(effectiveBodyPx * 0.8)))}px`,
                             textShadow: resolvedTextShadow,
                             textAlign: effectiveAlign,
                             borderColor: `${cardColors.accentColor}88`,
                           }}
-                          className="w-48 max-w-full rounded-lg border bg-black/20 px-2 py-0.5 text-xs sm:text-sm italic outline-none"
+                          className="w-48 max-w-full rounded-lg border bg-black/20 px-2 py-0.5 italic outline-none"
                         />
                       ) : (signatureText || editMode) ? (
                         <p
@@ -2404,10 +2746,11 @@ export function RecipientView({
                           title={editMode ? 'Нажми, чтобы изменить подпись' : undefined}
                           style={{
                             color: effectiveStarTextColor,
-                            opacity: signatureText ? 0.78 : 0.5,
+                            fontSize: `${Math.max(14, Math.min(22, Math.round(effectiveBodyPx * 0.8)))}px`,
+                            opacity: signatureText ? 0.82 : 0.54,
                             textShadow: resolvedTextShadow,
                           }}
-                          className={`text-xs sm:text-sm italic tracking-wide ${
+                          className={`italic tracking-wide ${
                             editMode
                               ? 'select-none cursor-text rounded-lg px-1 -mx-1 hover:bg-black/10 transition-colors inline-flex items-center gap-1'
                               : 'select-text'
@@ -2417,7 +2760,7 @@ export function RecipientView({
                             `— ${signatureText}`
                           ) : (
                             <>
-                              <Pencil className="w-3 h-3 opacity-70" />
+                              <Pencil className="w-3.5 h-3.5 opacity-70" />
                               <span>— Добавить подпись</span>
                             </>
                           )}
@@ -2493,6 +2836,20 @@ export function RecipientView({
               </div>
             </div>
           </div>
+
+          {!editMode && (
+            <FinalLetterCard
+              project={project}
+              deviceMode={activeDevice}
+              signatureText={signatureText}
+              isPortrait={isPortrait}
+              isCompactLandscape={isCompactLandscape}
+              reducedMotion={reducedMotion}
+              isOpen={quickLetterOpen}
+              onClose={() => setQuickLetterOpen(false)}
+              editMode={false}
+            />
+          )}
         </div>
       )}
 
@@ -2557,6 +2914,63 @@ export function RecipientView({
             </div>
           )}
 
+          {!(editMode && selectedTarget === 'constellation') && (
+            <div
+              data-testid="constellation-finale-title"
+              className="pointer-events-none fixed inset-x-0 top-0 z-20 flex flex-col items-center text-center px-16 sm:px-24 pt-4 sm:pt-5 gl-safe-top"
+            >
+              <span
+                className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.22em] opacity-80"
+                style={{ color: palette.lineTint }}
+              >
+                ✦ Созвездие ✦
+              </span>
+              <h2
+                className="mt-0.5 text-base sm:text-xl md:text-2xl font-bold tracking-tight text-white max-w-[min(80vw,540px)] whitespace-normal break-words [overflow-wrap:anywhere] leading-snug"
+                style={{
+                  textShadow: `0 2px 16px rgba(4, 6, 20, 0.9), 0 0 22px ${globalGlow.hex}66`,
+                }}
+              >
+                {project.title.trim() || 'Моё созвездие'}
+              </h2>
+              <div
+                className="mt-1.5 h-px w-24 sm:w-32 opacity-75"
+                style={{
+                  background: `linear-gradient(90deg, transparent, ${globalGlow.hex}, transparent)`,
+                }}
+                aria-hidden="true"
+              />
+            </div>
+          )}
+
+          {!editMode && (
+            <div className="pointer-events-auto fixed top-4 right-4 sm:top-5 sm:right-6 z-30 gl-safe-top flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="recipient-letter-toggle-btn"
+                onClick={() => setLetterOpen((v) => !v)}
+                aria-pressed={letterOpen}
+                aria-label={
+                  letterOpen
+                    ? 'Скрыть письмо и любоваться созвездием'
+                    : 'Открыть финальное письмо'
+                }
+                title={letterOpen ? 'Скрыть письмо' : 'Открыть финальное письмо'}
+                className={`inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full border backdrop-blur-md transition-all shadow-lg cursor-pointer ${
+                  letterOpen
+                    ? 'bg-amber-400/25 border-amber-300/60 text-amber-100 hover:bg-amber-400/35'
+                    : 'bg-[#0b0816]/60 border-white/25 text-white hover:bg-[#0b0816]/80 hover:border-white/45'
+                }`}
+              >
+                {letterOpen ? (
+                  <MailOpen className="w-4 h-4" />
+                ) : (
+                  <Mail className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Direct drag & scale sky surface when editing Constellation layout in editMode */}
           {editMode && selectedTarget === 'constellation' && (
             <div
@@ -2578,7 +2992,7 @@ export function RecipientView({
                   }),
                 );
               }}
-              className="fixed inset-x-0 top-0 bottom-20 z-20 cursor-grab active:cursor-grabbing touch-none flex flex-col items-center justify-between pt-4 pb-3 px-4"
+              className="fixed inset-x-0 top-0 bottom-0 z-20 cursor-grab active:cursor-grabbing touch-none flex flex-col items-center justify-between pt-4 pb-3 px-4"
             >
               <div
                 onPointerDown={(e) => e.stopPropagation()}
@@ -2666,103 +3080,6 @@ export function RecipientView({
             onMoveElementDrag={moveCanvasEdit}
             onEndElementDrag={endCanvasEdit}
           />
-
-          {/* Compact Interactive Bottom Dock */}
-          <div className="gl-hud fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center gap-2 !rounded-2xl px-3 py-2 max-w-[95vw] mb-[env(safe-area-inset-bottom,0px)]">
-            <div className="flex items-center gap-1 pr-2 border-r border-white/15">
-              {project.stars.map((s, idx) => {
-                const hex = GLOW_COLORS[resolveStarGlowHex(s, project.globalGlowColor)].hex;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => navigateStory({ type: 'index', index: idx })}
-                    title={s.title || `Звезда ${idx + 1}`}
-                    aria-label={`Открыть звезду ${idx + 1}: ${s.title || ''}`}
-                    className="w-9 h-9 sm:w-8 sm:h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.16] text-xs font-semibold text-gl-text flex items-center justify-center transition-colors cursor-pointer tabular-nums"
-                    style={{ borderBottom: `2px solid ${hex}` }}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setLetterOpen((v) => !v)}
-              data-testid="toggle-final-letter-btn"
-              className={`gl-btn-secondary !px-3 !py-1.5 text-xs ${
-                letterOpen
-                  ? '!bg-amber-500/20 !border-amber-300/45 text-amber-100'
-                  : '!bg-gl-accent/35 !border-gl-accent-light/55 text-gl-text'
-              }`}
-            >
-              <MailOpen className="w-3.5 h-3.5" />
-              {letterOpen ? 'Скрыть письмо' : 'Открыть письмо'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => sceneRef.current?.resetCamera()}
-              className="gl-btn-secondary !px-3 !py-1.5 text-xs text-gl-text"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Сброс
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setReducedMotion((v) => !v)}
-              className="gl-btn-secondary !px-3 !py-1.5 text-xs"
-            >
-              {reducedMotion ? 'Вращение: выкл' : 'Меньше движения'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setForce2D((v) => !v)}
-              className="gl-btn-secondary !px-3 !py-1.5 text-xs"
-            >
-              {force2D ? '3D' : '2D'}
-            </button>
-
-            {project.musicTrackId !== 'none' && (
-              <div className="flex items-center gap-2 pl-2 border-l border-white/15">
-                <button
-                  type="button"
-                  onClick={toggleSound}
-                  title={trackMeta?.name ?? 'Музыка'}
-                  aria-label={musicMuted || !musicPlaying ? 'Включить звук' : 'Выключить звук'}
-                  className="gl-btn-secondary !bg-violet-600/40 hover:!bg-violet-600/60 !px-3 !py-1.5 text-xs text-gl-text"
-                >
-                  {musicMuted || !musicPlaying ? (
-                    <VolumeX className="w-3.5 h-3.5" />
-                  ) : (
-                    <Volume2 className="w-3.5 h-3.5" />
-                  )}
-                  <span className="hidden sm:inline">
-                    {musicMuted || !musicPlaying ? 'Звук выкл' : 'Звук вкл'}
-                  </span>
-                </button>
-
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={musicMuted ? 0 : volume}
-                  onChange={(e) => {
-                    setMusicMuted(false);
-                    if (!musicPlaying) attemptPlayMusic();
-                    setVolume(Number(e.target.value));
-                  }}
-                  aria-label="Громкость музыки"
-                  className="w-16 sm:w-20 accent-violet-400 cursor-pointer"
-                />
-              </div>
-            )}
-          </div>
         </>
       )}
     </div>

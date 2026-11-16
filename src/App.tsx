@@ -8,6 +8,7 @@ import {
 import { ProjectStart } from './components/ProjectStart';
 import { RecipientView } from './components/RecipientView';
 import {
+  cleanupUnusedProjectAudio,
   cleanupUnusedProjectImages,
   deleteProject,
   duplicateProject,
@@ -176,6 +177,42 @@ function PreviewIframeHost({
                 ? { ...s, title: old.title }
                 : { ...s, message: old.message };
             }),
+          };
+        }
+        if (activeField === 'envelopeKicker') {
+          return {
+            ...data.project,
+            envelopeSettings: {
+              ...data.project.envelopeSettings,
+              kickerText: prev.envelopeSettings?.kickerText,
+            },
+          };
+        }
+        if (activeField === 'envelopeHeadline') {
+          return {
+            ...data.project,
+            envelopeSettings: {
+              ...data.project.envelopeSettings,
+              headlineText: prev.envelopeSettings?.headlineText,
+            },
+          };
+        }
+        if (activeField === 'envelopeHint') {
+          return {
+            ...data.project,
+            envelopeSettings: {
+              ...data.project.envelopeSettings,
+              hintText: prev.envelopeSettings?.hintText,
+            },
+          };
+        }
+        if (activeField === 'envelopeCta') {
+          return {
+            ...data.project,
+            envelopeSettings: {
+              ...data.project.envelopeSettings,
+              ctaText: prev.envelopeSettings?.ctaText,
+            },
           };
         }
         return data.project;
@@ -352,6 +389,7 @@ function StudioApp() {
       setSaveState('saving');
       const saved = await saveProject(proj);
       await cleanupUnusedProjectImages(saved);
+      await cleanupUnusedProjectAudio(saved);
       setProjects((prev) => {
         const exists = prev.some((p) => p.id === saved.id);
         const next = exists

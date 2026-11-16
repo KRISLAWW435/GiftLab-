@@ -8,6 +8,7 @@ import {
   resolveStarShape,
 } from '../scene/paletteConfig';
 import type {
+  ConstellationAnimationId,
   ConstellationStar,
   CosmicPaletteId,
   DeviceConstellationLayout,
@@ -33,6 +34,7 @@ interface Constellation2DFallbackProps {
   finaleActive?: boolean;
   reducedMotion?: boolean;
   constellationLayout?: DeviceConstellationLayout;
+  constellationAnimation?: ConstellationAnimationId;
   onSelectStar?: (starId: string) => void;
   onSelectConnection?: (connectionId: string | null) => void;
   onMoveStar?: (starId: string, position: StarPosition3D) => void;
@@ -87,6 +89,7 @@ export function Constellation2DFallback({
   finaleActive = false,
   reducedMotion = false,
   constellationLayout,
+  constellationAnimation = 'rotation',
   onSelectStar,
   onSelectConnection,
   onMoveStar,
@@ -161,7 +164,7 @@ export function Constellation2DFallback({
       return;
     }
 
-    if (!reducedMotion) {
+    if (!reducedMotion && constellationAnimation !== 'none') {
       const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
       const ny = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
       setParallax({ x: nx * 12, y: ny * 8 });

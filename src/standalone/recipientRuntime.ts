@@ -1,7 +1,12 @@
 import { ConstellationEngine } from '../scene/ConstellationEngine';
 import {
   COSMIC_PALETTES,
+  ENVELOPE_VISIBLE_WORLD_H,
+  ENVELOPE_WORLD_H,
+  ENVELOPE_WORLD_W,
   GLOW_COLORS,
+  computeEnvelopeScreenOffsetYPx,
+  computeEnvelopeTextTranslateYPx,
   computeTextBlockMarginLeftPct,
   isDefaultStarTextStyle,
   resolveCardColors,
@@ -14,7 +19,10 @@ import {
   resolveEffectiveIllustrationLayout,
   resolveEffectiveStarDecor,
   resolveEffectiveStarTextStyle,
+  resolveEnvelopeEffectiveWorldScale,
+  resolveEnvelopeOffsetY,
   resolveEnvelopeSettings,
+  resolveEnvelopeTextOffsetY,
   resolveMessageFont,
   resolveSafeCardDecorPresentation,
   resolveStarGlowHex,
@@ -28,6 +36,7 @@ import type {
   CardDecorMotif,
   CardThemeCustomColors,
   CardThemeId,
+  ConstellationAnimationId,
   ConstellationStar,
   CosmicPaletteId,
   DeviceLayoutKey,
@@ -53,6 +62,7 @@ interface StandalonePayload {
   occasionLabel: string;
   paletteId: CosmicPaletteId;
   globalGlowColor: GlowColorId;
+  constellationAnimation?: ConstellationAnimationId;
   cardTheme?: CardThemeId;
   cardColors?: CardThemeCustomColors;
   envelopeSettings?: EnvelopeSettings;
@@ -148,6 +158,39 @@ function createProgressStarSvg(lit: boolean, active: boolean): SVGSVGElement {
     core.setAttribute('r', '2.1');
     core.setAttribute('fill', '#ffffff');
     svg.append(facet, core);
+  }
+  return svg;
+}
+
+function createEnvelopeSvg(open: boolean): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '15');
+  svg.setAttribute('height', '15');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+
+  if (open) {
+    const p1 = document.createElementNS(ns, 'path');
+    p1.setAttribute('d', 'M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z');
+    const p2 = document.createElementNS(ns, 'path');
+    p2.setAttribute('d', 'm22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10');
+    svg.append(p1, p2);
+  } else {
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('width', '20');
+    rect.setAttribute('height', '16');
+    rect.setAttribute('x', '2');
+    rect.setAttribute('y', '4');
+    rect.setAttribute('rx', '2');
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'm22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7');
+    svg.append(rect, path);
   }
   return svg;
 }
@@ -737,6 +780,7 @@ function bootGiftLabRecipient(): void {
   let unlockedCount = 0;
   let finaleReached = false;
   let letterOpen = false;
+  let quickLetterOpen = false;
   let reducedMotion =
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   let engine: ConstellationEngine | null = null;
@@ -833,6 +877,32 @@ function bootGiftLabRecipient(): void {
   sealedUi.append(sealedAmbient, sealedHeader, sealedFooter);
   stage.appendChild(sealedUi);
 
+  function applySealedComposition(): void {
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
+    const isPortrait = h > w || w < 540;
+    const activeDevice = resolveViewportDeviceMode(w, h);
+    const textOffsetY = resolveEnvelopeTextOffsetY(payload.envelopeSettings, activeDevice);
+    const textOffsetPx = computeEnvelopeTextTranslateYPx(textOffsetY, h, isPortrait);
+    sealedHeader.style.transform = textOffsetPx !== 0 ? `translateY(${textOffsetPx}px)` : '';
+
+    const aspect = Math.max(0.25, w / h);
+    const worldScale = resolveEnvelopeEffectiveWorldScale(
+      payload.envelopeSettings,
+      aspect,
+      activeDevice,
+    );
+    const pxPerUnit = h / ENVELOPE_VISIBLE_WORLD_H;
+    const boxW = Math.round(ENVELOPE_WORLD_W * worldScale * pxPerUnit);
+    const boxH = Math.round(ENVELOPE_WORLD_H * worldScale * pxPerUnit);
+    const envOffsetY = resolveEnvelopeOffsetY(payload.envelopeSettings, activeDevice);
+    const envOffsetPx = computeEnvelopeScreenOffsetYPx(envOffsetY, w, h);
+    sealed2DBox.style.width = `${boxW}px`;
+    sealed2DBox.style.height = `${boxH}px`;
+    sealed2DBox.style.transform = envOffsetPx !== 0 ? `translateY(${envOffsetPx}px)` : '';
+  }
+  applySealedComposition();
+
   // PHASE 2 & 4: Skip + Sound Bar during Birthing / FinalReveal
   const transUi = el('div', 'gl-birth-ui gl-hidden');
   const transTopRight = el('div', 'gl-birth-actions');
@@ -868,13 +938,12 @@ function bootGiftLabRecipient(): void {
   backToConstBtn.type = 'button';
   const storySoundBtn = el('button', 'gl-btn gl-btn-ghost gl-hidden', 'Звук вкл');
   storySoundBtn.type = 'button';
-  const storyMotionBtn = el(
-    'button',
-    'gl-btn gl-btn-ghost',
-    reducedMotion ? 'Обычное движение' : 'Меньше движения',
-  );
-  storyMotionBtn.type = 'button';
-  storyUtils.append(backToConstBtn, storySoundBtn, storyMotionBtn);
+  const storyLetterBtn = el('button', 'gl-icon-btn');
+  storyLetterBtn.type = 'button';
+  storyLetterBtn.setAttribute('aria-label', 'Открыть финальное письмо');
+  storyLetterBtn.title = 'Открыть финальное письмо';
+  storyLetterBtn.appendChild(createEnvelopeSvg(false));
+  storyUtils.append(backToConstBtn, storySoundBtn, storyLetterBtn);
 
   storyTop.append(storyBrand, storyProgressWrap, storyUtils);
 
@@ -1035,18 +1104,31 @@ function bootGiftLabRecipient(): void {
   letterInner.append(finaleAccentLine, letterMsg, letterSign);
   letterBody.appendChild(letterInner);
 
-  const letterFoot = el('div', 'gl-letter-foot');
-  const letterOccasion = el('span', '', payload.occasionLabel);
-  letterOccasion.style.color = cardColors.badgeColor;
-  letterOccasion.style.opacity = '0.75';
-  const letterHideLink = el('button', 'gl-letter-hide-link', 'Скрыть письмо');
-  letterHideLink.type = 'button';
-  letterHideLink.style.color = cardColors.badgeColor;
-  letterFoot.append(letterOccasion, letterHideLink);
-
-  letterCard.append(finaleDecorEl, letterHead, letterDivider, letterBody, letterFoot);
+  const finaleSpacerFoot = el('div', 'gl-letter-foot');
+  letterCard.append(finaleDecorEl, letterHead, letterDivider, letterBody, finaleSpacerFoot);
   letterBackdrop.appendChild(letterCard);
-  stage.appendChild(letterBackdrop);
+
+  // PHASE 5: Cosmic Constellation Title & Envelope Toggle Button
+  const constellationTitleWrap = el('div', 'gl-constellation-title-wrap gl-hidden');
+  const constellationEyebrow = el('span', 'gl-constellation-eyebrow', '✦ Созвездие ✦');
+  constellationEyebrow.style.color = palette.lineTint;
+  const constellationTitleEl = el(
+    'h2',
+    'gl-constellation-title',
+    payload.title.trim() || 'Моё созвездие',
+  );
+  constellationTitleEl.style.textShadow = `0 2px 16px rgba(4, 6, 20, 0.9), 0 0 22px ${globalGlow.hex}66`;
+  const constellationRule = el('div', 'gl-constellation-rule');
+  constellationRule.style.background = `linear-gradient(90deg, transparent, ${globalGlow.hex}, transparent)`;
+  constellationTitleWrap.append(constellationEyebrow, constellationTitleEl, constellationRule);
+
+  const constellationLetterBtn = el('button', 'gl-icon-btn gl-letter-fab gl-hidden');
+  constellationLetterBtn.type = 'button';
+  constellationLetterBtn.setAttribute('aria-label', 'Открыть финальное письмо');
+  constellationLetterBtn.title = 'Открыть финальное письмо';
+  constellationLetterBtn.appendChild(createEnvelopeSvg(true));
+
+  stage.append(constellationTitleWrap, constellationLetterBtn, letterBackdrop);
 
   function getActiveDevice(): DeviceLayoutKey {
     return resolveViewportDeviceMode(window.innerWidth, window.innerHeight);
@@ -1080,6 +1162,12 @@ function bootGiftLabRecipient(): void {
 
     letterBackdrop.style.alignItems =
       cardLayout.verticalAlign === 'top' ? 'flex-start' : 'center';
+    letterBackdrop.style.paddingTop =
+      cardLayout.verticalAlign === 'top'
+        ? isCompactLandscape
+          ? '56px'
+          : '74px'
+        : '';
     letterCard.style.width = cardLayout.customWidthPx
       ? `min(92vw, ${cardLayout.customWidthPx}px)`
       : '100%';
@@ -1102,25 +1190,28 @@ function bootGiftLabRecipient(): void {
       ? `${cardLayout.customHeightPx}px`
       : '';
     const cardShiftY = Math.round(cardLayout.offsetY * 1.4);
+    const cardScale = cardLayout.scale ?? 1;
     letterCard.style.translate = cardShiftY !== 0 ? `0 ${cardShiftY}px` : '';
+    letterCard.style.scale = cardScale !== 1 ? String(cardScale) : '';
+    letterCard.style.transformOrigin = 'center center';
 
     if (isMinimalistTheme) {
       letterHead.style.padding = cardLayout.padding === 'compact' ? '16px 22px 8px 36px' : '22px 28px 10px 42px';
       letterDivider.style.margin = '0 22px 0 42px';
       letterBody.style.padding = isPortrait ? '18px 24px 20px 36px' : '24px 36px 26px 44px';
-      letterFoot.style.padding = cardLayout.padding === 'compact' ? '8px 22px 14px 36px' : '10px 28px 18px 42px';
+      finaleSpacerFoot.style.padding = cardLayout.padding === 'compact' ? '6px 22px' : '10px 28px';
     } else if (cardLayout.padding === 'compact') {
       letterHead.style.padding = '12px 18px 6px';
       letterBody.style.padding = isCompactLandscape ? '10px 16px' : '12px 18px';
-      letterFoot.style.padding = '4px 18px 10px';
+      finaleSpacerFoot.style.padding = '4px 18px';
     } else if (cardLayout.padding === 'spacious') {
       letterHead.style.padding = isPortrait ? '18px 22px 10px' : '22px 32px 12px';
       letterBody.style.padding = isPortrait ? '20px 24px' : '26px 36px';
-      letterFoot.style.padding = isPortrait ? '8px 22px 16px' : '10px 32px 20px';
+      finaleSpacerFoot.style.padding = isPortrait ? '8px 22px' : '10px 32px';
     } else {
       letterHead.style.padding = '';
       letterBody.style.padding = fDecor.motif !== 'none' ? '20px 32px' : '';
-      letterFoot.style.padding = '';
+      finaleSpacerFoot.style.padding = '';
     }
 
     const style = resolveEffectiveFinalTextStyle(payload, activeDevice);
@@ -1180,9 +1271,16 @@ function bootGiftLabRecipient(): void {
     }
 
     const finalePx = Math.min(
-      isCompactLandscape ? 19 : isPortrait ? 22 : 27,
-      Math.max(15, Math.round((style.fontSize + fontMeta.opticalSizeBoost) * 1.15)),
+      isCompactLandscape ? 19 : isPortrait ? 24 : 30,
+      Math.max(12, Math.round((style.fontSize + fontMeta.opticalSizeBoost) * 1.15)),
     );
+    const headerPx = Math.max(
+      12,
+      Math.min(isPortrait ? 15 : 20, Math.round(finalePx * 0.68)),
+    );
+    const signaturePx = Math.max(15, Math.min(24, Math.round(finalePx * 0.8)));
+
+    letterKicker.style.fontSize = `${headerPx}px`;
     letterMsg.style.fontFamily = fontMeta.cssFamily;
     letterMsg.style.fontWeight = style.fontWeight === 'semibold' ? '600' : '400';
     letterMsg.style.fontSize = `${finalePx}px`;
@@ -1192,59 +1290,122 @@ function bootGiftLabRecipient(): void {
 
     if (signatureText) {
       letterSign.style.fontFamily = fontMeta.cssFamily;
+      letterSign.style.fontSize = `${signaturePx}px`;
       letterSign.style.color = textColor;
       letterSign.style.textShadow = shadowCss;
     }
   }
   applyFinaleTextFormatting();
 
-  const dock = el('div', 'gl-dock gl-hidden');
-  const starPillsWrap = el('div', 'gl-star-pills');
-  normalizedStars.forEach((s, idx) => {
-    const pill = el('button', 'gl-star-pill', String(idx + 1));
-    pill.type = 'button';
-    pill.title = s.title || `Звезда ${idx + 1}`;
-    pill.style.borderBottom = `2px solid ${
-      GLOW_COLORS[resolveStarGlowHex(s, payload.globalGlowColor)].hex
-    }`;
-    pill.addEventListener('click', () => {
-      navigateStory({ type: 'index', index: idx });
-    });
-    starPillsWrap.appendChild(pill);
-  });
+  function syncLetterToggleUI(): void {
+    const isOpenNow =
+      (phase === 'constellation' && letterOpen) ||
+      (phase === 'starStory' && quickLetterOpen);
+    letterBackdrop.classList.toggle('gl-hidden', !isOpenNow);
+    storyGrid.classList.toggle('gl-story-dimmed', phase === 'starStory' && quickLetterOpen);
 
-  const dockLetterBtn = el('button', 'gl-btn gl-btn-amber', 'Скрыть письмо');
-  dockLetterBtn.type = 'button';
+    storyLetterBtn.innerHTML = '';
+    storyLetterBtn.appendChild(createEnvelopeSvg(quickLetterOpen));
+    storyLetterBtn.classList.toggle('gl-icon-btn-active', quickLetterOpen);
+    storyLetterBtn.setAttribute('aria-pressed', String(quickLetterOpen));
+    storyLetterBtn.setAttribute(
+      'aria-label',
+      quickLetterOpen ? 'Вернуться к звёздам' : 'Открыть финальное письмо',
+    );
+    storyLetterBtn.title = quickLetterOpen
+      ? 'Вернуться к звёздам'
+      : 'Открыть финальное письмо';
+
+    constellationLetterBtn.innerHTML = '';
+    constellationLetterBtn.appendChild(createEnvelopeSvg(letterOpen));
+    constellationLetterBtn.classList.toggle('gl-icon-btn-active', letterOpen);
+    constellationLetterBtn.setAttribute('aria-pressed', String(letterOpen));
+    constellationLetterBtn.setAttribute(
+      'aria-label',
+      letterOpen ? 'Скрыть письмо и любоваться созвездием' : 'Открыть финальное письмо',
+    );
+    constellationLetterBtn.title = letterOpen
+      ? 'Скрыть письмо'
+      : 'Открыть финальное письмо';
+  }
 
   function setLetterOpen(open: boolean): void {
     letterOpen = open;
-    letterBackdrop.classList.toggle('gl-hidden', phase !== 'constellation' || !letterOpen);
-    dockLetterBtn.textContent = letterOpen ? 'Скрыть письмо' : 'Открыть письмо';
-    dockLetterBtn.classList.toggle('gl-btn-amber', letterOpen);
-    dockLetterBtn.classList.toggle('gl-btn-accent', !letterOpen);
+    syncLetterToggleUI();
   }
 
-  letterCloseBtn.addEventListener('click', () => setLetterOpen(false));
-  letterHideLink.addEventListener('click', () => setLetterOpen(false));
-  dockLetterBtn.addEventListener('click', () => setLetterOpen(!letterOpen));
+  function setQuickLetterOpen(open: boolean): void {
+    quickLetterOpen = open;
+    syncLetterToggleUI();
+  }
 
-  const resetBtn = el('button', 'gl-btn gl-btn-ghost', 'Сброс');
-  resetBtn.type = 'button';
-  const dockMotionBtn = el(
-    'button',
-    'gl-btn gl-btn-ghost',
-    reducedMotion ? 'Вращение: выкл' : 'Меньше движения',
-  );
-  dockMotionBtn.type = 'button';
-  dock.append(starPillsWrap, dockLetterBtn, resetBtn, dockMotionBtn);
+  storyLetterBtn.addEventListener('click', () => {
+    if (phase === 'starStory') setQuickLetterOpen(!quickLetterOpen);
+  });
+
+  constellationLetterBtn.addEventListener('click', () => {
+    if (phase === 'constellation') setLetterOpen(!letterOpen);
+  });
+
+  letterCloseBtn.addEventListener('click', () => {
+    if (phase === 'starStory') {
+      setQuickLetterOpen(false);
+    } else {
+      setLetterOpen(false);
+    }
+  });
+
+  // Swipe horizontal or downward on letterCard to dismiss back to stars / constellation
+  let letterSwipeActive = false;
+  let letterSwipePointerId: number | null = null;
+  let letterSwipeStartX = 0;
+  let letterSwipeStartY = 0;
+  let letterSwipeScrollTop = 0;
+
+  letterCard.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (shouldIgnoreSwipeTarget(e.target, e.pointerType)) return;
+    if (hasActiveTextSelection()) return;
+    letterSwipeActive = true;
+    letterSwipePointerId = e.pointerId;
+    letterSwipeStartX = e.clientX;
+    letterSwipeStartY = e.clientY;
+    letterSwipeScrollTop = letterBody.scrollTop;
+  });
+
+  letterCard.addEventListener('pointerup', (e) => {
+    if (!letterSwipeActive || letterSwipePointerId !== e.pointerId) return;
+    letterSwipeActive = false;
+    letterSwipePointerId = null;
+    if (hasActiveTextSelection()) return;
+
+    const dx = e.clientX - letterSwipeStartX;
+    const dy = e.clientY - letterSwipeStartY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const isHorizontalSwipe = absX >= 55 && absX > absY * 1.2;
+    const isDownwardSwipe = dy >= 65 && absY > absX * 1.2 && letterSwipeScrollTop <= 2;
+    if (isHorizontalSwipe || isDownwardSwipe) {
+      if (phase === 'starStory') {
+        setQuickLetterOpen(false);
+      } else {
+        setLetterOpen(false);
+      }
+    }
+  });
+
+  const resetLetterSwipe = () => {
+    letterSwipeActive = false;
+    letterSwipePointerId = null;
+  };
+  letterCard.addEventListener('pointercancel', resetLetterSwipe);
 
   // Audio player
   let audioEl: HTMLAudioElement | null = null;
   let musicPlaying = false;
   let musicMuted = false;
   let audioBlocked = false;
-  let volume = 0.58;
-  let dockSoundBtn: HTMLButtonElement | null = null;
+  const volume = 0.58;
 
   if (payload.musicPath) {
     audioEl = document.createElement('audio');
@@ -1255,34 +1416,11 @@ function bootGiftLabRecipient(): void {
     transSoundBtn.classList.remove('gl-hidden');
     storySoundBtn.classList.remove('gl-hidden');
 
-    dockSoundBtn = el('button', 'gl-btn gl-btn-accent', 'Звук вкл');
-    dockSoundBtn.type = 'button';
-
-    const volInput = document.createElement('input');
-    volInput.type = 'range';
-    volInput.min = '0';
-    volInput.max = '1';
-    volInput.step = '0.05';
-    volInput.value = String(volume);
-    volInput.className = 'gl-vol';
-    volInput.setAttribute('aria-label', 'Громкость музыки');
-
-    dock.append(dockSoundBtn, volInput);
-
-    dockSoundBtn.addEventListener('click', toggleSound);
     transSoundBtn.addEventListener('click', toggleSound);
     storySoundBtn.addEventListener('click', toggleSound);
     audioManualBtn.addEventListener('click', () => {
       musicMuted = false;
       attemptPlayMusic();
-    });
-
-    volInput.addEventListener('input', () => {
-      volume = Number(volInput.value);
-      musicMuted = false;
-      if (!musicPlaying) attemptPlayMusic();
-      if (audioEl) audioEl.volume = volume;
-      syncSoundLabels();
     });
   }
 
@@ -1292,7 +1430,6 @@ function bootGiftLabRecipient(): void {
       : musicMuted || !musicPlaying
         ? 'Звук выкл'
         : 'Звук вкл';
-    if (dockSoundBtn) dockSoundBtn.textContent = label;
     transSoundBtn.textContent = label;
     storySoundBtn.textContent = label;
     audioBlockedBanner.classList.toggle('gl-hidden', !audioBlocked || phase === 'sealed');
@@ -1327,7 +1464,6 @@ function bootGiftLabRecipient(): void {
     syncSoundLabels();
   }
 
-  stage.appendChild(dock);
   root.appendChild(stage);
 
   function applyStoryTextFormatting(): void {
@@ -1361,7 +1497,10 @@ function bootGiftLabRecipient(): void {
       ? `${cardLayout.customHeightPx}px`
       : '';
     const storyShiftY = Math.round(cardLayout.offsetY * 0.7);
+    const cardScale = cardLayout.scale ?? 1;
     storyMotionWrap.style.translate = storyShiftY !== 0 ? `0 ${storyShiftY}px` : '';
+    storyMotionWrap.style.scale = cardScale !== 1 ? String(cardScale) : '';
+    storyMotionWrap.style.transformOrigin = 'center center';
     if (hasExplicitCardTheme) {
       if (isMinimalistTheme) {
         storyMotionWrap.style.padding =
@@ -1534,6 +1673,8 @@ function bootGiftLabRecipient(): void {
 
     storyBlock.style.width = `${style.widthPct}%`;
     storyBlock.style.marginLeft = `${marginLeftPct}%`;
+    const textShiftY = Math.round(style.offsetY * 0.32);
+    storyBlock.style.translate = textShiftY !== 0 ? `0 ${textShiftY}px` : '';
     storyBlock.style.textAlign = effectiveAlign;
     storyBlock.style.fontFamily = fontMeta.cssFamily;
     storyBlock.style.borderColor = '';
@@ -1585,7 +1726,8 @@ function bootGiftLabRecipient(): void {
 
     if (signatureText) {
       storySign.style.color = effectiveTextColor;
-      storySign.style.opacity = '0.78';
+      storySign.style.fontSize = `${Math.max(14, Math.min(22, Math.round(bodyPx * 0.8)))}px`;
+      storySign.style.opacity = '0.82';
       storySign.style.textShadow = shadowCss;
     }
   }
@@ -1689,7 +1831,9 @@ function bootGiftLabRecipient(): void {
       recipientPhase: phase,
       unlockedCount,
       finaleActive: phase === 'finalReveal' || phase === 'constellation' || finaleReached,
+      deviceMode: activeDevice,
       constellationLayout: resolveEffectiveConstellationLayout(payload, activeDevice),
+      constellationAnimation: payload.constellationAnimation ?? 'rotation',
       lowPerformance: window.innerWidth < 768,
       reducedMotion,
     });
@@ -1701,12 +1845,14 @@ function bootGiftLabRecipient(): void {
     sealed2DOverlay.classList.toggle('gl-hidden', !(next === 'sealed' && using2DFallback));
     transUi.classList.toggle('gl-hidden', next !== 'birthing' && next !== 'finalReveal');
     storyUi.classList.toggle('gl-hidden', next !== 'starStory');
+    constellationTitleWrap.classList.toggle('gl-hidden', next !== 'constellation');
+    constellationLetterBtn.classList.toggle('gl-hidden', next !== 'constellation');
+    quickLetterOpen = false;
     if (next === 'constellation') {
       setLetterOpen(true);
     } else {
       setLetterOpen(false);
     }
-    dock.classList.toggle('gl-hidden', next !== 'constellation');
 
     if (next === 'starStory') {
       renderStoryUI();
@@ -1925,7 +2071,17 @@ function bootGiftLabRecipient(): void {
   storyRight.addEventListener('lostpointercapture', resetSwipe);
 
   window.addEventListener('keydown', (e) => {
-    if (phase !== 'starStory') return;
+    if (e.key === 'Escape') {
+      if (phase === 'starStory' && quickLetterOpen) {
+        setQuickLetterOpen(false);
+        return;
+      }
+      if (phase === 'constellation' && letterOpen) {
+        setLetterOpen(false);
+        return;
+      }
+    }
+    if (phase !== 'starStory' || quickLetterOpen) return;
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target as HTMLElement | null;
     if (
@@ -1946,19 +2102,7 @@ function bootGiftLabRecipient(): void {
     }
   });
 
-  resetBtn.addEventListener('click', () => {
-    engine?.resetCamera();
-  });
-
-  function toggleMotionMode(): void {
-    reducedMotion = !reducedMotion;
-    stage.classList.toggle('gl-reduced', reducedMotion);
-    storyMotionBtn.textContent = reducedMotion ? 'Обычное движение' : 'Меньше движения';
-    dockMotionBtn.textContent = reducedMotion ? 'Вращение: выкл' : 'Меньше движения';
-    updateEngine();
-  }
-  storyMotionBtn.addEventListener('click', toggleMotionMode);
-  dockMotionBtn.addEventListener('click', toggleMotionMode);
+  // Keyboard & gesture listeners only (clean recipient experience)
 
   function create2DShapeSvg(shape: StarShapeId, hex: string, coreHex: string, sizePx: number): SVGSVGElement {
     const ns = 'http://www.w3.org/2000/svg';
@@ -2239,6 +2383,7 @@ function bootGiftLabRecipient(): void {
   }
 
   const handleViewportUpdate = () => {
+    applySealedComposition();
     if (phase === 'starStory') applyStoryTextFormatting();
     applyFinaleTextFormatting();
     updateEngine();
@@ -2261,7 +2406,9 @@ function bootGiftLabRecipient(): void {
       recipientPhase: 'sealed',
       unlockedCount: 0,
       finaleActive: false,
+      deviceMode: getActiveDevice(),
       constellationLayout: resolveEffectiveConstellationLayout(payload, getActiveDevice()),
+      constellationAnimation: payload.constellationAnimation ?? 'rotation',
       lowPerformance: window.innerWidth < 768,
       reducedMotion,
     },

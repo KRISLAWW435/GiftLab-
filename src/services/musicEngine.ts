@@ -1,4 +1,8 @@
-import type { MusicTrackId } from '../types/project';
+import { MUSIC_TRACKS, resolveMusicTrackName } from '../scene/paletteConfig';
+import type { ConstellationProject, MusicTrackId } from '../types/project';
+import { getAudioRecord } from './database';
+
+export const MAX_CUSTOM_AUDIO_BYTES = 10 * 1024 * 1024;
 
 /**
  * Generates seamless, royalty-free instrumental ambient WAV tracks offline
@@ -7,7 +11,38 @@ import type { MusicTrackId } from '../types/project';
  */
 
 const SAMPLE_RATE = 22050;
-const wavCache = new Map<Exclude<MusicTrackId, 'none'>, Blob>();
+const wavCache = new Map<MusicTrackId, Blob>();
+
+export function validateCustomAudioFile(file: File): string | null {
+  if (file.size > MAX_CUSTOM_AUDIO_BYTES) {
+    return 'Файл слишком большой. Максимальный размер аудио — 10 МБ.';
+  }
+  const lower = file.name.toLowerCase();
+  const hasValidExt = lower.endsWith('.mp3') || lower.endsWith('.wav');
+  const validMimes = new Set([
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/wav',
+    'audio/wave',
+    'audio/x-wav',
+  ]);
+  const hasValidMime = !file.type || validMimes.has(file.type.toLowerCase());
+  if (!hasValidExt && !validMimes.has(file.type.toLowerCase())) {
+    return 'Поддерживаются только аудиофайлы в формате MP3 или WAV.';
+  }
+  if (!hasValidExt && !hasValidMime) {
+    return 'Поддерживаются только аудиофайлы в формате MP3 или WAV.';
+  }
+  return null;
+}
+
+export function formatAudioTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const totalSec = Math.floor(seconds);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
 
 interface NoteEvent {
   time: number;
@@ -266,7 +301,14 @@ function buildGalaxyWaltzTrack(): Blob {
 }
 
 export function getMusicTrackBlob(trackId: MusicTrackId): Blob | null {
-  if (trackId === 'none') return null;
+  if (trackId === 'none' || trackId === 'custom') return null;
+  if (
+    trackId !== 'stardust' &&
+    trackId !== 'aurora_chimes' &&
+    trackId !== 'galaxy_waltz'
+  ) {
+    return null;
+  }
   const cached = wavCache.get(trackId);
   if (cached) return cached;
 
@@ -280,4 +322,98 @@ export function getMusicTrackBlob(trackId: MusicTrackId): Blob | null {
   }
   wavCache.set(trackId, blob);
   return blob;
+}
+
+export interface ResolvedPreviewAudio {
+  url: string;
+  name: string;
+  revokeOnDispose: boolean;
+}
+
+export async function resolveProjectMusicForPreview(
+  project: Pick<ConstellationProject, 'musicTrackId' | 'customMusicId' | 'customMusicName'>,
+): Promise<ResolvedPreviewAudio | null> {
+  if (project.musicTrackId === 'none') return null;
+
+  if (project.musicTrackId === 'custom') {
+    if (!project.customMusicId) return null;
+    const record = await getAudioRecord(project.customMusicId);
+    if (!record) return null;
+    return {
+      url: URL.createObjectURL(record.blob),
+      name: project.customMusicName?.trim() || record.fileName || 'Своя музыка',
+      revokeOnDispose: true,
+    };
+  }
+
+  const builtin = MUSIC_TRACKS.find((t) => t.id === project.musicTrackId);
+  if (builtin?.assetPath) {
+    return {
+      url: builtin.assetPath,
+      name: builtin.name,
+      revokeOnDispose: false,
+    };
+  }
+
+  const legacyBlob = getMusicTrackBlob(project.musicTrackId);
+  if (legacyBlob) {
+    return {
+      url: URL.createObjectURL(legacyBlob),
+      name: resolveMusicTrackName(project) ?? 'Фоновая музыка',
+      revokeOnDispose: true,
+    };
+  }
+
+  return null;
+}
+
+export interface ResolvedExportAudio {
+  blob: Blob;
+  fileName: string;
+  name: string;
+}
+
+export async function resolveProjectMusicForExport(
+  project: Pick<ConstellationProject, 'musicTrackId' | 'customMusicId' | 'customMusicName'>,
+): Promise<ResolvedExportAudio | null> {
+  if (project.musicTrackId === 'none') return null;
+
+  if (project.musicTrackId === 'custom' && project.customMusicId) {
+    const record = await getAudioRecord(project.customMusicId);
+    if (record) {
+      const lower = (record.fileName || '').toLowerCase();
+      const isWav = lower.endsWith('.wav') || record.mimeType.includes('wav');
+      return {
+        blob: record.blob,
+        fileName: isWav ? 'custom.wav' : 'custom.mp3',
+        name: project.customMusicName?.trim() || record.fileName || 'Своя музыка',
+      };
+    }
+    return null;
+  }
+
+  const builtin = MUSIC_TRACKS.find((t) => t.id === project.musicTrackId);
+  if (builtin?.assetPath && builtin.filename) {
+    const response = await fetch(builtin.assetPath);
+    if (!response.ok) {
+      throw new Error(`Не удалось загрузить встроенный трек ${builtin.name}`);
+    }
+    const blob = await response.blob();
+    return {
+      blob,
+      fileName: builtin.filename,
+      name: builtin.name,
+    };
+  }
+
+  const legacyBlob = getMusicTrackBlob(project.musicTrackId);
+  if (legacyBlob) {
+    return {
+      blob: legacyBlob,
+      fileName: `${project.musicTrackId}.wav`,
+      name: resolveMusicTrackName(project) ?? 'Фоновая музыка',
+    };
+  }
+
+  return null;
 }

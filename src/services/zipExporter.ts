@@ -1,7 +1,6 @@
 import JSZip from 'jszip';
 import { renderBuiltinIllustrationToBlob } from '../assets/illustrations';
 import {
-  MUSIC_TRACKS,
   resolveCardTheme,
   resolveStarShape,
   resolveStarTextStyle,
@@ -10,7 +9,7 @@ import {
 import type { BuiltinIllustrationId, ConstellationProject } from '../types/project';
 import { getImageBlob } from './database';
 import { bundleFontsForZip } from './localFonts';
-import { getMusicTrackBlob } from './musicEngine';
+import { resolveProjectMusicForExport } from './musicEngine';
 import runtimeBundle from '../standalone/runtime.bundle.txt?raw';
 
 function escapeHtmlText(str: string): string {
@@ -68,7 +67,7 @@ const STANDALONE_CSS = `
   /* Swipeable Borderless Star Story Experience */
   .gl-story-ui { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; pointer-events: none; overflow-x: hidden; }
   .gl-story-scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to left, rgba(6,9,24,0.78), rgba(6,9,24,0.36) 48%, transparent); }
-  .gl-story-top { position: relative; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 24px 6px; flex-shrink: 0; }
+  .gl-story-top { position: relative; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 24px 6px; flex-shrink: 0; }
   .gl-story-brand { font-size: 13px; color: rgba(203,213,225,0.9); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
   .gl-story-progress { pointer-events: auto; display: flex; align-items: center; gap: 8px; }
   .gl-dots { display: flex; align-items: center; gap: 4px; }
@@ -79,14 +78,15 @@ const STANDALONE_CSS = `
   .gl-progress-txt { font-size: 12px; font-weight: 600; color: #e2e8f0; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .gl-story-utils { pointer-events: auto; display: flex; align-items: center; gap: 6px; }
 
-  .gl-story-grid { position: relative; z-index: 10; flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 44% 56%; }
+  .gl-story-grid { position: relative; z-index: 10; flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 44% 56%; transition: opacity 280ms ease; }
+  .gl-story-grid.gl-story-dimmed { opacity: 0.1; pointer-events: none; }
   .gl-story-left { min-height: 0; pointer-events: none; }
   .gl-story-right { position: relative; pointer-events: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; display: flex; flex-direction: column; justify-content: space-between; padding: 12px 48px 22px 16px; }
   .gl-card-decor { position: absolute; z-index: 0; pointer-events: none; opacity: 0.78; }
   .gl-card-decor-svg { width: 104px; height: 104px; display: block; }
   @keyframes glStoryIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .gl-story-motion-wrap { position: relative; z-index: 10; flex: 1; min-height: 0; width: 100%; max-width: 560px; display: flex; flex-direction: column; transition: transform 220ms ease-out; }
-  .gl-story-paper { position: relative; overflow: hidden; border-radius: 24px; border: 1px solid rgba(255,255,255,0.2); padding: 16px 22px; backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); box-shadow: inset 0 1px 0 rgba(244,114,182,0.22), inset 0 0 20px rgba(255,255,255,0.08), 0 20px 40px rgba(0,0,0,0.4); }
+  .gl-story-motion-wrap { position: relative; z-index: 10; margin: auto 0; max-height: 100%; width: 100%; max-width: 560px; display: flex; flex-direction: column; transition: transform 220ms ease-out; }
+  .gl-story-paper { position: relative; overflow: hidden; border-radius: 26px; border: 1px solid rgba(255,255,255,0.2); padding: 16px 22px; backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); box-shadow: inset 0 1px 0 rgba(244,114,182,0.22), inset 0 0 20px rgba(255,255,255,0.08), 0 20px 40px rgba(0,0,0,0.4); }
   .gl-story-paper.gl-paper-light { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 20px 50px rgba(4,7,20,0.45); }
   .gl-story-content { position: relative; z-index: 2; flex: 1; min-height: 0; width: 100%; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; align-items: stretch; }
   .gl-story-spacer { flex-basis: 0; flex-shrink: 0; }
@@ -129,7 +129,7 @@ const STANDALONE_CSS = `
     from { opacity: 0; transform: translateY(130px) scale(0.88); }
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
-  .gl-letter-backdrop { position: fixed; inset: 0 0 80px 0; z-index: 22; display: flex; align-items: center; justify-content: center; padding: 48px 16px 14px; pointer-events: none; }
+  .gl-letter-backdrop { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; padding: 48px 16px 14px; pointer-events: none; }
   .gl-letter-card { pointer-events: auto; position: relative; width: 100%; max-width: min(92vw, 540px); border-radius: 26px; border: 1px solid rgba(255,255,255,0.2); overflow: hidden; display: flex; flex-direction: column; animation: glLetterEmerge 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
   .gl-reduced .gl-letter-card { animation: none; }
   .gl-letter-pattern { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
@@ -159,9 +159,20 @@ const STANDALONE_CSS = `
   .gl-hatched-divider-light { position: relative; z-index: 2; height: 12px; margin: 0 22px; border-radius: 4px; background-image: repeating-linear-gradient(-45deg, rgba(15,23,42,0.10) 0px, rgba(15,23,42,0.10) 2px, transparent 2px, transparent 7px); border-top: 1px solid rgba(15,23,42,0.12); opacity: 1; flex-shrink: 0; }
   .gl-diamond-band { position: relative; z-index: 2; height: 16px; margin: 0 22px; border-top: 1px solid rgba(255,255,255,0.28); border-bottom: 1px solid rgba(255,255,255,0.22); background-image: linear-gradient(135deg, rgba(255,255,255,0.14) 25%, transparent 25%), linear-gradient(225deg, rgba(255,255,255,0.14) 25%, transparent 25%), linear-gradient(45deg, rgba(255,255,255,0.12) 25%, transparent 25%), linear-gradient(315deg, rgba(255,255,255,0.12) 25%, transparent 25%); background-position: 8px 0, 8px 0, 0 0, 0 0; background-size: 16px 16px; opacity: 1; flex-shrink: 0; }
   .gl-minimal-kicker { font-size: 11px !important; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; }
-  .gl-letter-head { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 22px 8px; flex-shrink: 0; }
-  .gl-letter-kicker { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gl-letter-head { position: relative; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 22px 8px; flex-shrink: 0; }
+  .gl-letter-kicker { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
   .gl-letter-close { width: 32px; height: 32px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+  .gl-constellation-title-wrap { pointer-events: none; position: fixed; inset: 0 0 auto 0; z-index: 20; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 16px 64px 0; }
+  .gl-constellation-eyebrow { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.22em; opacity: 0.82; }
+  .gl-constellation-title { margin-top: 2px; font-size: clamp(17px, 2.8vw, 24px); font-weight: 700; letter-spacing: -0.015em; line-height: 1.28; color: #ffffff; max-width: min(80vw, 540px); white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+  .gl-constellation-rule { margin-top: 6px; height: 1px; width: 96px; opacity: 0.75; }
+  .gl-icon-btn { pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.24); background: rgba(11,8,22,0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #f8fafc; box-shadow: 0 8px 20px rgba(0,0,0,0.38); cursor: pointer; transition: background 150ms ease, border-color 150ms ease, transform 150ms ease; flex-shrink: 0; }
+  .gl-icon-btn:hover { background: rgba(11,8,22,0.82); border-color: rgba(255,255,255,0.44); }
+  .gl-icon-btn:active { transform: scale(0.95); }
+  .gl-icon-btn-active { background: rgba(245,158,11,0.25); border-color: rgba(252,211,77,0.6); color: #fef3c7; }
+  .gl-icon-btn-active:hover { background: rgba(245,158,11,0.35); border-color: rgba(252,211,77,0.78); }
+  .gl-letter-fab { position: fixed; top: 16px; right: 16px; z-index: 30; }
+  @media (min-width: 640px) { .gl-constellation-title-wrap { padding: 20px 96px 0; } .gl-icon-btn { width: 40px; height: 40px; } .gl-letter-fab { top: 20px; right: 24px; } }
   .gl-letter-divider { position: relative; z-index: 2; height: 1px; margin: 0 22px; opacity: 0.4; flex-shrink: 0; }
   .gl-letter-body { position: relative; z-index: 2; overflow-y: auto; overscroll-behavior: contain; padding: 18px 26px; max-height: 54dvh; }
   .gl-letter-inner { display: flex; flex-direction: column; gap: 12px; }
@@ -199,7 +210,7 @@ const STANDALONE_CSS = `
     .gl-story-brand { display: none; }
     .gl-story-grid { display: flex; flex-direction: column; }
     .gl-story-left { height: 32vh; min-height: 185px; max-height: 290px; flex-shrink: 0; }
-    .gl-story-right { flex: 1; padding: 4px 14px 16px; align-items: center; }
+    .gl-story-right { flex: 1; padding: 14px 16px 16px; align-items: center; }
     .gl-story-paper { padding: 12px 16px; }
     .gl-card-decor-svg { width: 80px; height: 80px; }
     .gl-story-motion-wrap { margin: 0 auto; }
@@ -275,16 +286,12 @@ export async function exportProjectToZip(
 
   let musicPath: string | null = null;
   let musicName: string | null = null;
-  if (project.musicTrackId !== 'none') {
-    const musicBlob = getMusicTrackBlob(project.musicTrackId);
-    if (musicBlob) {
-      const musicFolder = assetsFolder.folder('music')!;
-      const fileName = `${project.musicTrackId}.wav`;
-      musicFolder.file(fileName, musicBlob);
-      musicPath = `assets/music/${fileName}`;
-      musicName =
-        MUSIC_TRACKS.find((t) => t.id === project.musicTrackId)?.name ?? null;
-    }
+  const resolvedMusic = await resolveProjectMusicForExport(project);
+  if (resolvedMusic) {
+    const musicFolder = assetsFolder.folder('music')!;
+    musicFolder.file(resolvedMusic.fileName, resolvedMusic.blob);
+    musicPath = `assets/music/${resolvedMusic.fileName}`;
+    musicName = resolvedMusic.name;
   }
 
   const usedFontIds = new Set(
@@ -307,6 +314,7 @@ export async function exportProjectToZip(
     occasionLabel: project.occasionLabel,
     paletteId: project.paletteId,
     globalGlowColor: project.globalGlowColor,
+    constellationAnimation: project.constellationAnimation ?? 'rotation',
     cardTheme: project.cardTheme,
     cardColors: project.cardColors,
     envelopeSettings: project.envelopeSettings,
