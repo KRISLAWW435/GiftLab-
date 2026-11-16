@@ -10,7 +10,8 @@ export type EditableCardTarget =
   | 'illustration'
   | 'decor'
   | 'card'
-  | 'constellation';
+  | 'constellation'
+  | 'envelope';
 
 export type EditableTextField =
   | 'title'
@@ -19,7 +20,11 @@ export type EditableTextField =
   | 'finalMessage'
   | 'occasionLabel'
   | 'starTitle'
-  | 'starMessage';
+  | 'starMessage'
+  | 'envelopeKicker'
+  | 'envelopeHeadline'
+  | 'envelopeHint'
+  | 'envelopeCta';
 
 export interface PreviewJumpTarget {
   nonce: number;

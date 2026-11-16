@@ -54,10 +54,11 @@ export function PreviewWorkspace({
   return (
     <div
       data-testid="preview-workspace-root"
+      data-palette={project.paletteId}
       className={
         embedded
-          ? 'h-full w-full min-h-0 flex-1 overflow-hidden gl-cosmic-bg text-gl-text flex flex-col'
-          : 'gl-h-screen w-screen overflow-hidden gl-cosmic-bg text-gl-text flex flex-col'
+          ? 'h-full w-full min-h-0 flex-1 overflow-hidden bg-transparent text-gl-text flex flex-col'
+          : 'gl-h-screen w-screen overflow-hidden bg-transparent text-gl-text flex flex-col'
       }
     >
       {/* Top Recipient Preview Control Bar */}

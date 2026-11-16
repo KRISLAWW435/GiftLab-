@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { EnvelopeSettings } from '../types/project';
 import type { CosmicPaletteConfig, GlowColorConfig } from './paletteConfig';
 
 export class EnvelopeProp {
@@ -46,6 +47,7 @@ export class EnvelopeProp {
     palette: CosmicPaletteConfig,
     glow: GlowColorConfig,
     glowTex: THREE.Texture,
+    envelopeSettings?: EnvelopeSettings,
   ) {
     // 1. Primary beveled envelope body
     const bodyShape = new THREE.Shape();
@@ -258,22 +260,52 @@ export class EnvelopeProp {
     this.burstPoints.visible = false;
     this.burstPoints.frustumCulled = false;
     this.group.add(this.burstPoints);
+    if (envelopeSettings) {
+      this.setPaletteAndGlow(palette, glow, envelopeSettings);
+    }
   }
 
   public setPaletteAndGlow(
     palette: CosmicPaletteConfig,
     glow: GlowColorConfig,
+    envelopeSettings?: EnvelopeSettings,
   ): void {
-    this.bodyMat.color.set(palette.midColor);
-    this.bodyMat.emissive.set(palette.nebulaPrimary);
-    this.trimMat.color.set(palette.deepColor);
-    this.trimMat.emissive.set(palette.nebulaSecondary);
-    this.goldMat.emissive.set(glow.haloHex);
-    this.sealStarMat.color.set(glow.coreHex);
-    this.sealStarMat.emissive.set(glow.hex);
-    this.sealHaloMat.color.set(glow.hex);
-    this.innerGlowMat.color.set(glow.coreHex);
-    this.burstMat.color.set(glow.hex);
+    const customEnv = envelopeSettings?.envelopeColor;
+    if (customEnv) {
+      const envBase = new THREE.Color(customEnv);
+      const envTrim = envBase.clone().multiplyScalar(0.76);
+      const envGlow = envBase.clone().multiplyScalar(0.32);
+      this.bodyMat.color.copy(envBase);
+      this.bodyMat.emissive.copy(envGlow);
+      this.trimMat.color.copy(envTrim);
+      this.trimMat.emissive.copy(envGlow);
+    } else {
+      this.bodyMat.color.set(palette.midColor);
+      this.bodyMat.emissive.set(palette.nebulaPrimary);
+      this.trimMat.color.set(palette.deepColor);
+      this.trimMat.emissive.set(palette.nebulaSecondary);
+    }
+
+    const customSeal = envelopeSettings?.sealColor;
+    if (customSeal) {
+      const sealBase = new THREE.Color(customSeal);
+      const sealCore = sealBase.clone().lerp(new THREE.Color('#ffffff'), 0.42);
+      this.goldMat.color.copy(sealBase);
+      this.goldMat.emissive.copy(sealBase);
+      this.sealStarMat.color.copy(sealCore);
+      this.sealStarMat.emissive.copy(sealBase);
+      this.sealHaloMat.color.copy(sealBase);
+      this.innerGlowMat.color.copy(sealCore);
+      this.burstMat.color.copy(sealBase);
+    } else {
+      this.goldMat.color.set('#fde68a');
+      this.goldMat.emissive.set(glow.haloHex);
+      this.sealStarMat.color.set(glow.coreHex);
+      this.sealStarMat.emissive.set(glow.hex);
+      this.sealHaloMat.color.set(glow.hex);
+      this.innerGlowMat.color.set(glow.coreHex);
+      this.burstMat.color.set(glow.hex);
+    }
   }
 
   public setHovered(hovered: boolean): void {

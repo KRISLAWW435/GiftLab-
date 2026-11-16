@@ -8,11 +8,11 @@ import {
   Image as ImageIcon,
   ImagePlus,
   LayoutTemplate,
+  Mail,
   Maximize,
   Minimize,
   Monitor,
   Move,
-  Palette,
   RotateCcw,
   Smartphone,
   Sparkles,
@@ -21,64 +21,60 @@ import {
 import { BUILTIN_ILLUSTRATIONS, BuiltinIllustration } from '../assets/illustrations';
 import type { EditableCardTarget, EditableTextField } from '../preview/previewProtocol';
 import {
-  CARD_DECOR_MOTIFS,
   DARK_CARD_TEXT_COLORS,
   DEFAULT_CARD_LAYOUT,
+  DEFAULT_ENVELOPE_TEXTS,
   DEFAULT_STAR_IMAGE_SETTINGS,
+  ENVELOPE_COLOR_SWATCHES,
   GLOW_COLORS,
   LIGHT_PAPER_TEXT_COLORS,
   MESSAGE_FONTS,
   MESSAGE_FONT_CATEGORIES,
   OCCASION_PRESETS,
+  SEAL_COLOR_SWATCHES,
   buildProjectCardDevicePatch,
-  buildProjectFinalDecorDevicePatch,
   buildProjectFinalTextDevicePatch,
-  buildStarDecorDevicePatch,
   buildStarIllustrationDevicePatch,
   buildStarTextDevicePatch,
-  getDefaultDeviceDecorLayout,
   getDefaultDeviceIllustrationLayout,
   getDefaultDeviceTextLayout,
   resetDeviceLayoutInProject,
   resolveCardColors,
   resolveEffectiveCardLayout,
-  resolveEffectiveFinalDecor,
   resolveEffectiveFinalTextStyle,
   resolveEffectiveIllustrationLayout,
-  resolveEffectiveStarDecor,
   resolveEffectiveStarTextStyle,
-  resolveStarGlowHex,
+  resolveEnvelopeSettings,
   resolveStarImageSettings,
+  sanitizeEnvelopeSettings,
 } from '../scene/paletteConfig';
 import { saveImageBlob } from '../services/database';
 import { processUploadedImage } from '../services/imageProcessor';
 import type {
-  CardDecorMotif,
   CardPaddingPreset,
   CardVerticalAlign,
   CardWidthPreset,
   ConstellationProject,
   ConstellationStar,
   DeviceCardLayout,
+  EnvelopeSettings,
   MessageTextAccent,
   MessageTextAlign,
   MessageTextShadow,
   MessageTextWeight,
   OccasionId,
   RecipientPhase,
-  StarDecorSettings,
   StarIllustrationLayout,
   StarIllustrationRef,
   StarImageFitMode,
   StarImageSettings,
   StarTextStyle,
 } from '../types/project';
-import { CardDecorView } from './CardDecorView';
 import { CardLibraryPanel } from './CardLibraryPanel';
 import type { PreviewDeviceId } from './LivePreviewStage';
 import { StarIllustrationView } from './StarIllustrationView';
 
-export type CardEditorTab = 'theme' | 'text' | 'illustration' | 'decor' | 'card';
+export type CardEditorTab = 'theme' | 'text' | 'illustration' | 'card';
 
 interface CardEditorPanelProps {
   project: ConstellationProject;
@@ -89,7 +85,10 @@ interface CardEditorPanelProps {
   focusedField?: EditableTextField | null;
   onChangeDevice: (device: PreviewDeviceId) => void;
   onChangeTab: (tab: CardEditorTab, target?: EditableCardTarget) => void;
-  onSelectCardTargetView: (phase: 'constellation' | 'starStory', starIndex?: number) => void;
+  onSelectCardTargetView: (
+    phase: 'sealed' | 'constellation' | 'starStory',
+    starIndex?: number,
+  ) => void;
   onPatchProject: (patch: Partial<ConstellationProject>) => void;
   onPatchStar: (starId: string, patch: Partial<ConstellationStar>) => void;
   onResetDeviceLayout: (nextProject: ConstellationProject) => void;
@@ -121,18 +120,13 @@ export function CardEditorPanel({
   const [appliedAllNotice, setAppliedAllNotice] = useState(false);
   const [resetLayoutNotice, setResetLayoutNotice] = useState(false);
 
-  const isFinaleCard = cardPhase !== 'starStory';
+  const isEnvelopePhase = cardPhase === 'sealed';
+  const isFinaleCard = cardPhase === 'constellation' || cardPhase === 'finalReveal';
   const safeStarIndex = Math.max(
     0,
     Math.min(Math.max(0, project.stars.length - 1), cardStarIndex),
   );
   const activeStar = project.stars[safeStarIndex] ?? project.stars[0];
-
-  const activeGlow = isFinaleCard
-    ? GLOW_COLORS[project.globalGlowColor]
-    : activeStar
-      ? GLOW_COLORS[resolveStarGlowHex(activeStar, project.globalGlowColor)]
-      : GLOW_COLORS[project.globalGlowColor];
 
   const activeTextStyle = isFinaleCard
     ? resolveEffectiveFinalTextStyle(project, device)
@@ -140,15 +134,26 @@ export function CardEditorPanel({
 
   const activeIlluLayout = resolveEffectiveIllustrationLayout(activeStar, device);
   const activeImgSettings = resolveStarImageSettings(activeStar);
-  const activeDecor = isFinaleCard
-    ? resolveEffectiveFinalDecor(project, device)
-    : resolveEffectiveStarDecor(activeStar, device);
   const activeCardLayout = resolveEffectiveCardLayout(project, device);
+  const resolvedEnvelope = resolveEnvelopeSettings(project);
+  const paletteGlow = GLOW_COLORS[project.globalGlowColor] ?? GLOW_COLORS.gold;
 
   const resolvedCardColors = resolveCardColors(project);
   const orderedTextColors = resolvedCardColors.isLightPaper
     ? [...LIGHT_PAPER_TEXT_COLORS, ...DARK_CARD_TEXT_COLORS]
     : [...DARK_CARD_TEXT_COLORS, ...LIGHT_PAPER_TEXT_COLORS];
+
+  const updateEnvelopeSettings = (patch: Partial<EnvelopeSettings>) => {
+    const next: EnvelopeSettings = {
+      ...project.envelopeSettings,
+      ...patch,
+    };
+    onPatchProject({ envelopeSettings: next });
+  };
+
+  const resetEnvelopeSettings = () => {
+    onPatchProject({ envelopeSettings: sanitizeEnvelopeSettings(undefined) });
+  };
 
   const updateActiveTextStyle = (patch: Partial<StarTextStyle>) => {
     if (isFinaleCard) {
@@ -277,24 +282,18 @@ export function CardEditorPanel({
     }
   };
 
-  const updateActiveDecor = (patch: Partial<StarDecorSettings>) => {
-    if (isFinaleCard) {
-      onPatchProject(buildProjectFinalDecorDevicePatch(project, device, patch));
-    } else if (activeStar) {
-      onPatchStar(activeStar.id, buildStarDecorDevicePatch(activeStar, device, patch));
-    }
-  };
-
-  const resetActiveDecor = () => {
-    updateActiveDecor(getDefaultDeviceDecorLayout(device));
-  };
-
   const updateActiveCardLayout = (patch: Partial<DeviceCardLayout>) => {
     onPatchProject(buildProjectCardDevicePatch(project, device, patch));
   };
 
   const resetActiveCardLayout = () => {
-    onPatchProject(buildProjectCardDevicePatch(project, device, DEFAULT_CARD_LAYOUT[device]));
+    onPatchProject(
+      buildProjectCardDevicePatch(project, device, {
+        ...DEFAULT_CARD_LAYOUT[device],
+        customWidthPx: undefined,
+        customHeightPx: undefined,
+      }),
+    );
   };
 
   const handleResetDeviceLayout = () => {
@@ -347,6 +346,16 @@ export function CardEditorPanel({
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
           <button
             type="button"
+            data-testid="card-view-envelope-pill"
+            data-selected={isEnvelopePhase}
+            onClick={() => onSelectCardTargetView('sealed')}
+            className="gl-choice px-2.5 py-1 text-[11px] font-semibold shrink-0 inline-flex items-center gap-1"
+          >
+            <Mail className="w-3 h-3 text-violet-300" />
+            <span>Конверт</span>
+          </button>
+          <button
+            type="button"
             data-testid="card-view-finale-pill"
             data-selected={isFinaleCard}
             onClick={() => onSelectCardTargetView('constellation')}
@@ -356,7 +365,7 @@ export function CardEditorPanel({
             <span>Финал</span>
           </button>
           {project.stars.map((s, idx) => {
-            const active = !isFinaleCard && safeStarIndex === idx;
+            const active = cardPhase === 'starStory' && safeStarIndex === idx;
             return (
               <button
                 key={s.id}
@@ -373,43 +382,243 @@ export function CardEditorPanel({
           })}
         </div>
 
-        {/* 5 Clean Card Editing Tabs */}
-        <div className="grid grid-cols-5 gap-1">
-          {(
-            [
-              { id: 'theme', label: 'Темы', icon: LayoutTemplate, target: 'card' as EditableCardTarget },
-              { id: 'text', label: 'Текст', icon: Type, target: 'text' as EditableCardTarget },
-              { id: 'illustration', label: 'Фото', icon: ImageIcon, target: 'illustration' as EditableCardTarget },
-              { id: 'decor', label: 'Декор', icon: Palette, target: 'decor' as EditableCardTarget },
-              { id: 'card', label: 'Макет', icon: Frame, target: 'card' as EditableCardTarget },
-            ] as const
-          ).map((tab) => {
-            const Icon = tab.icon;
-            const selected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                data-testid={`card-tab-${tab.id}`}
-                data-selected={selected}
-                onClick={() => {
-                  onChangeTab(tab.id, tab.target);
-                  if (tab.id === 'illustration' && isFinaleCard) {
-                    onSelectCardTargetView('starStory', safeStarIndex);
-                  }
-                }}
-                className="gl-tab !min-h-[42px] !px-1 !py-1.5 flex flex-col items-center justify-center gap-0.5 text-[11px]"
-              >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate max-w-full">{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* 4 Clean Card Editing Tabs (shown when editing Final Card or Star Cards) */}
+        {!isEnvelopePhase && (
+          <div className="grid grid-cols-4 gap-1">
+            {(
+              [
+                { id: 'theme', label: 'Темы', icon: LayoutTemplate, target: 'card' as EditableCardTarget },
+                { id: 'text', label: 'Текст', icon: Type, target: 'text' as EditableCardTarget },
+                { id: 'illustration', label: 'Фото', icon: ImageIcon, target: 'illustration' as EditableCardTarget },
+                { id: 'card', label: 'Макет', icon: Frame, target: 'card' as EditableCardTarget },
+              ] as const
+            ).map((tab) => {
+              const Icon = tab.icon;
+              const selected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  data-testid={`card-tab-${tab.id}`}
+                  data-selected={selected}
+                  onClick={() => {
+                    onChangeTab(tab.id, tab.target);
+                    if (tab.id === 'illustration' && isFinaleCard) {
+                      onSelectCardTargetView('starStory', safeStarIndex);
+                    }
+                  }}
+                  className="gl-tab !min-h-[42px] !px-1 !py-1.5 flex flex-col items-center justify-center gap-0.5 text-[11px]"
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate max-w-full">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
+      {/* ENVELOPE MODE: Customization of the Sealed Greeting Screen */}
+      {isEnvelopePhase && (
+        <div data-testid="envelope-editor-panel" className="space-y-3.5">
+          <div className="rounded-xl border border-violet-300/25 bg-violet-500/10 px-3 py-2.5 text-xs text-gl-text-secondary leading-snug">
+            Нажми на любую надпись или кнопку прямо на конверте слева, чтобы поправить текст, или настрой цвета ниже.
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-gl-text">Тексты на конверте</span>
+              <button
+                type="button"
+                data-testid="envelope-reset-btn"
+                onClick={resetEnvelopeSettings}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Сброс
+              </button>
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-gl-text-muted block">Подпись сверху</span>
+              <input
+                type="text"
+                maxLength={80}
+                value={project.envelopeSettings?.kickerText ?? ''}
+                data-testid="envelope-input-kicker"
+                onChange={(e) => updateEnvelopeSettings({ kickerText: e.target.value })}
+                placeholder={resolvedEnvelope.kickerText}
+                className={`gl-input text-[13px] ${
+                  focusedField === 'envelopeKicker' ? 'ring-2 ring-gl-accent-light' : ''
+                }`}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-gl-text-muted block">Заголовок конверта</span>
+              <input
+                type="text"
+                maxLength={120}
+                value={project.envelopeSettings?.headlineText ?? ''}
+                data-testid="envelope-input-headline"
+                onChange={(e) => updateEnvelopeSettings({ headlineText: e.target.value })}
+                placeholder={resolvedEnvelope.headlineText}
+                className={`gl-input text-[13px] ${
+                  focusedField === 'envelopeHeadline' ? 'ring-2 ring-gl-accent-light' : ''
+                }`}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-gl-text-muted block">Подсказка внизу</span>
+              <input
+                type="text"
+                maxLength={120}
+                value={project.envelopeSettings?.hintText ?? ''}
+                data-testid="envelope-input-hint"
+                onChange={(e) => updateEnvelopeSettings({ hintText: e.target.value })}
+                placeholder={DEFAULT_ENVELOPE_TEXTS.hintText}
+                className={`gl-input text-[13px] ${
+                  focusedField === 'envelopeHint' ? 'ring-2 ring-gl-accent-light' : ''
+                }`}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs text-gl-text-muted block">Текст на кнопке</span>
+              <input
+                type="text"
+                maxLength={50}
+                value={project.envelopeSettings?.ctaText ?? ''}
+                data-testid="envelope-input-cta"
+                onChange={(e) => updateEnvelopeSettings({ ctaText: e.target.value })}
+                placeholder={DEFAULT_ENVELOPE_TEXTS.ctaText}
+                className={`gl-input text-[13px] ${
+                  focusedField === 'envelopeCta' ? 'ring-2 ring-gl-accent-light' : ''
+                }`}
+              />
+            </label>
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-gl-text-secondary">Цвет конверта</span>
+                {project.envelopeSettings?.envelopeColor && (
+                  <button
+                    type="button"
+                    onClick={() => updateEnvelopeSettings({ envelopeColor: undefined })}
+                    className="text-[11px] text-gl-accent-light hover:text-gl-text cursor-pointer"
+                  >
+                    По умолчанию
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {ENVELOPE_COLOR_SWATCHES.map((sw) => {
+                  const active =
+                    (project.envelopeSettings?.envelopeColor ?? '').toUpperCase() ===
+                    sw.hex.toUpperCase();
+                  return (
+                    <button
+                      key={sw.hex}
+                      type="button"
+                      title={sw.name}
+                      aria-label={sw.name}
+                      data-testid={`envelope-color-${sw.hex.slice(1)}`}
+                      data-selected={active}
+                      onClick={() => updateEnvelopeSettings({ envelopeColor: sw.hex })}
+                      className={`w-7 h-7 rounded-lg border transition-transform cursor-pointer ${
+                        active
+                          ? 'border-gl-accent-light scale-110 ring-2 ring-gl-accent/45'
+                          : 'border-white/25 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: sw.hex }}
+                    />
+                  );
+                })}
+                <label className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2 h-7 text-[11px] text-gl-text-secondary cursor-pointer hover:border-white/30">
+                  <input
+                    type="color"
+                    value={project.envelopeSettings?.envelopeColor ?? '#ECEAF8'}
+                    aria-label="Свой цвет конверта"
+                    onChange={(e) =>
+                      updateEnvelopeSettings({ envelopeColor: e.target.value.toUpperCase() })
+                    }
+                    className="w-4 h-4 bg-transparent border-0 p-0 cursor-pointer"
+                  />
+                  <span>Свой</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-white/10">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-gl-text-secondary">
+                  Печать и звёздочка
+                </span>
+                {project.envelopeSettings?.sealColor && (
+                  <button
+                    type="button"
+                    onClick={() => updateEnvelopeSettings({ sealColor: undefined })}
+                    className="text-[11px] text-gl-accent-light hover:text-gl-text cursor-pointer"
+                  >
+                    Из палитры
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {SEAL_COLOR_SWATCHES.map((sw) => {
+                  const active =
+                    (project.envelopeSettings?.sealColor ?? '').toUpperCase() ===
+                    sw.hex.toUpperCase();
+                  return (
+                    <button
+                      key={sw.hex}
+                      type="button"
+                      title={sw.name}
+                      aria-label={sw.name}
+                      data-testid={`seal-color-${sw.hex.slice(1)}`}
+                      data-selected={active}
+                      onClick={() => updateEnvelopeSettings({ sealColor: sw.hex })}
+                      className={`w-7 h-7 rounded-lg border transition-transform cursor-pointer ${
+                        active
+                          ? 'border-gl-accent-light scale-110 ring-2 ring-gl-accent/45'
+                          : 'border-white/25 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: sw.hex }}
+                    />
+                  );
+                })}
+                <label className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2 h-7 text-[11px] text-gl-text-secondary cursor-pointer hover:border-white/30">
+                  <input
+                    type="color"
+                    value={project.envelopeSettings?.sealColor ?? paletteGlow.hex}
+                    aria-label="Свой цвет печати конверта"
+                    onChange={(e) =>
+                      updateEnvelopeSettings({ sealColor: e.target.value.toUpperCase() })
+                    }
+                    className="w-4 h-4 bg-transparent border-0 p-0 cursor-pointer"
+                  />
+                  <span>Свой</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onSelectCardTargetView('constellation')}
+            className="gl-btn-secondary w-full !min-h-[40px] text-xs"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            Настроить финальную открытку
+          </button>
+        </div>
+      )}
+
       {/* TAB 1: Темы и цвета открытки */}
-      {activeTab === 'theme' && (
+      {!isEnvelopePhase && activeTab === 'theme' && (
         <CardLibraryPanel
           project={project}
           onChange={onPatchProject}
@@ -418,7 +627,7 @@ export function CardEditorPanel({
       )}
 
       {/* TAB 2: Тексты и оформление */}
-      {activeTab === 'text' && (
+      {!isEnvelopePhase && activeTab === 'text' && (
         <div className="space-y-3.5">
           <div className="rounded-xl border border-gl-accent/25 bg-gl-accent/10 px-3 py-2.5 text-xs text-gl-text-secondary leading-snug">
             Нажми на любой текст прямо на открытке слева, чтобы исправить его, или настрой ниже.
@@ -714,8 +923,8 @@ export function CardEditorPanel({
               </div>
               <input
                 type="range"
-                min={14}
-                max={24}
+                min={12}
+                max={28}
                 step={1}
                 value={activeTextStyle.fontSize}
                 aria-label="Размер текста на открытке"
@@ -748,7 +957,7 @@ export function CardEditorPanel({
               </div>
               <input
                 type="range"
-                min={56}
+                min={38}
                 max={100}
                 step={2}
                 value={activeTextStyle.widthPct}
@@ -828,12 +1037,36 @@ export function CardEditorPanel({
                 ))}
               </div>
             </div>
+
+            <div className="space-y-1.5 pt-1 border-t border-white/10">
+              <span className="text-[11px] text-gl-text-muted block">Оформление блока</span>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(
+                  [
+                    { id: 'none', label: 'Нет' },
+                    { id: 'line', label: 'Линия' },
+                    { id: 'frame', label: 'Рамка' },
+                    { id: 'quote', label: 'Черта' },
+                  ] as Array<{ id: MessageTextAccent; label: string }>
+                ).map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    data-selected={activeTextStyle.accent === a.id}
+                    onClick={() => updateActiveTextStyle({ accent: a.id })}
+                    className="gl-choice py-1.5 px-1 text-[11px] font-medium"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* TAB 3: Иллюстрация и загрузка фото на открытку */}
-      {activeTab === 'illustration' && activeStar && (
+      {!isEnvelopePhase && activeTab === 'illustration' && activeStar && (
         <div className="space-y-3.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] text-gl-text-muted leading-snug">
@@ -1063,138 +1296,8 @@ export function CardEditorPanel({
         </div>
       )}
 
-      {/* TAB 4: Декор и украшения открытки */}
-      {activeTab === 'decor' && (
-        <div className="space-y-3.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-gl-text-muted">
-              Украшения на открытке
-            </span>
-            <button
-              type="button"
-              onClick={resetActiveDecor}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer shrink-0"
-            >
-              <RotateCcw className="w-3 h-3" />
-              Сброс
-            </button>
-          </div>
-
-          <div className="space-y-1.5">
-            <span className="text-[11px] text-gl-text-muted block">Оформление текста</span>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(
-                [
-                  { id: 'none', label: 'Нет' },
-                  { id: 'line', label: 'Линия' },
-                  { id: 'frame', label: 'Рамка' },
-                  { id: 'quote', label: 'Черта' },
-                ] as Array<{ id: MessageTextAccent; label: string }>
-              ).map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  data-selected={activeTextStyle.accent === a.id}
-                  onClick={() => updateActiveTextStyle({ accent: a.id })}
-                  className="gl-choice py-1.5 px-1 text-[11px] font-medium"
-                >
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <span className="text-[11px] text-gl-text-muted block">Узор на открытке</span>
-            <div className="grid grid-cols-3 gap-1.5">
-              {CARD_DECOR_MOTIFS.map((item) => {
-                const active = activeDecor.motif === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    data-testid={`card-decor-motif-${item.id}`}
-                    data-selected={active}
-                    onClick={() =>
-                      updateActiveDecor({ motif: item.id as CardDecorMotif })
-                    }
-                    className="gl-choice p-2 flex flex-col items-center gap-1"
-                  >
-                    <div className="w-9 h-9 flex items-center justify-center">
-                      {item.id === 'none' ? (
-                        <span className="text-xs text-gl-text-muted">—</span>
-                      ) : (
-                        <CardDecorView
-                          motif={item.id}
-                          glowHex={activeGlow.hex}
-                          coreHex={activeGlow.coreHex}
-                          className="w-9 h-9"
-                        />
-                      )}
-                    </div>
-                    <span className="text-[11px] font-medium">{item.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {activeDecor.motif !== 'none' && (
-            <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
-              <span className="text-[11px] text-gl-text-secondary font-medium block">
-                Куда поставить узор (или перетащи на открытке)
-              </span>
-
-              <div className="grid grid-cols-2 gap-1.5">
-                {(
-                  [
-                    { label: 'Верх-лево', xPct: 14, yPct: 14 },
-                    { label: 'Верх-право', xPct: 84, yPct: 16 },
-                    { label: 'Низ-лево', xPct: 14, yPct: 80 },
-                    { label: 'Низ-право', xPct: 84, yPct: 78 },
-                  ] as const
-                ).map((presetPos) => (
-                  <button
-                    key={presetPos.label}
-                    type="button"
-                    onClick={() =>
-                      updateActiveDecor({
-                        xPct: presetPos.xPct,
-                        yPct: presetPos.yPct,
-                      })
-                    }
-                    className="gl-choice py-1.5 text-[11px] font-medium"
-                  >
-                    {presetPos.label}
-                  </button>
-                ))}
-              </div>
-
-              <label className="block space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-gl-text-muted">Размер узора</span>
-                  <span className="text-gl-text-muted">Меньше — Больше</span>
-                </div>
-                <input
-                  type="range"
-                  min={0.7}
-                  max={1.45}
-                  step={0.05}
-                  value={activeDecor.scale}
-                  aria-label="Размер декоративного элемента"
-                  onChange={(e) =>
-                    updateActiveDecor({ scale: Number(e.target.value) })
-                  }
-                  className="w-full accent-gl-accent cursor-pointer"
-                />
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 5: Макет и отступы открытки */}
-      {activeTab === 'card' && (
+      {/* TAB 4: Макет и размеры открытки */}
+      {!isEnvelopePhase && activeTab === 'card' && (
         <div className="space-y-3.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] text-gl-text-muted">
@@ -1237,9 +1340,26 @@ export function CardEditorPanel({
           </div>
 
           <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-3">
-            <span className="text-[11px] font-medium text-gl-text-secondary block">
-              Ширина открытки
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium text-gl-text-secondary">
+                Ширина открытки
+              </span>
+              {(activeCardLayout.customWidthPx !== undefined ||
+                activeCardLayout.customHeightPx !== undefined) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateActiveCardLayout({
+                      customWidthPx: undefined,
+                      customHeightPx: undefined,
+                    })
+                  }
+                  className="text-[11px] text-gl-accent-light hover:text-gl-text cursor-pointer"
+                >
+                  Сбросить ручной размер
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-1.5">
               {(
                 [
@@ -1252,14 +1372,36 @@ export function CardEditorPanel({
                   key={opt.id}
                   type="button"
                   data-testid={`card-width-${opt.id}`}
-                  data-selected={activeCardLayout.width === opt.id}
-                  onClick={() => updateActiveCardLayout({ width: opt.id })}
+                  data-selected={
+                    activeCardLayout.width === opt.id &&
+                    activeCardLayout.customWidthPx === undefined
+                  }
+                  onClick={() =>
+                    updateActiveCardLayout({
+                      width: opt.id,
+                      customWidthPx: undefined,
+                      customHeightPx: undefined,
+                    })
+                  }
                   className="gl-choice py-2 text-[11px] font-medium"
                 >
                   {opt.label}
                 </button>
               ))}
             </div>
+            {(activeCardLayout.customWidthPx !== undefined ||
+              activeCardLayout.customHeightPx !== undefined) && (
+              <p className="text-[11px] text-amber-200/85 tabular-nums">
+                Размер задан на холсте:{' '}
+                {activeCardLayout.customWidthPx
+                  ? `${activeCardLayout.customWidthPx}px`
+                  : 'авто'}{' '}
+                ×{' '}
+                {activeCardLayout.customHeightPx
+                  ? `${activeCardLayout.customHeightPx}px`
+                  : 'авто'}
+              </p>
+            )}
           </div>
 
           <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">

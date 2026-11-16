@@ -8,6 +8,7 @@ import type {
   CosmicPaletteId,
   DeviceConstellationLayout,
   EditorInteractionMode,
+  EnvelopeSettings,
   GlowColorId,
   RecipientPhase,
   StarConnection,
@@ -43,6 +44,7 @@ interface Constellation3DProps {
   lowPerformance?: boolean;
   reducedMotion?: boolean;
   constellationLayout?: DeviceConstellationLayout;
+  envelopeSettings?: EnvelopeSettings;
   force2DFallback?: boolean;
   playIntroOnMount?: boolean;
   startSealed?: boolean;
@@ -77,6 +79,7 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       lowPerformance = false,
       reducedMotion = false,
       constellationLayout,
+      envelopeSettings,
       force2DFallback = false,
       playIntroOnMount = false,
       startSealed = false,
@@ -141,6 +144,7 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       lowPerformance,
       reducedMotion,
       constellationLayout,
+      envelopeSettings,
     };
 
     const initialStateRef = useRef(sceneState);
@@ -226,11 +230,17 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
     }
 
     return (
-      <div
-        ref={mountRef}
-        className="relative w-full h-full overflow-hidden select-none"
-        aria-label="Трёхмерное созвездие"
-      />
+      <div className="relative w-full h-full overflow-hidden select-none">
+        <div
+          ref={mountRef}
+          className="relative w-full h-full overflow-hidden select-none"
+          aria-label="Трёхмерное созвездие"
+        />
+        <div
+          className="pointer-events-none absolute inset-0 z-[1] gl-scene-edge-blend"
+          aria-hidden="true"
+        />
+      </div>
     );
   },
 );

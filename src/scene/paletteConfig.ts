@@ -15,6 +15,7 @@ import type {
   DeviceDecorLayout,
   DeviceLayoutKey,
   DeviceTextLayout,
+  EnvelopeSettings,
   GlowColorId,
   MessageFontCategory,
   MessageFontId,
@@ -606,6 +607,7 @@ export const CARD_DECOR_MOTIFS: Array<{ id: CardDecorMotif; name: string }> = [
   { id: 'orbital', name: 'Орбита' },
   { id: 'hearts', name: 'Сердечки' },
   { id: 'corners', name: 'Уголки' },
+  { id: 'floral_corners', name: 'Веточки' },
   { id: 'soft_flowers', name: 'Цветы' },
   { id: 'petals', name: 'Лепестки' },
   { id: 'magic_rays', name: 'Лучи' },
@@ -617,10 +619,76 @@ export const VALID_CARD_DECOR_MOTIFS = new Set<CardDecorMotif>(
 
 export const DEFAULT_STAR_DECOR: StarDecorSettings = {
   motif: 'none',
-  xPct: 82,
-  yPct: 16,
-  scale: 1,
+  xPct: 90,
+  yPct: 14,
+  scale: 0.94,
 };
+
+export interface SafeDecorPresentation {
+  xPct: number;
+  yPct: number;
+  scale: number;
+  opacity: number;
+}
+
+/**
+ * Ensures card decor stays cleanly in safe perimeter / corner zones and softly scales down
+ * when greeting text is long or screen space is tight, so recipient/message/signature remain sharp.
+ */
+export function resolveSafeCardDecorPresentation(
+  decor: StarDecorSettings,
+  options: {
+    editMode?: boolean;
+    textLength?: number;
+    compactViewport?: boolean;
+  } = {},
+): SafeDecorPresentation {
+  const editMode = Boolean(options.editMode);
+  if (editMode) {
+    return {
+      xPct: decor.xPct,
+      yPct: decor.yPct,
+      scale: decor.scale,
+      opacity: 0.92,
+    };
+  }
+
+  const textLen = options.textLength ?? 0;
+  const isLongText = textLen > 165;
+  const isVeryLongText = textLen > 320;
+  const compact = Boolean(options.compactViewport);
+
+  // Pull decor gently away from the central reading column toward outer edges/corners
+  let safeX = decor.xPct;
+  let safeY = decor.yPct;
+
+  const isInCenterX = safeX > 22 && safeX < 78;
+  const isInCenterY = safeY > 22 && safeY < 74;
+
+  if (isInCenterX && isInCenterY) {
+    safeX = safeX >= 50 ? 90 : 10;
+    safeY = safeY >= 50 ? 85 : 13;
+  } else if (isLongText || compact) {
+    if (safeX >= 50 && safeX < 88) safeX = Math.max(safeX, 89);
+    if (safeX < 50 && safeX > 12) safeX = Math.min(safeX, 11);
+    if (safeY >= 48 && safeY < 83) safeY = Math.max(safeY, 85);
+    if (safeY < 48 && safeY > 15) safeY = Math.min(safeY, 13);
+  }
+
+  const lengthFactor = isVeryLongText ? 0.78 : isLongText ? 0.86 : 1;
+  const viewportFactor = compact ? 0.88 : 1;
+  const safeScale = Number(
+    Math.max(0.62, Math.min(1.35, decor.scale * lengthFactor * viewportFactor)).toFixed(2),
+  );
+  const safeOpacity = isVeryLongText ? 0.56 : isLongText ? 0.68 : 0.82;
+
+  return {
+    xPct: Math.max(6, Math.min(94, Math.round(safeX))),
+    yPct: Math.max(6, Math.min(88, Math.round(safeY))),
+    scale: safeScale,
+    opacity: safeOpacity,
+  };
+}
 
 export function resolveStarDecor(
   rawHolder?: { decor?: Partial<StarDecorSettings> } | Partial<StarDecorSettings>,
@@ -721,6 +789,7 @@ export const VALID_MESSAGE_FONT_IDS = new Set<MessageFontId>(
 );
 
 export const LIGHT_PAPER_TEXT_COLORS: Array<{ hex: string; name: string }> = [
+  { hex: '#171923', name: 'Глубокий антрацит' },
   { hex: '#3B2B30', name: 'Тёплый чернильный' },
   { hex: '#3D2436', name: 'Сливовый чернильный' },
   { hex: '#1E293B', name: 'Глубокий графит' },
@@ -772,7 +841,7 @@ export function resolveStarTextStyle(
     raw.fontId && VALID_MESSAGE_FONT_IDS.has(raw.fontId) ? raw.fontId : 'manrope';
   const fontSize =
     typeof raw.fontSize === 'number' && Number.isFinite(raw.fontSize)
-      ? Math.max(14, Math.min(24, Math.round(raw.fontSize)))
+      ? Math.max(12, Math.min(28, Math.round(raw.fontSize)))
       : DEFAULT_STAR_TEXT_STYLE.fontSize;
   const fontWeight = raw.fontWeight === 'semibold' ? 'semibold' : 'normal';
   const textAlign =
@@ -805,7 +874,7 @@ export function resolveStarTextStyle(
       : 0;
   const widthPct =
     typeof raw.widthPct === 'number' && Number.isFinite(raw.widthPct)
-      ? Math.max(56, Math.min(100, Math.round(raw.widthPct)))
+      ? Math.max(38, Math.min(100, Math.round(raw.widthPct)))
       : 100;
 
   return {
@@ -858,7 +927,7 @@ export function computeTextBlockMarginLeftPct(
   widthPct: number,
   offsetX: number,
 ): number {
-  const safeW = Math.max(56, Math.min(100, widthPct));
+  const safeW = Math.max(38, Math.min(100, widthPct));
   const slack = Math.max(0, 100 - safeW);
   const tX = (Math.max(-100, Math.min(100, offsetX)) + 100) / 200;
   return Number((slack * tX).toFixed(2));
@@ -919,8 +988,8 @@ export function getDefaultDeviceDecorLayout(
   device: DeviceLayoutKey,
 ): DeviceDecorLayout {
   return device === 'phone'
-    ? { xPct: 82, yPct: 14, scale: 0.9 }
-    : { xPct: 82, yPct: 16, scale: 1 };
+    ? { xPct: 89, yPct: 12, scale: 0.84 }
+    : { xPct: 90, yPct: 14, scale: 0.94 };
 }
 
 export function resolveDeviceTextLayout(
@@ -934,7 +1003,7 @@ export function resolveDeviceTextLayout(
 
   const fontSize =
     typeof src.fontSize === 'number' && Number.isFinite(src.fontSize)
-      ? Math.max(14, Math.min(24, Math.round(src.fontSize)))
+      ? Math.max(12, Math.min(28, Math.round(src.fontSize)))
       : fallback.fontSize;
   const textAlign: MessageTextAlign | 'auto' =
     src.textAlign === 'left' || src.textAlign === 'center' || src.textAlign === 'right'
@@ -954,7 +1023,7 @@ export function resolveDeviceTextLayout(
       : fallback.offsetY;
   const widthPct =
     typeof src.widthPct === 'number' && Number.isFinite(src.widthPct)
-      ? Math.max(56, Math.min(100, Math.round(src.widthPct)))
+      ? Math.max(38, Math.min(100, Math.round(src.widthPct)))
       : fallback.widthPct;
 
   return { fontSize, textAlign, lineHeight, offsetX, offsetY, widthPct };
@@ -1104,7 +1173,25 @@ export function resolveEffectiveCardLayout(
     typeof raw.offsetY === 'number' && Number.isFinite(raw.offsetY)
       ? Math.max(-60, Math.min(60, Math.round(raw.offsetY)))
       : fallback.offsetY;
-  return { padding, verticalAlign, width, offsetY };
+  const minW = device === 'phone' ? 240 : 340;
+  const maxW = device === 'phone' ? 366 : 840;
+  const maxH = device === 'phone' ? 640 : 560;
+  const customWidthPx =
+    typeof raw.customWidthPx === 'number' && Number.isFinite(raw.customWidthPx)
+      ? Math.max(minW, Math.min(maxW, Math.round(raw.customWidthPx)))
+      : undefined;
+  const customHeightPx =
+    typeof raw.customHeightPx === 'number' && Number.isFinite(raw.customHeightPx)
+      ? Math.max(220, Math.min(maxH, Math.round(raw.customHeightPx)))
+      : undefined;
+  return {
+    padding,
+    verticalAlign,
+    width,
+    offsetY,
+    ...(customWidthPx !== undefined ? { customWidthPx } : {}),
+    ...(customHeightPx !== undefined ? { customHeightPx } : {}),
+  };
 }
 
 const SHARED_TEXT_STYLE_KEYS = new Set<keyof StarTextStyle>([
@@ -1433,12 +1520,12 @@ export const CARD_THEMES: Record<CardThemeId, CardThemeConfig> = {
   cosmic_card: {
     id: 'cosmic_card',
     name: 'Космическая открытка',
-    description: 'Глубокий ночной фон, золотые звёзды и сияющие акценты',
+    description: 'Матовое космическое стекло, тонкий блик грани и золотая вспышка',
     isLightPaper: false,
-    defaultSurfaceBg: '#0C1436',
-    surfaceBgAlt: '#15204F',
-    borderColor: '#F59E0B',
-    defaultAccentColor: '#F59E0B',
+    defaultSurfaceBg: '#231D3F',
+    surfaceBgAlt: '#141129',
+    borderColor: '#C4B5FD',
+    defaultAccentColor: '#F6C453',
     defaultTextColor: '#F8FAFC',
     defaultBadgeColor: '#FDE68A',
     defaultFontId: 'cormorant',
@@ -1467,34 +1554,34 @@ export const CARD_THEMES: Record<CardThemeId, CardThemeConfig> = {
   magical: {
     id: 'magical',
     name: 'Волшебная',
-    description: 'Волшебное сияние, золотисто-сиреневые лучи и звёздные частицы',
+    description: 'Голографическое фиалковое стекло, кристаллы звёзд и лёгкие орбиты',
     isLightPaper: false,
-    defaultSurfaceBg: '#16103A',
-    surfaceBgAlt: '#26185E',
-    borderColor: '#C084FC',
-    defaultAccentColor: '#C084FC',
-    defaultTextColor: '#F5F3FF',
-    defaultBadgeColor: '#E9D5FF',
+    defaultSurfaceBg: '#3D2F78',
+    surfaceBgAlt: '#24184E',
+    borderColor: '#D8B4FE',
+    defaultAccentColor: '#E9D5FF',
+    defaultTextColor: '#FFFFFF',
+    defaultBadgeColor: '#F5E8FF',
     defaultFontId: 'comfortaa',
     defaultTextShadow: 'glow',
-    defaultTextAccent: 'frame',
+    defaultTextAccent: 'line',
     defaultDecorMotif: 'magic_rays',
     paperPattern: 'aurora',
   },
   minimalist: {
     id: 'minimalist',
     name: 'Минималистичная',
-    description: 'Чистая матовая композиция и минимум декоративных деталей',
-    isLightPaper: false,
-    defaultSurfaceBg: '#0E1324',
-    surfaceBgAlt: '#141B31',
-    borderColor: '#475569',
-    defaultAccentColor: '#94A3B8',
-    defaultTextColor: '#F8FAFC',
-    defaultBadgeColor: '#CBD5E1',
-    defaultFontId: 'manrope',
+    description: 'Пастельный дизайнерский лист, чёткая геометрия и выразительная типографика',
+    isLightPaper: true,
+    defaultSurfaceBg: '#F4EFE6',
+    surfaceBgAlt: '#EAE2D4',
+    borderColor: '#C9BFA9',
+    defaultAccentColor: '#8A6D4F',
+    defaultTextColor: '#171923',
+    defaultBadgeColor: '#4A5568',
+    defaultFontId: 'lora',
     defaultTextShadow: 'none',
-    defaultTextAccent: 'none',
+    defaultTextAccent: 'line',
     defaultDecorMotif: 'none',
     paperPattern: 'minimal',
   },
@@ -1591,6 +1678,115 @@ export function resolveCardColors(
     badgeColor,
     isLightPaper: lightPaper,
   };
+}
+
+export const ENVELOPE_COLOR_SWATCHES: Array<{ hex: string; name: string }> = [
+  { hex: '#ECEAF8', name: 'Жемчужное стекло' },
+  { hex: '#6D54B5', name: 'Глубокий индиго' },
+  { hex: '#3B2C68', name: 'Космический фиолет' },
+  { hex: '#1E3A5F', name: 'Полночный сапфир' },
+  { hex: '#F5E6DC', name: 'Тёплый шёлк' },
+  { hex: '#6E2B57', name: 'Сливовый бархат' },
+];
+
+export const SEAL_COLOR_SWATCHES: Array<{ hex: string; name: string }> = [
+  { hex: '#FDE68A', name: 'Солнечное золото' },
+  { hex: '#F59E0B', name: 'Янтарная звезда' },
+  { hex: '#C4B5FD', name: 'Лунная сирень' },
+  { hex: '#F9A8D4', name: 'Розовый кварц' },
+  { hex: '#67E8F9', name: 'Небесный лёд' },
+];
+
+export const DEFAULT_ENVELOPE_TEXTS = {
+  kickerPrefix: 'Для',
+  fallbackKicker: 'Тебе звёздное письмо',
+  headlineSuffix: 'тебя ждёт особенное созвездие',
+  fallbackHeadline: 'Тебя ждёт космическое поздравление',
+  hintText: 'Коснись конверта или нажми кнопку ниже',
+  ctaText: 'Открыть созвездие',
+};
+
+export function sanitizeEnvelopeSettings(
+  raw?: EnvelopeSettings,
+): EnvelopeSettings | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const clean: EnvelopeSettings = {};
+  if (typeof raw.kickerText === 'string' && raw.kickerText.trim()) {
+    clean.kickerText = raw.kickerText.trim().slice(0, 80);
+  }
+  if (typeof raw.headlineText === 'string' && raw.headlineText.trim()) {
+    clean.headlineText = raw.headlineText.trim().slice(0, 120);
+  }
+  if (typeof raw.hintText === 'string' && raw.hintText.trim()) {
+    clean.hintText = raw.hintText.trim().slice(0, 120);
+  }
+  if (typeof raw.ctaText === 'string' && raw.ctaText.trim()) {
+    clean.ctaText = raw.ctaText.trim().slice(0, 50);
+  }
+  if (typeof raw.envelopeColor === 'string' && HEX_COLOR_RE.test(raw.envelopeColor)) {
+    clean.envelopeColor = raw.envelopeColor.toUpperCase();
+  }
+  if (typeof raw.sealColor === 'string' && HEX_COLOR_RE.test(raw.sealColor)) {
+    clean.sealColor = raw.sealColor.toUpperCase();
+  }
+  return Object.keys(clean).length > 0 ? clean : undefined;
+}
+
+export interface ResolvedEnvelopePresentation {
+  kickerText: string;
+  headlineText: string;
+  hintText: string;
+  ctaText: string;
+  envelopeColor?: string;
+  sealColor?: string;
+}
+
+export function resolveEnvelopeSettings(
+  project?: Pick<ConstellationProject, 'recipientName' | 'title' | 'envelopeSettings'> | null,
+): ResolvedEnvelopePresentation {
+  const raw = project?.envelopeSettings;
+  const recipient = project?.recipientName?.trim() ?? '';
+  const defaultKicker = recipient
+    ? `Для ${recipient}`
+    : DEFAULT_ENVELOPE_TEXTS.fallbackKicker;
+  const defaultHeadline =
+    project?.title?.trim() ||
+    (recipient
+      ? `${recipient}, ${DEFAULT_ENVELOPE_TEXTS.headlineSuffix}`
+      : DEFAULT_ENVELOPE_TEXTS.fallbackHeadline);
+
+  return {
+    kickerText: raw?.kickerText?.trim() || defaultKicker,
+    headlineText: raw?.headlineText?.trim() || defaultHeadline,
+    hintText: raw?.hintText?.trim() || DEFAULT_ENVELOPE_TEXTS.hintText,
+    ctaText: raw?.ctaText?.trim() || DEFAULT_ENVELOPE_TEXTS.ctaText,
+    envelopeColor:
+      raw?.envelopeColor && HEX_COLOR_RE.test(raw.envelopeColor)
+        ? raw.envelopeColor.toUpperCase()
+        : undefined,
+    sealColor:
+      raw?.sealColor && HEX_COLOR_RE.test(raw.sealColor)
+        ? raw.sealColor.toUpperCase()
+        : undefined,
+  };
+}
+
+/** Ensures legacy light-text minimalist saves remain contrast-safe on the redesigned pastel surface */
+export function resolveContrastSafeCardTextColor(
+  candidateColor: string,
+  holder: Pick<ConstellationProject, 'cardTheme' | 'cardColors'> | null | undefined,
+  cardColors: ResolvedCardColors,
+): string {
+  if (
+    holder?.cardTheme === 'minimalist' &&
+    !holder.cardColors?.surfaceBg &&
+    !holder.cardColors?.textColor &&
+    cardColors.isLightPaper &&
+    isHexLight(candidateColor)
+  ) {
+    return cardColors.textColor;
+  }
+  return candidateColor;
 }
 
 /**
@@ -1912,6 +2108,29 @@ function normalizeProjectDeviceLayouts(
 
 /** Safe migration & normalization for both newly created and legacy IndexedDB projects */
 export function normalizeProject(project: ConstellationProject): ConstellationProject {
+  const cardTheme =
+    project.cardTheme && VALID_CARD_THEME_IDS.has(project.cardTheme)
+      ? project.cardTheme
+      : undefined;
+  const cardColors = sanitizeCardColors(project.cardColors);
+  const needsLegacyMinimalistInkMigration =
+    cardTheme === 'minimalist' && !cardColors?.surfaceBg && !cardColors?.textColor;
+
+  const migrateLegacyTextStyle = (
+    rawStyle?: StarTextStyle,
+  ): StarTextStyle | undefined => {
+    if (!rawStyle) return undefined;
+    const resolved = resolveStarTextStyle(rawStyle);
+    if (needsLegacyMinimalistInkMigration && isHexLight(resolved.color)) {
+      return {
+        ...resolved,
+        color: CARD_THEMES.minimalist.defaultTextColor,
+        shadow: resolved.shadow === 'soft' ? 'none' : resolved.shadow,
+      };
+    }
+    return resolved;
+  };
+
   const stars: ConstellationStar[] = (project.stars ?? []).map((s, idx) => ({
     ...s,
     order: typeof s.order === 'number' ? s.order : idx,
@@ -1921,7 +2140,7 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
     illustrationLayout: s.illustrationLayout
       ? resolveStarIllustrationLayout(s.illustrationLayout)
       : undefined,
-    textStyle: s.textStyle ? resolveStarTextStyle(s.textStyle) : undefined,
+    textStyle: migrateLegacyTextStyle(s.textStyle),
     decor: s.decor ? resolveStarDecor(s.decor) : undefined,
     deviceLayouts: normalizeStarDeviceLayouts(s),
   }));
@@ -1931,22 +2150,15 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
     stars,
   );
 
-  const cardTheme =
-    project.cardTheme && VALID_CARD_THEME_IDS.has(project.cardTheme)
-      ? project.cardTheme
-      : undefined;
-  const cardColors = sanitizeCardColors(project.cardColors);
-
   const normalizedBase: ConstellationProject = {
     ...project,
     composition: project.composition ?? 'free',
     cardTheme,
     cardColors,
+    envelopeSettings: sanitizeEnvelopeSettings(project.envelopeSettings),
     stars,
     connections,
-    finalTextStyle: project.finalTextStyle
-      ? resolveStarTextStyle(project.finalTextStyle)
-      : undefined,
+    finalTextStyle: migrateLegacyTextStyle(project.finalTextStyle),
     finalDecor: project.finalDecor ? resolveStarDecor(project.finalDecor) : undefined,
   };
 

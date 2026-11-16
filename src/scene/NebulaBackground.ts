@@ -6,8 +6,19 @@ interface CloudWisp {
   basePos: THREE.Vector3;
   speed: number;
   phase: number;
-  useSecondary: boolean;
+  role: 'primary' | 'secondary' | 'cyan' | 'fuchsia' | 'violet' | 'peach';
 }
+
+const ORB_ACCENT_HEX: Record<CloudWisp['role'], string> = {
+  primary: '#8b5cf6',
+  secondary: '#d946ef',
+  cyan: '#22d3ee',
+  fuchsia: '#e879f9',
+  violet: '#7c3aed',
+  peach: '#fdba74',
+};
+
+const _orbBlendTmp = new THREE.Color();
 
 export class NebulaBackground {
   public readonly group = new THREE.Group();
@@ -77,7 +88,7 @@ export class NebulaBackground {
         void main() {
           vec3 dir = normalize(vWorldDir);
           float horizon = smoothstep(-0.75, 0.80, dir.y);
-          vec3 base = mix(uDeep, uMid, horizon * 0.60);
+          vec3 base = mix(uDeep * 0.72, uMid * 0.50, horizon * 0.36);
 
           vec3 driftA = dir * 2.3 + vec3(uTime * 0.015, -uTime * 0.008, uTime * 0.01);
           vec3 driftB = dir * 3.1 + vec3(-uTime * 0.012, uTime * 0.011, -uTime * 0.009);
@@ -85,13 +96,17 @@ export class NebulaBackground {
           float cloudA = smoothstep(0.36, 0.85, fbm(driftA));
           float cloudB = smoothstep(0.42, 0.88, fbm(driftB));
 
-          // Milky-way style diagonal luminosity band
+          // Subtle diagonal cosmic depth band
           float band = exp(-pow((dir.y * 0.75 - dir.x * 0.48 + 0.08) * 2.4, 2.0));
 
           vec3 col = base;
-          col = mix(col, uNebulaA, cloudA * (0.24 + band * 0.24));
-          col = mix(col, uNebulaB, cloudB * (0.20 + band * 0.22));
-          col += (uNebulaA * 0.12 + uNebulaB * 0.10) * band;
+          col = mix(col, uNebulaA * 0.56, cloudA * (0.14 + band * 0.13));
+          col = mix(col, uNebulaB * 0.52, cloudB * (0.12 + band * 0.11));
+          col += (uNebulaA * 0.036 + uNebulaB * 0.030) * band;
+
+          // Deep cosmic vignette around poles/edges so stars & UI stay crisp
+          float edgeVignette = mix(0.62, 0.94, 1.0 - smoothstep(0.15, 0.95, abs(dir.y)));
+          col = min(col * edgeVignette, vec3(0.24));
 
           gl_FragColor = vec4(col, 1.0);
         }
@@ -102,19 +117,25 @@ export class NebulaBackground {
     this.skyMesh.renderOrder = -10;
     this.group.add(this.skyMesh);
 
-    // Layered soft depth nebula cloud wisps behind the constellation
-    const wispSpecs = [
-      { pos: [-11, 4.5, -22], scale: 24, secondary: false, opacity: 0.2 },
-      { pos: [12, -3.5, -24], scale: 26, secondary: true, opacity: 0.18 },
-      { pos: [0, 7.0, -28], scale: 32, secondary: false, opacity: 0.15 },
-      { pos: [-7, -6.5, -20], scale: 22, secondary: true, opacity: 0.17 },
-      { pos: [8, 5.5, -19], scale: 20, secondary: false, opacity: 0.14 },
+    // Subtle deep-space volumetric color orbs behind the crystal constellation
+    const wispSpecs: Array<{
+      pos: [number, number, number];
+      scale: number;
+      role: CloudWisp['role'];
+      opacity: number;
+    }> = [
+      { pos: [-12, 5.2, -23], scale: 28, role: 'cyan', opacity: 0.095 },
+      { pos: [13, -4.0, -25], scale: 30, role: 'fuchsia', opacity: 0.095 },
+      { pos: [-1, 7.5, -29], scale: 34, role: 'violet', opacity: 0.105 },
+      { pos: [8.5, 5.8, -21], scale: 24, role: 'peach', opacity: 0.065 },
+      { pos: [-8.5, -6.5, -22], scale: 26, role: 'primary', opacity: 0.09 },
+      { pos: [2.5, -7.2, -26], scale: 27, role: 'secondary', opacity: 0.075 },
     ];
 
     wispSpecs.forEach((spec, idx) => {
       const mat = new THREE.SpriteMaterial({
         map: cloudTexture,
-        color: spec.secondary ? palette.nebulaSecondary : palette.nebulaPrimary,
+        color: this.resolveWispColor(spec.role, palette),
         transparent: true,
         opacity: spec.opacity,
         blending: THREE.AdditiveBlending,
@@ -124,18 +145,40 @@ export class NebulaBackground {
 
       const sprite = new THREE.Sprite(mat);
       sprite.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
-      sprite.scale.set(spec.scale, spec.scale * 0.72, 1);
+      sprite.scale.set(spec.scale, spec.scale * 0.86, 1);
       sprite.renderOrder = -5;
       this.group.add(sprite);
 
       this.wisps.push({
         sprite,
         basePos: sprite.position.clone(),
-        speed: 0.12 + idx * 0.03,
-        phase: idx * 1.4,
-        useSecondary: spec.secondary,
+        speed: 0.1 + idx * 0.025,
+        phase: idx * 1.35,
+        role: spec.role,
       });
     });
+  }
+
+  private resolveWispColor(
+    role: CloudWisp['role'],
+    palette: CosmicPaletteConfig,
+  ): THREE.Color {
+    const out = new THREE.Color();
+    if (role === 'primary') {
+      out.set(palette.nebulaPrimary);
+    } else if (role === 'secondary') {
+      out.set(palette.nebulaSecondary);
+    } else {
+      out.set(ORB_ACCENT_HEX[role]);
+      _orbBlendTmp.set(
+        role === 'cyan' || role === 'violet'
+          ? palette.nebulaPrimary
+          : palette.nebulaSecondary,
+      );
+      out.lerp(_orbBlendTmp, 0.28);
+    }
+    out.multiplyScalar(0.76);
+    return out;
   }
 
   public setPalette(palette: CosmicPaletteConfig): void {
@@ -145,9 +188,7 @@ export class NebulaBackground {
     this.skyMaterial.uniforms.uNebulaB.value.set(palette.nebulaSecondary);
 
     this.wisps.forEach((w, idx) => {
-      this.wispMaterials[idx].color.set(
-        w.useSecondary ? palette.nebulaSecondary : palette.nebulaPrimary,
-      );
+      this.wispMaterials[idx].color.copy(this.resolveWispColor(w.role, palette));
     });
   }
 
@@ -157,8 +198,8 @@ export class NebulaBackground {
 
     if (!reducedMotion) {
       for (const w of this.wisps) {
-        w.sprite.position.x = w.basePos.x + Math.sin(t * w.speed + w.phase) * 0.85;
-        w.sprite.position.y = w.basePos.y + Math.cos(t * w.speed * 0.8 + w.phase) * 0.55;
+        w.sprite.position.x = w.basePos.x + Math.sin(t * w.speed + w.phase) * 1.45;
+        w.sprite.position.y = w.basePos.y + Math.cos(t * w.speed * 0.78 + w.phase) * 0.95;
       }
     }
   }

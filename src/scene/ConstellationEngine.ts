@@ -1,9 +1,14 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type {
   ConstellationStar,
   CosmicPaletteId,
   DeviceConstellationLayout,
   EditorInteractionMode,
+  EnvelopeSettings,
   GlowColorId,
   RecipientPhase,
   StarConnection,
@@ -66,6 +71,7 @@ export interface ConstellationSceneState {
   lowPerformance: boolean;
   reducedMotion: boolean;
   constellationLayout?: DeviceConstellationLayout;
+  envelopeSettings?: EnvelopeSettings;
 }
 
 const _ndc = new THREE.Vector2();
@@ -216,6 +222,9 @@ export class ConstellationEngine {
   private callbacks: ConstellationEngineCallbacks;
 
   private renderer!: THREE.WebGLRenderer;
+  private composer?: EffectComposer;
+  private bloomPass?: UnrealBloomPass;
+  private outputPass?: OutputPass;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private envTexture!: THREE.Texture;
@@ -314,7 +323,7 @@ export class ConstellationEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 0.95;
 
     const maxDpr = this.state.lowPerformance || window.innerWidth < 768 ? 1.5 : 2;
     this.renderer.setPixelRatio(
@@ -338,17 +347,21 @@ export class ConstellationEngine {
     this.camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 240);
     this.camera.position.set(0, 0.5, 12.2);
 
-    // Three-point studio lighting for sculpted star crystals & envelope
-    const hemiLight = new THREE.HemisphereLight('#d8b4fe', '#12081c', 0.9);
+    // Balanced three-point lighting for crisp crystal facet contrast without overexposure
+    const hemiLight = new THREE.HemisphereLight('#c4b5fd', '#0c0614', 0.42);
     this.scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight('#fff7ed', 2.0);
+    const keyLight = new THREE.DirectionalLight('#fff7ed', 1.65);
     keyLight.position.set(6, 8, 9);
     this.scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight('#7dd3fc', 1.25);
+    const rimLight = new THREE.DirectionalLight('#38bdf8', 1.15);
     rimLight.position.set(-7, -4, -6);
     this.scene.add(rimLight);
+
+    const accentRimLight = new THREE.DirectionalLight('#f472b6', 0.85);
+    accentRimLight.position.set(5, -6, -5);
+    this.scene.add(accentRimLight);
 
     const maxAniso = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
     this.glowTex = createGlowSpriteTexture(maxAniso);
@@ -382,7 +395,12 @@ export class ConstellationEngine {
 
     if (startSealed) {
       const glowCfg = GLOW_COLORS[this.state.globalGlowColor];
-      this.envelope = new EnvelopeProp(palette, glowCfg, this.glowTex);
+      this.envelope = new EnvelopeProp(
+        palette,
+        glowCfg,
+        this.glowTex,
+        this.state.envelopeSettings,
+      );
       this.scene.add(this.envelope.group);
     }
 
@@ -390,6 +408,27 @@ export class ConstellationEngine {
     this.applySceneState(this.state);
 
     if (!this.isSoftwareGl) {
+      const bloomScale = this.state.lowPerformance ? 0.35 : 0.5;
+      this.composer = new EffectComposer(this.renderer);
+      this.composer.setPixelRatio(this.renderer.getPixelRatio());
+      this.composer.setSize(width, height);
+
+      const renderPass = new RenderPass(this.scene, this.camera);
+      this.bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(
+          Math.max(1, Math.floor(width * bloomScale)),
+          Math.max(1, Math.floor(height * bloomScale)),
+        ),
+        0.22,
+        0.34,
+        0.88,
+      );
+      this.outputPass = new OutputPass();
+
+      this.composer.addPass(renderPass);
+      this.composer.addPass(this.bloomPass);
+      this.composer.addPass(this.outputPass);
+
       this.renderer.compile(this.scene, this.camera);
     }
 
@@ -666,14 +705,19 @@ export class ConstellationEngine {
     const prev = this.state;
     this.state = next;
 
-    if (prev.paletteId !== next.paletteId || prev.globalGlowColor !== next.globalGlowColor) {
+    if (
+      prev.paletteId !== next.paletteId ||
+      prev.globalGlowColor !== next.globalGlowColor ||
+      prev.envelopeSettings?.envelopeColor !== next.envelopeSettings?.envelopeColor ||
+      prev.envelopeSettings?.sealColor !== next.envelopeSettings?.sealColor
+    ) {
       const palette = COSMIC_PALETTES[next.paletteId];
       const glowCfg = GLOW_COLORS[next.globalGlowColor];
       this.scene.fog = new THREE.FogExp2(palette.fogColor, 0.011);
       this.nebula.setPalette(palette);
       this.lines.setTint(palette.lineTint);
       this.particles.setDustColor(palette.dustTint);
-      this.envelope?.setPaletteAndGlow(palette, glowCfg);
+      this.envelope?.setPaletteAndGlow(palette, glowCfg, next.envelopeSettings);
     }
 
     this.syncStars(next.stars, next.connections);
@@ -724,6 +768,7 @@ export class ConstellationEngine {
           glowCfg,
           this.glowTex,
           this.flareTex,
+          this.isSoftwareGl,
         );
         this.constellationRoot.add(node.group);
         this.starNodes.set(star.id, node);
@@ -784,14 +829,28 @@ export class ConstellationEngine {
     if (state.interactionMode === 'recipient' && rPhase) {
       this.cameraCtrl.setArrangeMouseMode(false);
       if (rPhase === 'sealed') {
-        this.sealedMode = true;
-        this.birthPlaying = false;
-        this.finalRevealPlaying = false;
-        this.lines.setRevealProgress(0);
-        for (const node of this.starNodes.values()) {
-          node.snapRevealZero();
+        if (!this.envelope) {
+          const palette = COSMIC_PALETTES[state.paletteId];
+          const glowCfg = GLOW_COLORS[state.globalGlowColor];
+          this.envelope = new EnvelopeProp(
+            palette,
+            glowCfg,
+            this.glowTex,
+            state.envelopeSettings,
+          );
+          this.scene.add(this.envelope.group);
+        } else {
+          this.envelope.setPaletteAndGlow(
+            COSMIC_PALETTES[state.paletteId],
+            GLOW_COLORS[state.globalGlowColor],
+            state.envelopeSettings,
+          );
         }
-        this.cameraCtrl.setOrbitEnabled(false);
+        if (recipientPhaseChanged || !this.sealedMode) {
+          this.enterSealedState();
+        }
+        this.lines.setFinaleHighlight(false);
+        this.particles.setFinaleActive(false);
         return;
       }
 
@@ -1333,6 +1392,14 @@ export class ConstellationEngine {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    if (this.composer && this.bloomPass) {
+      const bloomScale = this.state.lowPerformance ? 0.35 : 0.5;
+      this.composer.setSize(width, height);
+      this.bloomPass.resolution.set(
+        Math.max(1, Math.floor(width * bloomScale)),
+        Math.max(1, Math.floor(height * bloomScale)),
+      );
+    }
     if (this.state.interactionMode === 'recipient' && this.state.recipientPhase === 'starStory') {
       this.applySceneState(this.state);
     }
@@ -1376,7 +1443,11 @@ export class ConstellationEngine {
       if (!this.isTabHidden) {
         this.elapsed += dt;
         this.stepScene(dt);
-        this.renderer.render(this.scene, this.camera);
+        if (this.composer) {
+          this.composer.render();
+        } else {
+          this.renderer.render(this.scene, this.camera);
+        }
       }
 
       if (this.isSoftwareGl) {
@@ -1589,6 +1660,9 @@ export class ConstellationEngine {
       this.flareTex?.dispose();
       this.cloudTex?.dispose();
       this.envTexture?.dispose();
+      this.bloomPass?.dispose();
+      this.outputPass?.dispose();
+      this.composer?.dispose();
       this.renderer.dispose();
       if (this.renderer.domElement.parentElement === this.container) {
         this.container.removeChild(this.renderer.domElement);

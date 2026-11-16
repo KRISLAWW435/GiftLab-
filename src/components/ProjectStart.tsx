@@ -70,7 +70,7 @@ export function ProjectStart({
     }).format(ts);
 
   return (
-    <div className="gl-min-h-screen gl-cosmic-bg text-gl-text flex flex-col">
+    <div className="gl-min-h-screen bg-transparent text-gl-text flex flex-col">
       {/* Top Bar */}
       <header className="relative z-10 gl-glass-header border-b gl-safe-top">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 py-4 sm:py-5 flex items-center justify-between gap-6">
@@ -91,7 +91,7 @@ export function ProjectStart({
               <p className="text-base font-medium text-violet-300/90">
                 Шаблон «Созвездие пожеланий»
               </p>
-              <h1 className="font-display text-4xl sm:text-5xl lg:text-[3.15rem] font-bold leading-[1.24] tracking-[-0.015em] [text-wrap:balance] bg-gradient-to-br from-white via-violet-100 to-rose-200 bg-clip-text text-transparent drop-shadow-[0_6px_28px_rgba(124,58,237,0.22)]">
+              <h1 className="gl-title-display font-display text-4xl sm:text-5xl lg:text-[3.15rem] font-extrabold leading-[1.2] tracking-[-0.025em] [text-wrap:balance] text-white">
                 Создай собственную вселенную с пожеланиями
               </h1>
               <p className="text-gl-text-secondary text-base sm:text-lg leading-relaxed">
@@ -104,10 +104,10 @@ export function ProjectStart({
             {/* Creator Quick-Start Form */}
             <form
               onSubmit={handleCreate}
-              className="lg:col-span-7 gl-card p-6 sm:p-7 space-y-6 shadow-2xl"
+              className="lg:col-span-7 gl-card p-6 sm:p-7 space-y-6"
             >
               <div className="space-y-1">
-                <h2 className="font-display text-xl sm:text-2xl font-semibold text-gl-text">
+                <h2 className="gl-title-display font-display text-xl sm:text-2xl font-bold text-gl-text">
                   Новый подарок
                 </h2>
                 <p className="text-base text-gl-text-secondary leading-relaxed">
@@ -197,7 +197,7 @@ export function ProjectStart({
                       >
                         <CompositionPresetPreview
                           preset={comp.id}
-                          className="w-10 h-8 shrink-0"
+                          className="w-10 h-8 shrink-0 gl-icon-3d"
                         />
                         <span className="text-xs sm:text-sm font-semibold leading-tight">
                           {comp.name === 'Свободная композиция' ? 'Свободная' : comp.name}
@@ -211,7 +211,7 @@ export function ProjectStart({
               <div className="flex items-center justify-end pt-1">
                 <button
                   type="submit"
-                  className="gl-btn-primary px-6"
+                  className="gl-btn-primary px-7"
                 >
                   <Plus className="w-4 h-4" />
                   Создать созвездие
@@ -220,8 +220,8 @@ export function ProjectStart({
             </form>
           </div>
 
-          {/* Calm low-contrast browser storage notice placed cleanly below creation form */}
-          <div className="rounded-2xl border border-slate-500/20 bg-slate-800/35 px-5 py-4 text-sm sm:text-base text-slate-300/85 leading-relaxed">
+          {/* Calm frosted notice placed cleanly below creation form */}
+          <div className="gl-hud px-5 py-4 text-sm sm:text-base text-slate-200/90 leading-relaxed">
             Проекты и загруженные картинки хранятся в памяти этого браузера на вашем
             устройстве. Чтобы не потерять подарок при очистке данных браузера,
             сохраняйте готовый результат в ZIP.
@@ -231,7 +231,7 @@ export function ProjectStart({
         {/* Saved Projects List */}
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="font-display text-xl sm:text-2xl font-semibold text-white">
+            <h2 className="gl-title-display font-display text-xl sm:text-2xl font-bold text-white">
               Мои сохранённые проекты
             </h2>
             <span className="text-sm text-gl-text-muted tabular-nums">

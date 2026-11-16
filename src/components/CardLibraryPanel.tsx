@@ -16,6 +16,7 @@ import type {
   ConstellationProject,
 } from '../types/project';
 import { CardDecorView } from './CardDecorView';
+import { CardThemeBackdrop } from './CardThemeBackdrop';
 
 interface CardLibraryPanelProps {
   project: ConstellationProject;
@@ -139,42 +140,30 @@ export function CardLibraryPanel({
             >
               {/* Miniature Visual Composition Preview */}
               <div
-                className="relative h-24 w-full rounded-xl overflow-hidden border p-2.5 flex flex-col justify-between mb-2"
+                className="relative h-24 w-full rounded-xl overflow-hidden border p-2.5 flex flex-col justify-between mb-2 backdrop-blur-md"
                 style={{
-                  background: `linear-gradient(145deg, ${previewBg} 0%, ${previewBgAlt} 100%)`,
-                  borderColor: `${previewBorder}66`,
+                  background: theme.isLightPaper
+                    ? `linear-gradient(145deg, ${previewBg} 0%, ${previewBgAlt} 100%)`
+                    : `linear-gradient(145deg, ${previewBg}E8 0%, ${previewBgAlt}EC 100%)`,
+                  borderColor: theme.isLightPaper
+                    ? `${previewBorder}66`
+                    : `${previewBorder}78`,
+                  boxShadow: theme.isLightPaper
+                    ? undefined
+                    : 'inset 0 1px 0 rgba(255,255,255,0.3)',
                 }}
               >
                 {/* Theme pattern overlay */}
-                {theme.paperPattern === 'paper' && (
-                  <div
-                    className="pointer-events-none absolute inset-1.5 rounded-lg border"
-                    style={{ borderColor: `${previewAccent}35` }}
-                  />
-                )}
-                {theme.paperPattern === 'stars' && (
-                  <div
-                    className="pointer-events-none absolute inset-0 opacity-60"
-                    style={{
-                      backgroundImage: `radial-gradient(${previewAccent}88 1px, transparent 1px)`,
-                      backgroundSize: '18px 18px',
-                    }}
-                  />
-                )}
-                {theme.paperPattern === 'botanical' && (
-                  <div
-                    className="pointer-events-none absolute inset-1.5 rounded-lg border border-dashed"
-                    style={{ borderColor: `${previewAccent}45` }}
-                  />
-                )}
-                {theme.paperPattern === 'aurora' && (
-                  <div
-                    className="pointer-events-none absolute -top-6 -right-6 w-28 h-28 rounded-full opacity-45 blur-md"
-                    style={{
-                      background: `radial-gradient(circle, ${previewAccent}, transparent 70%)`,
-                    }}
-                  />
-                )}
+                <CardThemeBackdrop
+                  pattern={theme.paperPattern}
+                  accentColor={previewAccent}
+                  badgeColor={previewBadge}
+                  borderColor={previewBorder}
+                  glowHex={previewAccent}
+                  isLightPaper={theme.isLightPaper}
+                  compact
+                  reducedMotion
+                />
 
                 {/* Miniature Decor */}
                 {theme.defaultDecorMotif !== 'none' && (
@@ -188,7 +177,7 @@ export function CardLibraryPanel({
                   </div>
                 )}
 
-                <div className="relative z-10 flex items-center justify-between gap-2">
+                <div className={`relative z-10 flex items-center justify-between gap-2 ${theme.id === 'minimalist' ? 'pl-2' : ''}`}>
                   <span
                     className="text-[10px] font-semibold uppercase tracking-wider truncate"
                     style={{ color: previewBadge }}
@@ -203,7 +192,7 @@ export function CardLibraryPanel({
                   )}
                 </div>
 
-                <div className="relative z-10 pr-10 space-y-0.5">
+                <div className={`relative z-10 pr-10 space-y-0.5 ${theme.id === 'minimalist' ? 'pl-2' : ''}`}>
                   <div
                     className="h-0.5 w-8 rounded-full mb-1"
                     style={{ backgroundColor: previewAccent }}

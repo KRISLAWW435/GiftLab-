@@ -6,6 +6,7 @@ import {
   isDefaultStarTextStyle,
   resolveCardColors,
   resolveCardTheme,
+  resolveContrastSafeCardTextColor,
   resolveEffectiveCardLayout,
   resolveEffectiveConstellationLayout,
   resolveEffectiveFinalDecor,
@@ -13,7 +14,9 @@ import {
   resolveEffectiveIllustrationLayout,
   resolveEffectiveStarDecor,
   resolveEffectiveStarTextStyle,
+  resolveEnvelopeSettings,
   resolveMessageFont,
+  resolveSafeCardDecorPresentation,
   resolveStarGlowHex,
   resolveStarImageSettings,
   resolveStarShape,
@@ -28,6 +31,7 @@ import type {
   ConstellationStar,
   CosmicPaletteId,
   DeviceLayoutKey,
+  EnvelopeSettings,
   GlowColorId,
   MessageTextAlign,
   ProjectDeviceLayouts,
@@ -51,6 +55,7 @@ interface StandalonePayload {
   globalGlowColor: GlowColorId;
   cardTheme?: CardThemeId;
   cardColors?: CardThemeCustomColors;
+  envelopeSettings?: EnvelopeSettings;
   deviceLayouts?: ProjectDeviceLayouts;
   stars: StandaloneStar[];
   connections?: StarConnection[];
@@ -87,25 +92,67 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+let progressStarUid = 0;
+
 function createProgressStarSvg(lit: boolean, active: boolean): SVGSVGElement {
   const ns = 'http://www.w3.org/2000/svg';
+  const uid = String(++progressStarUid);
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', active ? '18' : '15');
-  svg.setAttribute('height', active ? '18' : '15');
+  svg.setAttribute('width', active ? '19' : '15');
+  svg.setAttribute('height', active ? '19' : '15');
   svg.setAttribute('aria-hidden', 'true');
+  svg.style.filter = lit
+    ? 'drop-shadow(0 0 6px rgba(103,232,249,0.55)) drop-shadow(0 3px 6px rgba(0,0,0,0.45))'
+    : 'drop-shadow(0 2px 4px rgba(0,0,0,0.35))';
+
+  const defs = document.createElementNS(ns, 'defs');
+  const grad = document.createElementNS(ns, 'linearGradient');
+  grad.setAttribute('id', `gl-rt-prog-${uid}`);
+  grad.setAttribute('x1', '3');
+  grad.setAttribute('y1', '2');
+  grad.setAttribute('x2', '21');
+  grad.setAttribute('y2', '21');
+  grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+  [
+    ['0%', '#ffffff'],
+    ['48%', '#67e8f9'],
+    ['100%', '#e879f9'],
+  ].forEach(([offset, stopColor]) => {
+    const stop = document.createElementNS(ns, 'stop');
+    stop.setAttribute('offset', offset);
+    stop.setAttribute('stop-color', stopColor);
+    grad.appendChild(stop);
+  });
+  defs.appendChild(grad);
+  svg.appendChild(defs);
+
   const path = document.createElementNS(ns, 'path');
   path.setAttribute(
     'd',
-    'M12 2.4l2.78 5.63 6.22.9-4.5 4.39 1.06 6.2L12 16.59l-5.56 2.93 1.06-6.2-4.5-4.39 6.22-.9L12 2.4z',
+    'M12 2.2l2.9 5.88 6.48.94-4.69 4.57 1.1 6.46L12 17l-5.79 3.05 1.1-6.46L2.62 9.02l6.48-.94L12 2.2z',
   );
-  path.setAttribute('fill', lit ? 'currentColor' : 'none');
-  path.setAttribute('stroke', 'currentColor');
-  path.setAttribute('stroke-width', lit ? '1.2' : '1.6');
+  path.setAttribute('fill', lit ? `url(#gl-rt-prog-${uid})` : 'rgba(255,255,255,0.08)');
+  path.setAttribute('stroke', lit ? 'rgba(255,255,255,0.9)' : 'currentColor');
+  path.setAttribute('stroke-width', lit ? '1.1' : '1.45');
   path.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(path);
+
+  if (lit) {
+    const facet = document.createElementNS(ns, 'polygon');
+    facet.setAttribute('points', '12,2.2 9.1,8.08 2.62,9.02 12,12');
+    facet.setAttribute('fill', 'rgba(255,255,255,0.48)');
+    const core = document.createElementNS(ns, 'circle');
+    core.setAttribute('cx', '12');
+    core.setAttribute('cy', '12');
+    core.setAttribute('r', '2.1');
+    core.setAttribute('fill', '#ffffff');
+    svg.append(facet, core);
+  }
   return svg;
 }
+
+let decorUidSeq = 0;
 
 function createCardDecorSvg(
   motif: CardDecorMotif,
@@ -113,72 +160,526 @@ function createCardDecorSvg(
   coreHex: string,
 ): SVGSVGElement | null {
   if (motif === 'none') return null;
+  const uid = String(++decorUidSeq);
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 120 120');
   svg.setAttribute('fill', 'none');
   svg.setAttribute('class', 'gl-card-decor-svg');
   svg.setAttribute('aria-hidden', 'true');
-  svg.style.filter = `drop-shadow(0 0 12px ${glowHex}66)`;
+  svg.style.filter = `drop-shadow(0 3px 10px ${glowHex}44)`;
 
-  const mk = (tag: string, attrs: Record<string, string>) => {
+  const mk = (tag: string, attrs: Record<string, string>, parent: Element = svg) => {
     const node = document.createElementNS(ns, tag);
     for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-    svg.appendChild(node);
+    parent.appendChild(node);
+    return node;
+  };
+
+  const addLinearGrad = (
+    defs: Element,
+    id: string,
+    coords: { x1: string; y1: string; x2: string; y2: string },
+    stops: Array<{ offset: string; color: string; opacity: string }>,
+  ) => {
+    const g = mk('linearGradient', { id, ...coords }, defs);
+    for (const s of stops) {
+      mk('stop', { offset: s.offset, 'stop-color': s.color, 'stop-opacity': s.opacity }, g);
+    }
+  };
+
+  const addRadialGrad = (
+    defs: Element,
+    id: string,
+    coords: { cx: string; cy: string; r: string },
+    stops: Array<{ offset: string; color: string; opacity: string }>,
+  ) => {
+    const g = mk('radialGradient', { id, ...coords }, defs);
+    for (const s of stops) {
+      mk('stop', { offset: s.offset, 'stop-color': s.color, 'stop-opacity': s.opacity }, g);
+    }
   };
 
   if (motif === 'sparkles') {
-    mk('path', { d: 'M54 14L59 35L80 40L59 45L54 66L49 45L28 40L49 35L54 14Z', fill: coreHex, 'fill-opacity': '0.92' });
-    mk('path', { d: 'M88 58L91 70L103 73L91 76L88 88L85 76L73 73L85 70L88 58Z', fill: glowHex, 'fill-opacity': '0.88' });
-    mk('path', { d: 'M32 76L34 84L42 86L34 88L32 96L30 88L22 86L30 84L32 76Z', fill: glowHex, 'fill-opacity': '0.72' });
-    mk('circle', { cx: '88', cy: '28', r: '2.4', fill: coreHex, 'fill-opacity': '0.85' });
-    mk('circle', { cx: '24', cy: '48', r: '2', fill: glowHex, 'fill-opacity': '0.75' });
+    const defs = mk('defs', {});
+    const gId = `gl_sp_${uid}`;
+    addRadialGrad(defs, gId, { cx: '50%', cy: '50%', r: '50%' }, [
+      { offset: '0%', color: coreHex, opacity: '0.98' },
+      { offset: '70%', color: glowHex, opacity: '0.82' },
+      { offset: '100%', color: glowHex, opacity: '0.2' },
+    ]);
+    mk('path', { d: 'M54 14L58.5 34.5L79 39L58.5 43.5L54 64L49.5 43.5L29 39L49.5 34.5L54 14Z', fill: `url(#${gId})` });
+    mk('path', { d: 'M88 58L90.8 69.2L102 72L90.8 74.8L88 86L85.2 74.8L74 72L85.2 69.2L88 58Z', fill: glowHex, 'fill-opacity': '0.88' });
+    mk('path', { d: 'M32 76L33.8 83.2L41 85L33.8 86.8L32 94L30.2 86.8L23 85L30.2 83.2L32 76Z', fill: coreHex, 'fill-opacity': '0.78' });
+    mk('circle', { cx: '88', cy: '27', r: '2.2', fill: coreHex, 'fill-opacity': '0.88' });
+    mk('circle', { cx: '24', cy: '48', r: '1.8', fill: glowHex, 'fill-opacity': '0.72' });
   } else if (motif === 'orbital') {
-    mk('ellipse', { cx: '60', cy: '60', rx: '44', ry: '18', transform: 'rotate(-24 60 60)', stroke: glowHex, 'stroke-width': '1.6', 'stroke-dasharray': '4 5', 'stroke-opacity': '0.85' });
-    mk('ellipse', { cx: '60', cy: '60', rx: '32', ry: '12', transform: 'rotate(28 60 60)', stroke: coreHex, 'stroke-width': '1.2', 'stroke-opacity': '0.55' });
-    mk('circle', { cx: '96', cy: '43', r: '4.5', fill: coreHex });
+    const defs = mk('defs', {});
+    const gId = `gl_orb_${uid}`;
+    addLinearGrad(defs, gId, { x1: '0%', y1: '0%', x2: '100%', y2: '100%' }, [
+      { offset: '0%', color: coreHex, opacity: '0.92' },
+      { offset: '100%', color: glowHex, opacity: '0.35' },
+    ]);
+    mk('ellipse', { cx: '60', cy: '60', rx: '44', ry: '17', transform: 'rotate(-24 60 60)', stroke: `url(#${gId})`, 'stroke-width': '1.4', 'stroke-dasharray': '3.5 4.5' });
+    mk('ellipse', { cx: '60', cy: '60', rx: '31', ry: '11', transform: 'rotate(28 60 60)', stroke: coreHex, 'stroke-width': '1', 'stroke-opacity': '0.58' });
+    mk('circle', { cx: '96', cy: '43', r: '3.8', fill: coreHex });
+    mk('circle', { cx: '96', cy: '43', r: '6.5', stroke: glowHex, 'stroke-width': '0.7', 'stroke-opacity': '0.45' });
     mk('path', { d: 'M31 32C26 35 23 41 24 47C25 53 31 57 37 56C32 55 29 50 29 45C29 40 31 35 35 32C33.5 31.6 32.2 31.6 31 32Z', fill: glowHex, 'fill-opacity': '0.9' });
   } else if (motif === 'hearts') {
-    mk('path', { d: 'M52 72C52 72 28 57 28 40C28 32 34 26 41.5 26C46.2 26 50.2 28.6 52 32.3C53.8 28.6 57.8 26 62.5 26C70 26 76 32 76 40C76 57 52 72 52 72Z', stroke: glowHex, 'stroke-width': '2.2', fill: glowHex, 'fill-opacity': '0.18' });
-    mk('path', { d: 'M86 86C86 86 73 78 73 69C73 64.8 76.2 61.6 80.2 61.6C82.8 61.6 84.9 63 86 65C87.1 63 89.2 61.6 91.8 61.6C95.8 61.6 99 64.8 99 69C99 78 86 86 86 86Z', stroke: coreHex, 'stroke-width': '1.8', fill: coreHex, 'fill-opacity': '0.22' });
-    mk('circle', { cx: '88', cy: '36', r: '2.2', fill: coreHex, 'fill-opacity': '0.85' });
-    mk('circle', { cx: '28', cy: '82', r: '2.5', fill: glowHex, 'fill-opacity': '0.8' });
+    const defs = mk('defs', {});
+    const gId = `gl_hrt_${uid}`;
+    addLinearGrad(defs, gId, { x1: '25%', y1: '20%', x2: '80%', y2: '85%' }, [
+      { offset: '0%', color: coreHex, opacity: '0.42' },
+      { offset: '100%', color: glowHex, opacity: '0.16' },
+    ]);
+    mk('path', { d: 'M52 72C52 72 28 57 28 40C28 32 34 26 41.5 26C46.2 26 50.2 28.6 52 32.3C53.8 28.6 57.8 26 62.5 26C70 26 76 32 76 40C76 57 52 72 52 72Z', stroke: glowHex, 'stroke-width': '1.9', fill: `url(#${gId})` });
+    mk('path', { d: 'M86 86C86 86 73 78 73 69C73 64.8 76.2 61.6 80.2 61.6C82.8 61.6 84.9 63 86 65C87.1 63 89.2 61.6 91.8 61.6C95.8 61.6 99 64.8 99 69C99 78 86 86 86 86Z', stroke: coreHex, 'stroke-width': '1.6', fill: coreHex, 'fill-opacity': '0.22' });
+    mk('circle', { cx: '88', cy: '36', r: '2', fill: coreHex, 'fill-opacity': '0.85' });
+    mk('circle', { cx: '28', cy: '82', r: '2.2', fill: glowHex, 'fill-opacity': '0.75' });
   } else if (motif === 'soft_flowers') {
-    mk('path', { d: 'M22 96C34 74 52 54 78 36', stroke: glowHex, 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-opacity': '0.65' });
-    mk('path', { d: 'M44 74C32 68 26 57 32 48C38 44 48 53 48 66', fill: glowHex, 'fill-opacity': '0.16', stroke: glowHex, 'stroke-width': '1.4' });
-    mk('path', { d: 'M62 54C74 58 86 54 88 45C84 38 72 41 64 49', fill: glowHex, 'fill-opacity': '0.16', stroke: glowHex, 'stroke-width': '1.4' });
+    const defs = mk('defs', {});
+    const pOuter = `gl_sfpo_${uid}`;
+    const pInner = `gl_sfpi_${uid}`;
+    const leafGrad = `gl_sflf_${uid}`;
+    const coreGrad = `gl_sfcr_${uid}`;
+    addRadialGrad(defs, pOuter, { cx: '50%', cy: '30%', r: '72%' }, [
+      { offset: '0%', color: coreHex, opacity: '0.52' },
+      { offset: '65%', color: glowHex, opacity: '0.34' },
+      { offset: '100%', color: glowHex, opacity: '0.12' },
+    ]);
+    addRadialGrad(defs, pInner, { cx: '50%', cy: '35%', r: '70%' }, [
+      { offset: '0%', color: '#FFFFFF', opacity: '0.48' },
+      { offset: '100%', color: coreHex, opacity: '0.32' },
+    ]);
+    addLinearGrad(defs, leafGrad, { x1: '0%', y1: '0%', x2: '100%', y2: '100%' }, [
+      { offset: '0%', color: glowHex, opacity: '0.32' },
+      { offset: '100%', color: coreHex, opacity: '0.14' },
+    ]);
+    addRadialGrad(defs, coreGrad, { cx: '45%', cy: '40%', r: '60%' }, [
+      { offset: '0%', color: '#FEF3C7', opacity: '0.98' },
+      { offset: '60%', color: coreHex, opacity: '0.9' },
+      { offset: '100%', color: glowHex, opacity: '0.85' },
+    ]);
+
+    mk('path', { d: 'M22 102C32 82 47 64 74 42', stroke: glowHex, 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-opacity': '0.72' });
+    mk('path', { d: 'M44 74C52 78 63 82 72 80', stroke: glowHex, 'stroke-width': '1.2', 'stroke-linecap': 'round', 'stroke-opacity': '0.55' });
+    mk('path', { d: 'M43 73C29 69 24 56 30 46C38 44 47 54 45 70Z', fill: `url(#${leafGrad})`, stroke: glowHex, 'stroke-width': '1.15', 'stroke-opacity': '0.72' });
+    mk('path', { d: 'M32 51C36 58 40 65 43 71', stroke: glowHex, 'stroke-width': '0.75', 'stroke-opacity': '0.5', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M60 54C73 59 86 55 90 46C85 38 71 42 62 52Z', fill: `url(#${leafGrad})`, stroke: glowHex, 'stroke-width': '1.1', 'stroke-opacity': '0.68' });
+    mk('path', { d: 'M64 52C72 50 80 48 87 46', stroke: glowHex, 'stroke-width': '0.75', 'stroke-opacity': '0.45', 'stroke-linecap': 'round' });
+
+    const gMain = mk('g', { transform: 'translate(76 38)' });
     for (let deg = 0; deg < 360; deg += 60) {
-      mk('ellipse', { cx: '78', cy: '24', rx: '6', ry: '11', transform: `rotate(${deg} 78 36)`, fill: coreHex, 'fill-opacity': '0.28', stroke: glowHex, 'stroke-width': '1.5' });
+      mk('path', { d: 'M0 0C-6 -6 -9 -17 0 -22C9 -17 6 -6 0 0Z', transform: `rotate(${deg})`, fill: `url(#${pOuter})`, stroke: glowHex, 'stroke-width': '1', 'stroke-opacity': '0.68' }, gMain);
     }
-    mk('circle', { cx: '78', cy: '36', r: '5', fill: glowHex, 'fill-opacity': '0.85' });
+    for (let deg = 30; deg < 360; deg += 60) {
+      mk('path', { d: 'M0 0C-4.5 -4 -6.5 -12 0 -15.5C6.5 -12 4.5 -4 0 0Z', transform: `rotate(${deg})`, fill: `url(#${pInner})`, stroke: coreHex, 'stroke-width': '0.75', 'stroke-opacity': '0.5' }, gMain);
+    }
+    mk('circle', { cx: '0', cy: '0', r: '4.8', fill: `url(#${coreGrad})` }, gMain);
+    mk('circle', { cx: '-1.5', cy: '-1.2', r: '0.9', fill: '#FFFBEB', 'fill-opacity': '0.9' }, gMain);
+    mk('circle', { cx: '1.8', cy: '1.1', r: '0.8', fill: '#FFFBEB', 'fill-opacity': '0.85' }, gMain);
+    mk('circle', { cx: '1.2', cy: '-1.8', r: '0.7', fill: '#FFFBEB', 'fill-opacity': '0.8' }, gMain);
+
+    const gSub = mk('g', { transform: 'translate(36 86)' });
     for (let deg = 0; deg < 360; deg += 72) {
-      mk('ellipse', { cx: '36', cy: '78', rx: '4', ry: '7.2', transform: `rotate(${deg} 36 86)`, fill: coreHex, 'fill-opacity': '0.26', stroke: glowHex, 'stroke-width': '1.2' });
+      mk('path', { d: 'M0 0C-4.2 -4 -6 -11.5 0 -14.5C6 -11.5 4.2 -4 0 0Z', transform: `rotate(${deg})`, fill: `url(#${pOuter})`, stroke: glowHex, 'stroke-width': '0.95', 'stroke-opacity': '0.62' }, gSub);
     }
-    mk('circle', { cx: '36', cy: '86', r: '3.4', fill: glowHex, 'fill-opacity': '0.8' });
+    mk('circle', { cx: '0', cy: '0', r: '3', fill: `url(#${coreGrad})` }, gSub);
+
+    const gBud = mk('g', { transform: 'translate(76 78) rotate(28)' });
+    mk('path', { d: 'M0 4C-4 -1 -4 -8 0 -11C4 -8 4 -1 0 4Z', fill: `url(#${pOuter})`, stroke: glowHex, 'stroke-width': '0.95', 'stroke-opacity': '0.68' }, gBud);
+    mk('circle', { cx: '48', cy: '28', r: '1.4', fill: coreHex, 'fill-opacity': '0.7' });
+    mk('circle', { cx: '98', cy: '64', r: '1.2', fill: glowHex, 'fill-opacity': '0.6' });
   } else if (motif === 'petals') {
-    mk('path', { d: 'M34 26C48 22 56 32 52 44C46 52 34 50 28 40C24 33 27 28 34 26Z', fill: glowHex, 'fill-opacity': '0.22', stroke: glowHex, 'stroke-width': '1.6' });
-    mk('path', { d: 'M78 24C90 28 92 40 84 48C76 52 66 46 66 36C66 28 71 22 78 24Z', fill: coreHex, 'fill-opacity': '0.3', stroke: glowHex, 'stroke-width': '1.5' });
-    mk('path', { d: 'M54 58C68 54 78 64 74 78C67 86 53 84 46 74C42 66 46 60 54 58Z', fill: glowHex, 'fill-opacity': '0.26', stroke: glowHex, 'stroke-width': '1.7' });
-    mk('path', { d: 'M24 78C32 74 39 79 37 87C33 93 24 92 20 86C18 82 20 79 24 78Z', fill: coreHex, 'fill-opacity': '0.28', stroke: glowHex, 'stroke-width': '1.4' });
-    mk('path', { d: 'M88 76C98 76 102 85 96 92C90 97 81 93 80 85C79 79 83 76 88 76Z', fill: glowHex, 'fill-opacity': '0.2', stroke: glowHex, 'stroke-width': '1.4' });
-    mk('circle', { cx: '62', cy: '42', r: '2', fill: glowHex, 'fill-opacity': '0.7' });
-    mk('circle', { cx: '88', cy: '60', r: '1.8', fill: glowHex, 'fill-opacity': '0.65' });
+    const defs = mk('defs', {});
+    const ptA = `gl_pta_${uid}`;
+    const ptB = `gl_ptb_${uid}`;
+    addLinearGrad(defs, ptA, { x1: '15%', y1: '10%', x2: '85%', y2: '90%' }, [
+      { offset: '0%', color: '#FFFFFF', opacity: '0.52' },
+      { offset: '45%', color: coreHex, opacity: '0.4' },
+      { offset: '100%', color: glowHex, opacity: '0.24' },
+    ]);
+    addLinearGrad(defs, ptB, { x1: '0%', y1: '20%', x2: '100%', y2: '85%' }, [
+      { offset: '0%', color: coreHex, opacity: '0.48' },
+      { offset: '100%', color: glowHex, opacity: '0.18' },
+    ]);
+    mk('path', { d: 'M27 25C36 17 50 22 52 34C53 43 44 50 34 48C26 46 21 33 27 25Z', fill: `url(#${ptA})`, stroke: glowHex, 'stroke-width': '1.15', 'stroke-opacity': '0.72' });
+    mk('path', { d: 'M31 30C36 35 39 40 41 45', stroke: coreHex, 'stroke-width': '0.75', 'stroke-opacity': '0.45', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M80 20C91 23 94 37 86 46C79 52 67 48 66 37C65 28 72 18 80 20Z', fill: `url(#${ptB})`, stroke: glowHex, 'stroke-width': '1.1', 'stroke-opacity': '0.68' });
+    mk('path', { d: 'M78 26C77 32 76 38 74 44', stroke: glowHex, 'stroke-width': '0.7', 'stroke-opacity': '0.42', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M55 54C68 50 79 62 73 77C67 86 52 84 46 73C42 64 47 56 55 54Z', fill: `url(#${ptA})`, stroke: glowHex, 'stroke-width': '1.2', 'stroke-opacity': '0.76' });
+    mk('path', { d: 'M55 60C58 66 59 72 58 79', stroke: coreHex, 'stroke-width': '0.75', 'stroke-opacity': '0.45', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M21 79C28 70 40 72 40 82C38 91 26 93 20 85C18 83 19 81 21 79Z', fill: `url(#${ptB})`, stroke: glowHex, 'stroke-width': '1', 'stroke-opacity': '0.62' });
+    mk('path', { d: 'M89 75C98 76 102 86 95 93C89 98 80 94 79 86C79 80 84 75 89 75Z', fill: `url(#${ptA})`, stroke: glowHex, 'stroke-width': '1', 'stroke-opacity': '0.62' });
+    mk('circle', { cx: '60', cy: '39', r: '1.8', fill: coreHex, 'fill-opacity': '0.78' });
+    mk('circle', { cx: '88', cy: '59', r: '1.5', fill: glowHex, 'fill-opacity': '0.68' });
+    mk('circle', { cx: '42', cy: '96', r: '1.3', fill: coreHex, 'fill-opacity': '0.65' });
+  } else if (motif === 'floral_corners') {
+    const defs = mk('defs', {});
+    const fcPetal = `gl_fcpt_${uid}`;
+    const fcLeaf = `gl_fclf_${uid}`;
+    addRadialGrad(defs, fcPetal, { cx: '45%', cy: '35%', r: '65%' }, [
+      { offset: '0%', color: '#FFFFFF', opacity: '0.5' },
+      { offset: '55%', color: coreHex, opacity: '0.44' },
+      { offset: '100%', color: glowHex, opacity: '0.22' },
+    ]);
+    addLinearGrad(defs, fcLeaf, { x1: '0%', y1: '0%', x2: '100%', y2: '100%' }, [
+      { offset: '0%', color: glowHex, opacity: '0.34' },
+      { offset: '100%', color: coreHex, opacity: '0.14' },
+    ]);
+    mk('path', { d: 'M16 18C44 16 74 26 98 52', stroke: glowHex, 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-opacity': '0.72' });
+    mk('path', { d: 'M104 102C76 104 46 94 22 68', stroke: glowHex, 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-opacity': '0.72' });
+    mk('path', { d: 'M42 20C36 10 44 4 52 10C53 16 47 20 42 20Z', fill: `url(#${fcLeaf})`, stroke: glowHex, 'stroke-width': '0.95', 'stroke-opacity': '0.68' });
+    mk('path', { d: 'M84 36C94 31 102 36 98 44C91 47 85 42 84 36Z', fill: `url(#${fcLeaf})`, stroke: glowHex, 'stroke-width': '0.95', 'stroke-opacity': '0.68' });
+    const gTop = mk('g', { transform: 'translate(68 25)' });
+    for (let deg = 0; deg < 360; deg += 72) {
+      mk('path', { d: 'M0 0C-3.8 -3.8 -5.4 -10.5 0 -13.2C5.4 -10.5 3.8 -3.8 0 0Z', transform: `rotate(${deg})`, fill: `url(#${fcPetal})`, stroke: glowHex, 'stroke-width': '0.9', 'stroke-opacity': '0.7' }, gTop);
+    }
+    mk('circle', { cx: '0', cy: '0', r: '2.8', fill: coreHex, 'fill-opacity': '0.92' }, gTop);
+
+    mk('path', { d: 'M78 100C84 110 76 116 68 110C67 104 73 100 78 100Z', fill: `url(#${fcLeaf})`, stroke: glowHex, 'stroke-width': '0.95', 'stroke-opacity': '0.68' });
+    mk('path', { d: 'M36 84C26 89 18 84 22 76C29 73 35 78 36 84Z', fill: `url(#${fcLeaf})`, stroke: glowHex, 'stroke-width': '0.95', 'stroke-opacity': '0.68' });
+    const gBot = mk('g', { transform: 'translate(52 95)' });
+    for (let deg = 0; deg < 360; deg += 72) {
+      mk('path', { d: 'M0 0C-3.8 -3.8 -5.4 -10.5 0 -13.2C5.4 -10.5 3.8 -3.8 0 0Z', transform: `rotate(${deg})`, fill: `url(#${fcPetal})`, stroke: glowHex, 'stroke-width': '0.9', 'stroke-opacity': '0.7' }, gBot);
+    }
+    mk('circle', { cx: '0', cy: '0', r: '2.8', fill: coreHex, 'fill-opacity': '0.92' }, gBot);
+    mk('circle', { cx: '96', cy: '58', r: '1.7', fill: coreHex, 'fill-opacity': '0.78' });
+    mk('circle', { cx: '24', cy: '62', r: '1.7', fill: coreHex, 'fill-opacity': '0.78' });
   } else if (motif === 'magic_rays') {
-    mk('circle', { cx: '60', cy: '60', r: '26', stroke: glowHex, 'stroke-width': '1.2', 'stroke-dasharray': '3 5', 'stroke-opacity': '0.6' });
-    mk('line', { x1: '60', y1: '10', x2: '60', y2: '110', stroke: coreHex, 'stroke-width': '1.4', 'stroke-opacity': '0.65' });
-    mk('line', { x1: '10', y1: '60', x2: '110', y2: '60', stroke: coreHex, 'stroke-width': '1.4', 'stroke-opacity': '0.65' });
-    mk('line', { x1: '25', y1: '25', x2: '95', y2: '95', stroke: glowHex, 'stroke-width': '1.2', 'stroke-opacity': '0.55' });
-    mk('line', { x1: '95', y1: '25', x2: '25', y2: '95', stroke: glowHex, 'stroke-width': '1.2', 'stroke-opacity': '0.55' });
-    mk('path', { d: 'M60 34L65 55L86 60L65 65L60 86L55 65L34 60L55 55L60 34Z', fill: coreHex, 'fill-opacity': '0.9', stroke: glowHex, 'stroke-width': '1.4' });
-    mk('circle', { cx: '92', cy: '28', r: '2.2', fill: coreHex, 'fill-opacity': '0.85' });
-    mk('circle', { cx: '28', cy: '92', r: '2.2', fill: glowHex, 'fill-opacity': '0.8' });
+    const defs = mk('defs', {});
+    const rayGrad = `gl_mr_${uid}`;
+    addRadialGrad(defs, rayGrad, { cx: '50%', cy: '50%', r: '50%' }, [
+      { offset: '0%', color: coreHex, opacity: '0.96' },
+      { offset: '55%', color: glowHex, opacity: '0.7' },
+      { offset: '100%', color: glowHex, opacity: '0' },
+    ]);
+    mk('circle', { cx: '60', cy: '60', r: '31', stroke: glowHex, 'stroke-width': '0.9', 'stroke-dasharray': '2.5 5', 'stroke-opacity': '0.58' });
+    mk('circle', { cx: '60', cy: '60', r: '19', stroke: coreHex, 'stroke-width': '0.75', 'stroke-opacity': '0.4' });
+    mk('line', { x1: '60', y1: '10', x2: '60', y2: '110', stroke: coreHex, 'stroke-width': '1.2', 'stroke-opacity': '0.65', 'stroke-linecap': 'round' });
+    mk('line', { x1: '10', y1: '60', x2: '110', y2: '60', stroke: coreHex, 'stroke-width': '1.2', 'stroke-opacity': '0.65', 'stroke-linecap': 'round' });
+    mk('line', { x1: '26', y1: '26', x2: '94', y2: '94', stroke: glowHex, 'stroke-width': '1', 'stroke-opacity': '0.48', 'stroke-linecap': 'round' });
+    mk('line', { x1: '94', y1: '26', x2: '26', y2: '94', stroke: glowHex, 'stroke-width': '1', 'stroke-opacity': '0.48', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M60 32L64.5 55.5L88 60L64.5 64.5L60 88L55.5 64.5L32 60L55.5 55.5L60 32Z', fill: `url(#${rayGrad})`, stroke: coreHex, 'stroke-width': '1.1' });
+    mk('circle', { cx: '91', cy: '29', r: '2', fill: coreHex, 'fill-opacity': '0.88' });
+    mk('circle', { cx: '29', cy: '91', r: '2', fill: glowHex, 'fill-opacity': '0.82' });
+    mk('circle', { cx: '29', cy: '29', r: '1.4', fill: coreHex, 'fill-opacity': '0.65' });
+    mk('circle', { cx: '91', cy: '91', r: '1.4', fill: glowHex, 'fill-opacity': '0.65' });
   } else if (motif === 'corners') {
-    mk('path', { d: 'M16 42V22C16 18.7 18.7 16 22 16H42', stroke: glowHex, 'stroke-width': '2', 'stroke-linecap': 'round' });
-    mk('path', { d: 'M104 78V98C104 101.3 101.3 104 98 104H78', stroke: glowHex, 'stroke-width': '2', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M16 44V22C16 18.7 18.7 16 22 16H44', stroke: glowHex, 'stroke-width': '1.8', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M22 38V24C22 22.9 22.9 22 24 22H38', stroke: coreHex, 'stroke-width': '1', 'stroke-opacity': '0.65', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M104 76V98C104 101.3 101.3 104 98 104H76', stroke: glowHex, 'stroke-width': '1.8', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M98 82V96C98 97.1 97.1 98 96 98H82', stroke: coreHex, 'stroke-width': '1', 'stroke-opacity': '0.65', 'stroke-linecap': 'round' });
     mk('path', { d: 'M84 22L86 30L94 32L86 34L84 42L82 34L74 32L82 30L84 22Z', fill: coreHex, 'fill-opacity': '0.9' });
-    mk('path', { d: 'M36 78L38 86L46 88L38 90L36 98L34 90L26 88L34 86L36 78Z', fill: coreHex, 'fill-opacity': '0.8' });
+    mk('path', { d: 'M36 78L38 86L46 88L38 90L36 98L34 90L26 88L34 86L36 78Z', fill: coreHex, 'fill-opacity': '0.82' });
   }
   return svg;
+}
+
+function createStarburstWrap(
+  coreColor: string,
+  rayColor: string,
+  className: string,
+): HTMLDivElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const uid = String(++decorUidSeq);
+  const wrap = el('div', `gl-starburst-wrap gl-starburst-pulse ${className}`);
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 160 160');
+  svg.setAttribute('fill', 'none');
+  svg.style.width = '100%';
+  svg.style.height = '100%';
+  svg.style.overflow = 'visible';
+
+  const mk = (tag: string, attrs: Record<string, string>, parent: Element = svg) => {
+    const node = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    parent.appendChild(node);
+    return node;
+  };
+
+  const defs = mk('defs', {});
+  const haloId = `gl_sb_h_${uid}`;
+  const rayHId = `gl_sb_rh_${uid}`;
+  const rayVId = `gl_sb_rv_${uid}`;
+
+  const rg = mk('radialGradient', { id: haloId, cx: '50%', cy: '50%', r: '50%' }, defs);
+  for (const [o, c, op] of [
+    ['0%', coreColor, '0.96'],
+    ['16%', rayColor, '0.62'],
+    ['48%', rayColor, '0.16'],
+    ['100%', rayColor, '0'],
+  ]) {
+    mk('stop', { offset: o, 'stop-color': c, 'stop-opacity': op }, rg);
+  }
+  const lgh = mk('linearGradient', { id: rayHId, x1: '0%', y1: '50%', x2: '100%', y2: '50%' }, defs);
+  for (const [o, c, op] of [
+    ['0%', rayColor, '0'],
+    ['50%', coreColor, '0.95'],
+    ['100%', rayColor, '0'],
+  ]) {
+    mk('stop', { offset: o, 'stop-color': c, 'stop-opacity': op }, lgh);
+  }
+  const lgv = mk('linearGradient', { id: rayVId, x1: '50%', y1: '0%', x2: '50%', y2: '100%' }, defs);
+  for (const [o, c, op] of [
+    ['0%', rayColor, '0'],
+    ['50%', coreColor, '0.95'],
+    ['100%', rayColor, '0'],
+  ]) {
+    mk('stop', { offset: o, 'stop-color': c, 'stop-opacity': op }, lgv);
+  }
+
+  mk('circle', { cx: '80', cy: '80', r: '64', fill: `url(#${haloId})` });
+  const g1 = mk('g', { opacity: '0.72', transform: 'rotate(28 80 80)' });
+  mk('line', { x1: '80', y1: '24', x2: '80', y2: '136', stroke: `url(#${rayVId})`, 'stroke-width': '1', 'stroke-linecap': 'round' }, g1);
+  mk('line', { x1: '24', y1: '80', x2: '136', y2: '80', stroke: `url(#${rayHId})`, 'stroke-width': '1', 'stroke-linecap': 'round' }, g1);
+  const g2 = mk('g', { opacity: '0.58', transform: 'rotate(-24 80 80)' });
+  mk('line', { x1: '80', y1: '30', x2: '80', y2: '130', stroke: `url(#${rayVId})`, 'stroke-width': '0.85', 'stroke-linecap': 'round' }, g2);
+  mk('line', { x1: '30', y1: '80', x2: '130', y2: '80', stroke: `url(#${rayHId})`, 'stroke-width': '0.85', 'stroke-linecap': 'round' }, g2);
+
+  mk('path', { d: 'M80 12L82.4 76.2L148 80L82.4 83.8L80 148L77.6 83.8L12 80L77.6 76.2Z', fill: coreColor, 'fill-opacity': '0.86' });
+  mk('path', { d: 'M80 34L83.8 75.5L126 80L83.8 84.5L80 126L76.2 84.5L34 80L76.2 75.5Z', fill: rayColor, 'fill-opacity': '0.45' });
+  mk('circle', { cx: '80', cy: '80', r: '5.5', fill: coreColor });
+  mk('circle', { cx: '48', cy: '46', r: '1.4', fill: rayColor, 'fill-opacity': '0.88' });
+  mk('circle', { cx: '116', cy: '52', r: '1.2', fill: coreColor, 'fill-opacity': '0.85' });
+  mk('circle', { cx: '54', cy: '116', r: '1.1', fill: coreColor, 'fill-opacity': '0.8' });
+  mk('circle', { cx: '112', cy: '112', r: '1.5', fill: rayColor, 'fill-opacity': '0.9' });
+  wrap.appendChild(svg);
+  return wrap;
+}
+
+function appendCardThemeBackdropNodes(
+  container: HTMLElement,
+  pattern: 'paper' | 'stars' | 'botanical' | 'aurora' | 'minimal',
+  accentColor: string,
+  badgeColor: string,
+  borderColor: string,
+  glowHex: string,
+  isLightPaper: boolean,
+): void {
+  const ns = 'http://www.w3.org/2000/svg';
+  const uid = String(++decorUidSeq);
+
+  if (pattern === 'paper') {
+    const tex = el('div', 'gl-letter-pattern');
+    tex.style.opacity = '0.5';
+    tex.style.backgroundImage =
+      'repeating-linear-gradient(0deg, rgba(140,108,80,0.032) 0px, rgba(140,108,80,0.032) 1px, transparent 1px, transparent 24px)';
+    const frame = el('div', 'gl-letter-frame-inner');
+    frame.style.borderColor = `${accentColor}40`;
+    container.append(tex, frame);
+    return;
+  }
+
+  if (pattern === 'stars') {
+    const sheen = el('div', 'gl-letter-pattern');
+    sheen.style.background = [
+      `radial-gradient(ellipse 85% 65% at 86% 18%, ${accentColor}26 0%, transparent 64%)`,
+      `radial-gradient(ellipse 75% 60% at 15% 88%, ${glowHex}22 0%, transparent 65%)`,
+      'linear-gradient(165deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 38%, rgba(12,10,30,0.28) 100%)',
+    ].join(', ');
+    const stars = el('div', 'gl-letter-pattern');
+    stars.style.opacity = '0.35';
+    stars.style.backgroundImage = `radial-gradient(${accentColor}77 1px, transparent 1px)`;
+    stars.style.backgroundSize = '28px 28px';
+    const topRim = el('div', 'gl-card-top-rim');
+    topRim.style.background = `linear-gradient(90deg, transparent, rgba(255,255,255,0.85) 35%, ${badgeColor} 65%, transparent)`;
+    const frame = el('div', 'gl-letter-frame-inner');
+    frame.style.borderColor = `${borderColor}38`;
+    frame.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.22)';
+    const burst = createStarburstWrap('#FFFBEB', accentColor, 'gl-starburst-stars');
+    container.append(sheen, stars, topRim, frame, burst);
+    return;
+  }
+
+  if (pattern === 'botanical') {
+    const glowPat = el('div', 'gl-letter-pattern');
+    glowPat.style.opacity = '0.65';
+    glowPat.style.background = `radial-gradient(circle at 10% 10%, ${accentColor}26, transparent 44%), radial-gradient(circle at 90% 90%, ${accentColor}24, transparent 44%)`;
+    const frame = el('div', 'gl-letter-frame-inner');
+    frame.style.borderStyle = 'dashed';
+    frame.style.borderColor = `${accentColor}4c`;
+    const cornerSvg = document.createElementNS(ns, 'svg');
+    cornerSvg.setAttribute('viewBox', '0 0 100 100');
+    cornerSvg.setAttribute('preserveAspectRatio', 'none');
+    cornerSvg.setAttribute('class', 'gl-letter-pattern');
+    cornerSvg.style.opacity = '0.35';
+    const cp = document.createElementNS(ns, 'path');
+    cp.setAttribute('d', 'M4 18C7 10 12 6 20 4M96 82C93 90 88 94 80 96');
+    cp.setAttribute('stroke', accentColor);
+    cp.setAttribute('stroke-width', '0.45');
+    cp.setAttribute('fill', 'none');
+    cp.setAttribute('stroke-linecap', 'round');
+    cornerSvg.appendChild(cp);
+    container.append(glowPat, frame, cornerSvg);
+    return;
+  }
+
+  if (pattern === 'aurora') {
+    const nebulaPat = el('div', 'gl-letter-pattern');
+    nebulaPat.style.background = [
+      `radial-gradient(ellipse 74% 62% at 16% 12%, ${accentColor}38 0%, transparent 66%)`,
+      `radial-gradient(ellipse 68% 58% at 86% 88%, ${badgeColor}28 0%, transparent 64%)`,
+      `radial-gradient(ellipse 56% 48% at 88% 14%, ${glowHex}24 0%, transparent 68%)`,
+    ].join(', ');
+
+    const textGlow = el('div', 'gl-letter-pattern');
+    textGlow.style.background = `radial-gradient(ellipse 66% 52% at 50% 52%, ${accentColor}26 0%, ${glowHex}12 42%, transparent 74%)`;
+
+    const orbitCwWrap = el('div', 'gl-aurora-orbit-wrap gl-aurora-orbit-cw');
+    const svgCw = document.createElementNS(ns, 'svg');
+    svgCw.setAttribute('viewBox', '0 0 240 240');
+    svgCw.setAttribute('fill', 'none');
+    svgCw.style.width = '100%';
+    svgCw.style.height = '100%';
+    const defsCw = document.createElementNS(ns, 'defs');
+    const gradCw = document.createElementNS(ns, 'linearGradient');
+    const gCwId = `gl_au_${uid}`;
+    gradCw.setAttribute('id', gCwId);
+    gradCw.setAttribute('x1', '0%');
+    gradCw.setAttribute('y1', '0%');
+    gradCw.setAttribute('x2', '100%');
+    gradCw.setAttribute('y2', '100%');
+    for (const st of [
+      ['0%', accentColor, '0.65'],
+      ['50%', badgeColor, '0.42'],
+      ['100%', accentColor, '0.15'],
+    ]) {
+      const s = document.createElementNS(ns, 'stop');
+      s.setAttribute('offset', st[0]);
+      s.setAttribute('stop-color', st[1]);
+      s.setAttribute('stop-opacity', st[2]);
+      gradCw.appendChild(s);
+    }
+    defsCw.appendChild(gradCw);
+    svgCw.appendChild(defsCw);
+    const ellCw = document.createElementNS(ns, 'ellipse');
+    ellCw.setAttribute('cx', '120');
+    ellCw.setAttribute('cy', '120');
+    ellCw.setAttribute('rx', '106');
+    ellCw.setAttribute('ry', '76');
+    ellCw.setAttribute('transform', 'rotate(-18 120 120)');
+    ellCw.setAttribute('stroke', `url(#${gCwId})`);
+    ellCw.setAttribute('stroke-width', '0.7');
+    ellCw.setAttribute('stroke-dasharray', '2.5 5.5');
+    const dotA = document.createElementNS(ns, 'circle');
+    dotA.setAttribute('cx', '218');
+    dotA.setAttribute('cy', '88');
+    dotA.setAttribute('r', '2.1');
+    dotA.setAttribute('fill', badgeColor);
+    dotA.setAttribute('fill-opacity', '0.9');
+    const dotB = document.createElementNS(ns, 'circle');
+    dotB.setAttribute('cx', '22');
+    dotB.setAttribute('cy', '152');
+    dotB.setAttribute('r', '1.6');
+    dotB.setAttribute('fill', accentColor);
+    dotB.setAttribute('fill-opacity', '0.85');
+    svgCw.append(ellCw, dotA, dotB);
+    orbitCwWrap.appendChild(svgCw);
+
+    const orbitCcwWrap = el('div', 'gl-aurora-orbit-wrap gl-aurora-orbit-ccw');
+    const svgCcw = document.createElementNS(ns, 'svg');
+    svgCcw.setAttribute('viewBox', '0 0 240 240');
+    svgCcw.setAttribute('fill', 'none');
+    svgCcw.style.width = '100%';
+    svgCcw.style.height = '100%';
+    const ellCcw = document.createElementNS(ns, 'ellipse');
+    ellCcw.setAttribute('cx', '120');
+    ellCcw.setAttribute('cy', '120');
+    ellCcw.setAttribute('rx', '92');
+    ellCcw.setAttribute('ry', '62');
+    ellCcw.setAttribute('transform', 'rotate(24 120 120)');
+    ellCcw.setAttribute('stroke', badgeColor);
+    ellCcw.setAttribute('stroke-width', '0.55');
+    ellCcw.setAttribute('stroke-opacity', '0.48');
+    const starCcw = document.createElementNS(ns, 'path');
+    starCcw.setAttribute('d', 'M42 74L43.5 78.5L48 80L43.5 81.5L42 86L40.5 81.5L36 80L40.5 78.5Z');
+    starCcw.setAttribute('fill', badgeColor);
+    starCcw.setAttribute('fill-opacity', '0.85');
+    svgCcw.append(ellCcw, starCcw);
+    orbitCcwWrap.appendChild(svgCcw);
+
+    const frame = el('div', 'gl-letter-frame-inner gl-card-holo-rim');
+    frame.style.borderColor = `${borderColor}55`;
+
+    const topRim = el('div', 'gl-card-top-rim');
+    topRim.style.background =
+      'linear-gradient(90deg, transparent, rgba(255,255,255,0.92) 30%, rgba(216,180,254,0.85) 70%, transparent)';
+
+    const burst = createStarburstWrap('#FFFFFF', badgeColor, 'gl-starburst-aurora');
+
+    const symSvg = document.createElementNS(ns, 'svg');
+    symSvg.setAttribute('viewBox', '0 0 400 300');
+    symSvg.setAttribute('preserveAspectRatio', 'none');
+    symSvg.setAttribute('fill', 'none');
+    symSvg.setAttribute('class', 'gl-letter-pattern');
+    symSvg.style.opacity = '0.8';
+    const sp1 = document.createElementNS(ns, 'path');
+    sp1.setAttribute('d', 'M36 42L38 48L44 50L38 52L36 58L34 52L28 50L34 48Z');
+    sp1.setAttribute('fill', '#FFFFFF');
+    sp1.setAttribute('fill-opacity', '0.82');
+    const sp2 = document.createElementNS(ns, 'path');
+    sp2.setAttribute('d', 'M366 244L368 250L374 252L368 254L366 260L364 254L358 252L364 250Z');
+    sp2.setAttribute('fill', badgeColor);
+    sp2.setAttribute('fill-opacity', '0.85');
+    const topDiamond = document.createElementNS(ns, 'path');
+    topDiamond.setAttribute('d', 'M200 10L203 16L209 18L203 20L200 26L197 20L191 18L197 16Z');
+    topDiamond.setAttribute('fill', badgeColor);
+    topDiamond.setAttribute('fill-opacity', '0.72');
+    const botDiamond = document.createElementNS(ns, 'path');
+    botDiamond.setAttribute('d', 'M200 274L203 280L209 282L203 284L200 290L197 284L191 282L197 280Z');
+    botDiamond.setAttribute('fill', accentColor);
+    botDiamond.setAttribute('fill-opacity', '0.68');
+    symSvg.append(sp1, sp2, topDiamond, botDiamond);
+
+    container.append(nebulaPat, textGlow, topRim, orbitCwWrap, orbitCcwWrap, frame, burst, symSvg);
+    return;
+  }
+
+  // 'minimal' — Editorial architectural stationery composition
+  const inkLine = isLightPaper ? borderColor : accentColor;
+  const asymTint = el('div', 'gl-letter-pattern');
+  asymTint.style.left = 'auto';
+  asymTint.style.width = '34%';
+  asymTint.style.opacity = '0.35';
+  asymTint.style.background = `linear-gradient(180deg, ${accentColor}18 0%, transparent 65%, ${accentColor}12 100%)`;
+
+  const outerFrame = el('div', 'gl-letter-frame-inner');
+  outerFrame.style.inset = '12px';
+  outerFrame.style.borderRadius = '14px';
+  outerFrame.style.borderColor = `${inkLine}66`;
+
+  const leftGuide = el('div', 'gl-letter-pattern');
+  leftGuide.style.left = '24px';
+  leftGuide.style.right = 'auto';
+  leftGuide.style.top = '12px';
+  leftGuide.style.bottom = '12px';
+  leftGuide.style.width = '1px';
+  leftGuide.style.opacity = '0.45';
+  leftGuide.style.backgroundColor = accentColor;
+
+  const topDot = el('div', 'gl-letter-pattern');
+  topDot.style.left = 'auto';
+  topDot.style.bottom = 'auto';
+  topDot.style.right = '22px';
+  topDot.style.top = '22px';
+  topDot.style.width = '8px';
+  topDot.style.height = '8px';
+  topDot.style.borderRadius = '999px';
+  topDot.style.opacity = '0.75';
+  topDot.style.backgroundColor = accentColor;
+
+  const botRule = el('div', 'gl-letter-pattern');
+  botRule.style.left = 'auto';
+  botRule.style.top = 'auto';
+  botRule.style.right = '22px';
+  botRule.style.bottom = '22px';
+  botRule.style.width = '24px';
+  botRule.style.height = '1px';
+  botRule.style.opacity = '0.6';
+  botRule.style.backgroundColor = badgeColor;
+
+  container.append(asymTint, outerFrame, leftGuide, topDot, botRule);
 }
 
 function shouldIgnoreSwipeTarget(
@@ -219,6 +720,8 @@ function bootGiftLabRecipient(): void {
   const cardTheme = resolveCardTheme(payload.cardTheme);
   const cardColors = resolveCardColors(payload);
   const hasExplicitCardTheme = Boolean(payload.cardTheme || payload.cardColors);
+  const isMinimalistTheme = cardTheme.id === 'minimalist';
+  const sansFontMeta = resolveMessageFont('manrope');
   const normalizedStars: StandaloneStar[] = payload.stars.map((s) => ({
     ...s,
     shape: resolveStarShape(s),
@@ -233,7 +736,7 @@ function bootGiftLabRecipient(): void {
   let activeIndex = 0;
   let unlockedCount = 0;
   let finaleReached = false;
-  let letterOpen = true;
+  let letterOpen = false;
   let reducedMotion =
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   let engine: ConstellationEngine | null = null;
@@ -265,6 +768,9 @@ function bootGiftLabRecipient(): void {
   const signatureText =
     payload.senderName?.trim() ||
     (payload.recipientName ? `Для ${payload.recipientName}` : '');
+  const resolvedEnvelope = resolveEnvelopeSettings(payload);
+  const sealHex = resolvedEnvelope.sealColor ?? globalGlow.hex;
+  const sealCoreHex = resolvedEnvelope.sealColor ?? globalGlow.coreHex;
 
   // Stage container
   const stage = el('div', 'gl-stage');
@@ -272,41 +778,59 @@ function bootGiftLabRecipient(): void {
   const canvasHost = el('div', 'gl-canvas');
   stage.appendChild(canvasHost);
 
-  // 2D Sealed envelope fallback layer
+  // 2D Sealed envelope fallback layer (frosted translucent envelope + indigo glow)
   const sealed2DOverlay = el('div', 'gl-2d-sealed gl-hidden');
   sealed2DOverlay.style.background = palette.cssGradient;
+  const sealed2DGlow = el('div', 'gl-2d-sealed-glow');
+  sealed2DGlow.style.background = `radial-gradient(ellipse 68% 52% at 50% 56%, ${
+    resolvedEnvelope.envelopeColor ?? palette.nebulaPrimary
+  }55 0%, rgba(167,139,250,0.22) 38%, transparent 74%)`;
   const sealed2DBox = el('div', 'gl-2d-envelope');
+  if (resolvedEnvelope.envelopeColor) {
+    sealed2DBox.style.background = `linear-gradient(155deg, ${resolvedEnvelope.envelopeColor}CC 0%, ${resolvedEnvelope.envelopeColor}78 100%)`;
+  }
+  const flapSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  flapSvg.setAttribute('viewBox', '0 0 320 192');
+  flapSvg.setAttribute('class', 'gl-2d-envelope-flap');
+  flapSvg.setAttribute('aria-hidden', 'true');
+  const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p1.setAttribute('d', 'M0 0L160 112L320 0');
+  p1.setAttribute('fill', 'rgba(255,255,255,0.18)');
+  p1.setAttribute('stroke', 'rgba(255,255,255,0.68)');
+  p1.setAttribute('stroke-width', '1.6');
+  const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p2.setAttribute('d', 'M0 192L122 96M320 192L198 96');
+  p2.setAttribute('stroke', 'rgba(255,255,255,0.36)');
+  p2.setAttribute('stroke-width', '1.4');
+  flapSvg.append(p1, p2);
   const sealed2DSeal = el('div', 'gl-2d-seal');
-  sealed2DSeal.style.background = `radial-gradient(circle, ${globalGlow.coreHex} 12%, ${globalGlow.hex} 68%, transparent 100%)`;
-  sealed2DSeal.style.boxShadow = `0 0 28px ${globalGlow.hex}`;
-  const sealed2DLabel = el('span', 'gl-2d-sealed-lbl', 'Запечатанное созвездие');
-  sealed2DBox.append(sealed2DSeal, sealed2DLabel);
-  sealed2DOverlay.appendChild(sealed2DBox);
+  sealed2DSeal.style.background = `radial-gradient(circle, #FFFFFF 8%, ${sealCoreHex} 58%, ${sealHex} 100%)`;
+  sealed2DSeal.style.boxShadow = `0 0 28px ${sealHex}`;
+  sealed2DBox.append(flapSvg, sealed2DSeal);
+  sealed2DOverlay.append(sealed2DGlow, sealed2DBox);
   stage.appendChild(sealed2DOverlay);
 
   // PHASE 1: Sealed Envelope UI
   const sealedUi = el('div', 'gl-sealed-ui');
+  const sealedAmbient = el('div', 'gl-2d-sealed-glow');
+  sealedAmbient.style.background = `radial-gradient(ellipse 64% 48% at 50% 56%, ${
+    resolvedEnvelope.envelopeColor ?? palette.nebulaPrimary
+  }42 0%, transparent 72%)`;
   const sealedHeader = el('div', 'gl-sealed-head');
-  const sealedKicker = el(
-    'div',
-    'gl-kicker',
-    payload.recipientName
-      ? `Для ${payload.recipientName} · ${payload.occasionLabel}`
-      : payload.occasionLabel,
-  );
-  const sealedTitle = el('h1', 'gl-title', payload.title);
+  const sealedKicker = el('div', 'gl-kicker', resolvedEnvelope.kickerText);
+  const sealedTitle = el('h1', 'gl-title', resolvedEnvelope.headlineText);
   sealedHeader.append(sealedKicker, sealedTitle);
 
   const sealedFooter = el('div', 'gl-sealed-foot');
-  const sealedSub = el(
-    'p',
-    'gl-sealed-sub',
-    'Нажмите на звёздную печать или кнопку ниже, чтобы открыть первое послание',
+  const sealedSub = el('p', 'gl-sealed-sub', resolvedEnvelope.hintText);
+  const openBtn = el(
+    'button',
+    'gl-btn gl-open-btn gl-open-btn-pearl',
+    `✦ ${resolvedEnvelope.ctaText}`,
   );
-  const openBtn = el('button', 'gl-btn gl-btn-primary gl-open-btn', 'Открыть послание');
   openBtn.type = 'button';
   sealedFooter.append(sealedSub, openBtn);
-  sealedUi.append(sealedHeader, sealedFooter);
+  sealedUi.append(sealedAmbient, sealedHeader, sealedFooter);
   stage.appendChild(sealedUi);
 
   // PHASE 2 & 4: Skip + Sound Bar during Birthing / FinalReveal
@@ -365,18 +889,15 @@ function bootGiftLabRecipient(): void {
       ? `linear-gradient(155deg, ${cardColors.surfaceBg}F5 0%, ${cardColors.surfaceBgAlt}F2 100%)`
       : `linear-gradient(155deg, ${cardColors.surfaceBg}CC 0%, ${cardColors.surfaceBgAlt}C4 100%)`;
     storyMotionWrap.style.borderColor = `${cardColors.borderColor}70`;
-    if (cardTheme.paperPattern === 'paper' || cardTheme.paperPattern === 'botanical') {
-      const innerBorder = el('div', 'gl-letter-frame-inner');
-      innerBorder.style.borderColor = `${cardColors.accentColor}45`;
-      if (cardTheme.paperPattern === 'botanical') innerBorder.style.borderStyle = 'dashed';
-      storyMotionWrap.appendChild(innerBorder);
-    } else if (cardTheme.paperPattern === 'stars') {
-      const starsPat = el('div', 'gl-letter-pattern');
-      starsPat.style.opacity = '0.4';
-      starsPat.style.backgroundImage = `radial-gradient(${cardColors.accentColor}66 1px, transparent 1px)`;
-      starsPat.style.backgroundSize = '26px 26px';
-      storyMotionWrap.appendChild(starsPat);
-    }
+    appendCardThemeBackdropNodes(
+      storyMotionWrap,
+      cardTheme.paperPattern,
+      cardColors.accentColor,
+      cardColors.badgeColor,
+      cardColors.borderColor,
+      globalGlow.hex,
+      cardColors.isLightPaper,
+    );
   }
   const storyContent = el('article', 'gl-story-content');
 
@@ -454,45 +975,25 @@ function bootGiftLabRecipient(): void {
     ? `0 24px 64px rgba(4,7,20,0.55), 0 0 0 1px ${cardColors.accentColor}26`
     : `0 24px 70px rgba(3,5,16,0.78), 0 0 42px ${cardColors.accentColor}24`;
 
-  if (cardTheme.paperPattern === 'paper') {
-    const tex = el('div', 'gl-letter-pattern');
-    tex.style.opacity = '0.45';
-    tex.style.backgroundImage =
-      'repeating-linear-gradient(0deg, rgba(140,108,80,0.03) 0px, rgba(140,108,80,0.03) 1px, transparent 1px, transparent 26px)';
-    const frame = el('div', 'gl-letter-frame-inner');
-    frame.style.borderColor = `${cardColors.accentColor}40`;
-    letterCard.append(tex, frame);
-  } else if (cardTheme.paperPattern === 'stars') {
-    const stars = el('div', 'gl-letter-pattern');
-    stars.style.opacity = '0.45';
-    stars.style.backgroundImage = `radial-gradient(${cardColors.accentColor}66 1px, transparent 1px)`;
-    stars.style.backgroundSize = '26px 26px';
-    const frame = el('div', 'gl-letter-frame-inner');
-    frame.style.borderColor = `${cardColors.accentColor}45`;
-    letterCard.append(stars, frame);
-  } else if (cardTheme.paperPattern === 'botanical') {
-    const glowPat = el('div', 'gl-letter-pattern');
-    glowPat.style.opacity = '0.5';
-    glowPat.style.background = `radial-gradient(circle at 12% 10%, ${cardColors.accentColor}20, transparent 42%), radial-gradient(circle at 88% 92%, ${cardColors.accentColor}20, transparent 42%)`;
-    const frame = el('div', 'gl-letter-frame-inner');
-    frame.style.borderStyle = 'dashed';
-    frame.style.borderColor = `${cardColors.accentColor}50`;
-    letterCard.append(glowPat, frame);
-  } else if (cardTheme.paperPattern === 'aurora') {
-    const glowPat = el('div', 'gl-letter-pattern');
-    glowPat.style.opacity = '0.6';
-    glowPat.style.background = `radial-gradient(circle at 18% 12%, ${cardColors.accentColor}30, transparent 48%), radial-gradient(circle at 84% 88%, ${globalGlow.hex}24, transparent 50%)`;
-    letterCard.append(glowPat);
-  }
+  appendCardThemeBackdropNodes(
+    letterCard,
+    cardTheme.paperPattern,
+    cardColors.accentColor,
+    cardColors.badgeColor,
+    cardColors.borderColor,
+    globalGlow.hex,
+    cardColors.isLightPaper,
+  );
 
   const finaleDecorEl = el('div', 'gl-card-decor gl-hidden');
   const letterHead = el('div', 'gl-letter-head');
   const letterKicker = el(
     'p',
-    'gl-letter-kicker',
+    `gl-letter-kicker${isMinimalistTheme ? ' gl-minimal-kicker' : ''}`,
     payload.recipientName ? `Для ${payload.recipientName} · ${payload.title}` : payload.title,
   );
   letterKicker.style.color = cardColors.badgeColor;
+  if (isMinimalistTheme) letterKicker.style.fontFamily = sansFontMeta.cssFamily;
 
   const letterCloseBtn = el('button', 'gl-letter-close', '×');
   letterCloseBtn.type = 'button';
@@ -506,7 +1007,17 @@ function bootGiftLabRecipient(): void {
   letterHead.append(letterKicker, letterCloseBtn);
 
   const letterDivider = el('div', 'gl-letter-divider');
-  letterDivider.style.background = `linear-gradient(90deg, transparent, ${cardColors.accentColor}, transparent)`;
+  if (cardTheme.paperPattern === 'aurora') {
+    letterDivider.classList.add('gl-diamond-band');
+  } else if (cardTheme.paperPattern === 'stars') {
+    letterDivider.classList.add(
+      cardColors.isLightPaper ? 'gl-hatched-divider-light' : 'gl-hatched-divider',
+    );
+  } else {
+    letterDivider.style.background = isMinimalistTheme
+      ? cardColors.borderColor
+      : `linear-gradient(90deg, transparent, ${cardColors.accentColor}, transparent)`;
+  }
 
   const letterBody = el('div', 'gl-letter-body');
   const letterInner = el('div', 'gl-letter-inner');
@@ -547,6 +1058,11 @@ function bootGiftLabRecipient(): void {
     const isCompactLandscape = !isPortrait && window.innerHeight < 520;
     const cardLayout = resolveEffectiveCardLayout(payload, activeDevice);
     const fDecor = resolveEffectiveFinalDecor(payload, activeDevice);
+    const safeFDecor = resolveSafeCardDecorPresentation(fDecor, {
+      editMode: false,
+      textLength: (payload.finalMessage || '').length,
+      compactViewport: isPortrait || isCompactLandscape,
+    });
     const decorGlowHex = cardColors.isLightPaper ? cardColors.accentColor : globalGlow.hex;
     const decorCoreHex = cardColors.isLightPaper ? cardColors.badgeColor : globalGlow.coreHex;
     finaleDecorEl.innerHTML = '';
@@ -554,32 +1070,46 @@ function bootGiftLabRecipient(): void {
       const svg = createCardDecorSvg(fDecor.motif, decorGlowHex, decorCoreHex);
       if (svg) finaleDecorEl.appendChild(svg);
       finaleDecorEl.classList.remove('gl-hidden');
-      finaleDecorEl.style.left = `${fDecor.xPct}%`;
-      finaleDecorEl.style.top = `${fDecor.yPct}%`;
-      finaleDecorEl.style.transform = `translate(-50%, -50%) scale(${fDecor.scale})`;
+      finaleDecorEl.style.left = `${safeFDecor.xPct}%`;
+      finaleDecorEl.style.top = `${safeFDecor.yPct}%`;
+      finaleDecorEl.style.transform = `translate(-50%, -50%) scale(${safeFDecor.scale})`;
+      finaleDecorEl.style.opacity = String(safeFDecor.opacity);
     } else {
       finaleDecorEl.classList.add('gl-hidden');
     }
 
     letterBackdrop.style.alignItems =
       cardLayout.verticalAlign === 'top' ? 'flex-start' : 'center';
-    letterCard.style.maxWidth = isCompactLandscape
-      ? 'min(92vw, 576px)'
-      : activeDevice === 'phone'
-        ? cardLayout.width === 'compact'
-          ? 'min(86vw, 330px)'
-          : cardLayout.width === 'wide'
-            ? 'min(96vw, 440px)'
-            : 'min(92vw, 390px)'
-        : cardLayout.width === 'compact'
-          ? 'min(92vw, 440px)'
-          : cardLayout.width === 'wide'
-            ? 'min(92vw, 680px)'
-            : 'min(92vw, 540px)';
+    letterCard.style.width = cardLayout.customWidthPx
+      ? `min(92vw, ${cardLayout.customWidthPx}px)`
+      : '100%';
+    letterCard.style.maxWidth = cardLayout.customWidthPx
+      ? `min(92vw, ${cardLayout.customWidthPx}px)`
+      : isCompactLandscape
+        ? 'min(92vw, 576px)'
+        : activeDevice === 'phone'
+          ? cardLayout.width === 'compact'
+            ? 'min(86vw, 330px)'
+            : cardLayout.width === 'wide'
+              ? 'min(96vw, 440px)'
+              : 'min(92vw, 390px)'
+          : cardLayout.width === 'compact'
+            ? 'min(92vw, 440px)'
+            : cardLayout.width === 'wide'
+              ? 'min(92vw, 680px)'
+              : 'min(92vw, 540px)';
+    letterCard.style.minHeight = cardLayout.customHeightPx
+      ? `${cardLayout.customHeightPx}px`
+      : '';
     const cardShiftY = Math.round(cardLayout.offsetY * 1.4);
     letterCard.style.translate = cardShiftY !== 0 ? `0 ${cardShiftY}px` : '';
 
-    if (cardLayout.padding === 'compact') {
+    if (isMinimalistTheme) {
+      letterHead.style.padding = cardLayout.padding === 'compact' ? '16px 22px 8px 36px' : '22px 28px 10px 42px';
+      letterDivider.style.margin = '0 22px 0 42px';
+      letterBody.style.padding = isPortrait ? '18px 24px 20px 36px' : '24px 36px 26px 44px';
+      letterFoot.style.padding = cardLayout.padding === 'compact' ? '8px 22px 14px 36px' : '10px 28px 18px 42px';
+    } else if (cardLayout.padding === 'compact') {
       letterHead.style.padding = '12px 18px 6px';
       letterBody.style.padding = isCompactLandscape ? '10px 16px' : '12px 18px';
       letterFoot.style.padding = '4px 18px 10px';
@@ -589,7 +1119,7 @@ function bootGiftLabRecipient(): void {
       letterFoot.style.padding = isPortrait ? '8px 22px 16px' : '10px 32px 20px';
     } else {
       letterHead.style.padding = '';
-      letterBody.style.padding = '';
+      letterBody.style.padding = fDecor.motif !== 'none' ? '20px 32px' : '';
       letterFoot.style.padding = '';
     }
 
@@ -597,12 +1127,17 @@ function bootGiftLabRecipient(): void {
     const isDefault = !payload.finalTextStyle || isDefaultStarTextStyle(style);
     const fontMeta = resolveMessageFont(style.fontId);
     const align: Exclude<MessageTextAlign, 'auto'> =
-      style.textAlign !== 'auto' ? style.textAlign : 'center';
-    const textColor =
+      style.textAlign !== 'auto'
+        ? style.textAlign
+        : isMinimalistTheme
+          ? 'left'
+          : 'center';
+    const rawTextColor =
       payload.finalTextStyle && !isDefault
         ? style.color
         : payload.cardColors?.textColor ??
           (payload.cardTheme ? cardColors.textColor : style.color);
+    const textColor = resolveContrastSafeCardTextColor(rawTextColor, payload, cardColors);
     const shadowMode =
       cardColors.isLightPaper && style.shadow !== 'glow' ? 'none' : style.shadow;
     const shadowCss = resolveTextShadowCss(shadowMode, globalGlow.hex);
@@ -809,32 +1344,52 @@ function bootGiftLabRecipient(): void {
     const isPortrait = h > w || w < 540;
     const isCompactLandscape = !isPortrait && h < 520;
 
-    storyMotionWrap.style.maxWidth = isPortrait
-      ? cardLayout.width === 'compact'
-        ? '330px'
-        : cardLayout.width === 'wide'
-          ? '100%'
-          : '374px'
-      : cardLayout.width === 'compact'
-        ? '448px'
-        : cardLayout.width === 'wide'
-          ? '672px'
-          : '576px';
+    storyMotionWrap.style.maxWidth = cardLayout.customWidthPx
+      ? `min(94vw, ${cardLayout.customWidthPx}px)`
+      : isPortrait
+        ? cardLayout.width === 'compact'
+          ? '330px'
+          : cardLayout.width === 'wide'
+            ? '100%'
+            : '374px'
+        : cardLayout.width === 'compact'
+          ? '448px'
+          : cardLayout.width === 'wide'
+            ? '672px'
+            : '576px';
+    storyMotionWrap.style.minHeight = cardLayout.customHeightPx
+      ? `${cardLayout.customHeightPx}px`
+      : '';
     const storyShiftY = Math.round(cardLayout.offsetY * 0.7);
     storyMotionWrap.style.translate = storyShiftY !== 0 ? `0 ${storyShiftY}px` : '';
     if (hasExplicitCardTheme) {
-      storyMotionWrap.style.padding =
-        cardLayout.padding === 'compact'
-          ? isPortrait
-            ? '8px 12px'
-            : '12px 16px'
-          : cardLayout.padding === 'spacious'
+      if (isMinimalistTheme) {
+        storyMotionWrap.style.padding =
+          cardLayout.padding === 'compact'
             ? isPortrait
-              ? '16px 20px'
-              : '24px 32px'
-            : isPortrait
-              ? '12px 16px'
-              : '16px 24px';
+              ? '14px 18px 14px 34px'
+              : '18px 24px 18px 40px'
+            : cardLayout.padding === 'spacious'
+              ? isPortrait
+                ? '20px 24px 20px 38px'
+                : '26px 36px 26px 46px'
+              : isPortrait
+                ? '16px 20px 16px 36px'
+                : '20px 28px 20px 42px';
+      } else {
+        storyMotionWrap.style.padding =
+          cardLayout.padding === 'compact'
+            ? isPortrait
+              ? '8px 12px'
+              : '12px 16px'
+            : cardLayout.padding === 'spacious'
+              ? isPortrait
+                ? '16px 20px'
+                : '24px 32px'
+              : isPortrait
+                ? '12px 16px'
+                : '16px 24px';
+      }
     } else {
       storyMotionWrap.style.padding =
         cardLayout.padding === 'compact'
@@ -847,7 +1402,13 @@ function bootGiftLabRecipient(): void {
     }
 
     const effectiveAlign: Exclude<MessageTextAlign, 'auto'> =
-      style.textAlign === 'auto' ? (isPortrait ? 'center' : 'left') : style.textAlign;
+      style.textAlign === 'auto'
+        ? isMinimalistTheme
+          ? 'left'
+          : isPortrait
+            ? 'center'
+            : 'left'
+        : style.textAlign;
     const bodyPx = Math.min(
       style.fontSize + fontMeta.opticalSizeBoost,
       isCompactLandscape ? 16 : isPortrait ? 20 : 26,
@@ -940,6 +1501,11 @@ function bootGiftLabRecipient(): void {
     bottomInnerSpacer.style.flexGrow = String(bottomInnerGrow);
 
     const starDecor = resolveEffectiveStarDecor(star, activeDevice);
+    const safeStarDecor = resolveSafeCardDecorPresentation(starDecor, {
+      editMode: false,
+      textLength: (star.message || '').length,
+      compactViewport: isPortrait || isCompactLandscape,
+    });
     storyCardDecor.innerHTML = '';
     if (starDecor.motif !== 'none') {
       const dGlowHex = cardColors.isLightPaper ? cardColors.accentColor : glow.hex;
@@ -947,15 +1513,21 @@ function bootGiftLabRecipient(): void {
       const decorSvg = createCardDecorSvg(starDecor.motif, dGlowHex, dCoreHex);
       if (decorSvg) storyCardDecor.appendChild(decorSvg);
       storyCardDecor.classList.remove('gl-hidden');
-      storyCardDecor.style.left = `${starDecor.xPct}%`;
-      storyCardDecor.style.top = `${starDecor.yPct}%`;
-      storyCardDecor.style.transform = `translate(-50%, -50%) scale(${starDecor.scale})`;
+      storyCardDecor.style.left = `${safeStarDecor.xPct}%`;
+      storyCardDecor.style.top = `${safeStarDecor.yPct}%`;
+      storyCardDecor.style.transform = `translate(-50%, -50%) scale(${safeStarDecor.scale})`;
+      storyCardDecor.style.opacity = String(safeStarDecor.opacity);
     } else {
       storyCardDecor.classList.add('gl-hidden');
     }
 
-    const effectiveTextColor =
+    const rawTextColor =
       star.textStyle || !cardColors.isLightPaper ? style.color : cardColors.textColor;
+    const effectiveTextColor = resolveContrastSafeCardTextColor(
+      rawTextColor,
+      payload,
+      cardColors,
+    );
     const effectiveShadowMode =
       cardColors.isLightPaper && style.shadow !== 'glow' ? 'none' : style.shadow;
     const shadowCss = resolveTextShadowCss(effectiveShadowMode, glow.hex);
@@ -1063,7 +1635,15 @@ function bootGiftLabRecipient(): void {
     illuImg.src = star.assetImagePath;
     illuImg.alt = star.title;
 
-    storyOrd.textContent = `Звезда ${activeIndex + 1} из ${total}`;
+    if (hasExplicitCardTheme && isMinimalistTheme) {
+      storyOrd.className = 'gl-story-ord gl-minimal-kicker';
+      storyOrd.style.fontFamily = sansFontMeta.cssFamily;
+      storyOrd.textContent = `Звезда ${String(activeIndex + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
+    } else {
+      storyOrd.className = 'gl-story-ord';
+      storyOrd.style.fontFamily = '';
+      storyOrd.textContent = `Звезда ${activeIndex + 1} из ${total}`;
+    }
     storyOrd.style.color = cardColors.isLightPaper ? cardColors.badgeColor : glow.coreHex;
     storyTitle.textContent = star.title || `Звезда ${activeIndex + 1}`;
     storyMsg.textContent = star.message || 'Здесь хранится особое тёплое пожелание.';
@@ -1098,6 +1678,7 @@ function bootGiftLabRecipient(): void {
     engine?.updateState({
       paletteId: payload.paletteId,
       globalGlowColor: payload.globalGlowColor,
+      envelopeSettings: payload.envelopeSettings,
       stars: normalizedStars,
       connections: resolvedConnections,
       selectedStarId: activeId,
@@ -1123,7 +1704,7 @@ function bootGiftLabRecipient(): void {
     if (next === 'constellation') {
       setLetterOpen(true);
     } else {
-      letterBackdrop.classList.add('gl-hidden');
+      setLetterOpen(false);
     }
     dock.classList.toggle('gl-hidden', next !== 'constellation');
 
@@ -1380,101 +1961,147 @@ function bootGiftLabRecipient(): void {
   dockMotionBtn.addEventListener('click', toggleMotionMode);
 
   function create2DShapeSvg(shape: StarShapeId, hex: string, coreHex: string, sizePx: number): SVGSVGElement {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const ns = 'http://www.w3.org/2000/svg';
+    const uid = String(++decorUidSeq);
+    const bodyId = `gl-rt-cry-body-${uid}`;
+    const glossId = `gl-rt-cry-gloss-${uid}`;
+    const coreId = `gl-rt-cry-core-${uid}`;
+
+    const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', '0 0 48 48');
     svg.setAttribute('width', String(sizePx));
     svg.setAttribute('height', String(sizePx));
     svg.setAttribute('fill', 'none');
+    svg.style.filter = `drop-shadow(0 0 8px ${hex}88) drop-shadow(0 5px 10px rgba(0,0,0,0.45))`;
 
-    const ns = 'http://www.w3.org/2000/svg';
+    const mk = (tag: string, attrs: Record<string, string>, parent: Element = svg) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+      parent.appendChild(node);
+      return node;
+    };
+
+    const defs = mk('defs', {});
+    const bodyGrad = mk('linearGradient', { id: bodyId, x1: '6', y1: '6', x2: '42', y2: '42', gradientUnits: 'userSpaceOnUse' }, defs);
+    mk('stop', { offset: '0%', 'stop-color': '#a5f3fc', 'stop-opacity': '0.94' }, bodyGrad);
+    mk('stop', { offset: '48%', 'stop-color': hex, 'stop-opacity': '0.86' }, bodyGrad);
+    mk('stop', { offset: '100%', 'stop-color': '#d946ef', 'stop-opacity': '0.8' }, bodyGrad);
+
+    const glossGrad = mk('linearGradient', { id: glossId, x1: '10', y1: '6', x2: '30', y2: '28', gradientUnits: 'userSpaceOnUse' }, defs);
+    mk('stop', { offset: '0%', 'stop-color': '#ffffff', 'stop-opacity': '0.85' }, glossGrad);
+    mk('stop', { offset: '100%', 'stop-color': '#ffffff', 'stop-opacity': '0' }, glossGrad);
+
+    const coreGrad = mk('radialGradient', { id: coreId, cx: '50%', cy: '45%', r: '55%' }, defs);
+    mk('stop', { offset: '0%', 'stop-color': '#ffffff', 'stop-opacity': '1' }, coreGrad);
+    mk('stop', { offset: '48%', 'stop-color': coreHex, 'stop-opacity': '0.9' }, coreGrad);
+    mk('stop', { offset: '100%', 'stop-color': hex, 'stop-opacity': '0' }, coreGrad);
+
     if (shape === 'heart') {
-      const p = document.createElementNS(ns, 'path');
-      p.setAttribute('d', 'M24 39.5C24 39.5 8.5 29.8 8.5 18.8C8.5 13.5 12.6 9.5 17.5 9.5C20.5 9.5 22.8 11 24 13.1C25.2 11 27.5 9.5 30.5 9.5C35.4 9.5 39.5 13.5 39.5 18.8C39.5 29.8 24 39.5 24 39.5Z');
-      p.setAttribute('fill', hex);
-      p.setAttribute('fill-opacity', '0.35');
-      p.setAttribute('stroke', hex);
-      p.setAttribute('stroke-width', '2.4');
-      svg.appendChild(p);
+      mk('path', {
+        d: 'M24 40C24 40 8 30 8 18.6C8 13.2 12.2 9 17.4 9C20.5 9 22.8 10.6 24 12.8C25.2 10.6 27.5 9 30.6 9C35.8 9 40 13.2 40 18.6C40 30 24 40 24 40Z',
+        fill: `url(#${bodyId})`,
+        stroke: 'rgba(255,255,255,0.84)',
+        'stroke-width': '1.6',
+        'stroke-linejoin': 'round',
+      });
+      mk('path', {
+        d: 'M24 12.8C22.8 10.6 20.5 9 17.4 9C12.2 9 8 13.2 8 18.6C8 24.4 13.4 30.2 18.6 34.8L24 22.4V12.8Z',
+        fill: `url(#${glossId})`,
+      });
+      mk('circle', { cx: '24', cy: '22', r: '6.8', fill: `url(#${coreId})` });
     } else if (shape === 'flower') {
       for (let d = 0; d < 360; d += 60) {
-        const e = document.createElementNS(ns, 'ellipse');
-        e.setAttribute('cx', '24');
-        e.setAttribute('cy', '12.5');
-        e.setAttribute('rx', '5.2');
-        e.setAttribute('ry', '8.5');
-        e.setAttribute('transform', `rotate(${d} 24 24)`);
-        e.setAttribute('fill', hex);
-        e.setAttribute('fill-opacity', '0.3');
-        e.setAttribute('stroke', hex);
-        e.setAttribute('stroke-width', '1.8');
-        svg.appendChild(e);
+        const g = mk('g', { transform: `rotate(${d} 24 24)` });
+        mk('polygon', {
+          points: '24,4.5 29,12.5 24,20.5 19,12.5',
+          fill: `url(#${bodyId})`,
+          stroke: 'rgba(255,255,255,0.8)',
+          'stroke-width': '1.3',
+          'stroke-linejoin': 'round',
+        }, g);
+        mk('polygon', { points: '24,4.5 24,20.5 19,12.5', fill: `url(#${glossId})` }, g);
       }
-      const c = document.createElementNS(ns, 'circle');
-      c.setAttribute('cx', '24');
-      c.setAttribute('cy', '24');
-      c.setAttribute('r', '5');
-      c.setAttribute('fill', coreHex);
-      svg.appendChild(c);
+      mk('circle', { cx: '24', cy: '24', r: '7.2', fill: `url(#${coreId})` });
+      mk('circle', { cx: '24', cy: '24', r: '4', fill: '#ffffff', 'fill-opacity': '0.92' });
     } else if (shape === 'moon') {
-      const p = document.createElementNS(ns, 'path');
-      p.setAttribute('d', 'M29.8 9.2C20.6 9.9 13.5 17.3 13.5 26.2C13.5 35.1 20.8 42.1 30 42.1C33.4 42.1 36.6 41 39.2 39.1C32.2 39 26.5 33.4 26.5 25.8C26.5 18.6 31.3 12.6 38 11.4C35.5 9.9 32.7 9 29.8 9.2Z');
-      p.setAttribute('fill', hex);
-      p.setAttribute('fill-opacity', '0.34');
-      p.setAttribute('stroke', hex);
-      p.setAttribute('stroke-width', '2.4');
-      svg.appendChild(p);
+      mk('path', {
+        d: 'M30 8.5C20.5 9.2 13 16.9 13 26C13 35.1 20.6 42.3 30 42.3C33.5 42.3 36.8 41.2 39.5 39.2C32.3 39.1 26.4 33.4 26.4 25.6C26.4 18.2 31.3 12.1 38.2 10.8C35.7 9.2 32.9 8.3 30 8.5Z',
+        fill: `url(#${bodyId})`,
+        stroke: 'rgba(255,255,255,0.84)',
+        'stroke-width': '1.6',
+        'stroke-linejoin': 'round',
+      });
+      mk('path', {
+        d: 'M30 8.5C20.5 9.2 13 16.9 13 26C13 30.8 15.2 35.1 18.7 38.1L22.5 25.5L30 8.5Z',
+        fill: `url(#${glossId})`,
+      });
+      mk('polygon', {
+        points: '35,14.5 36.4,18.2 40,19.5 36.4,20.8 35,24.5 33.6,20.8 30,19.5 33.6,18.2',
+        fill: '#ffffff',
+      });
     } else if (shape === 'comet') {
-      const tail = document.createElementNS(ns, 'path');
-      tail.setAttribute('d', 'M28.5 19.5L8.5 38.5M26.5 15.5L11 27.5M32.5 22L20.5 37.5');
-      tail.setAttribute('stroke', hex);
-      tail.setAttribute('stroke-width', '2.4');
-      tail.setAttribute('stroke-linecap', 'round');
-      const head = document.createElementNS(ns, 'polygon');
-      head.setAttribute('points', '32,10 38,16 32,22 26,16');
-      head.setAttribute('fill', coreHex);
-      head.setAttribute('stroke', hex);
-      head.setAttribute('stroke-width', '2.2');
-      svg.append(tail, head);
+      mk('path', {
+        d: 'M29 19L7.5 39.5M26.5 15L10.5 27.5M33 22L20.5 38',
+        stroke: `url(#${bodyId})`,
+        'stroke-width': '2.4',
+        'stroke-linecap': 'round',
+      });
+      mk('polygon', {
+        points: '32,7.5 40.5,16 32,24.5 23.5,16',
+        fill: `url(#${bodyId})`,
+        stroke: 'rgba(255,255,255,0.88)',
+        'stroke-width': '1.5',
+        'stroke-linejoin': 'round',
+      });
+      mk('polygon', { points: '32,7.5 32,16 23.5,16', fill: `url(#${glossId})` });
+      mk('circle', { cx: '32', cy: '16', r: '5.5', fill: `url(#${coreId})` });
     } else if (shape === 'planet') {
-      const body = document.createElementNS(ns, 'circle');
-      body.setAttribute('cx', '24');
-      body.setAttribute('cy', '24');
-      body.setAttribute('r', '9.5');
-      body.setAttribute('fill', hex);
-      body.setAttribute('fill-opacity', '0.36');
-      body.setAttribute('stroke', hex);
-      body.setAttribute('stroke-width', '2.2');
-      const ring = document.createElementNS(ns, 'ellipse');
-      ring.setAttribute('cx', '24');
-      ring.setAttribute('cy', '24');
-      ring.setAttribute('rx', '18.5');
-      ring.setAttribute('ry', '5.8');
-      ring.setAttribute('transform', 'rotate(-22 24 24)');
-      ring.setAttribute('stroke', coreHex);
-      ring.setAttribute('stroke-width', '2.1');
-      svg.append(body, ring);
+      mk('circle', {
+        cx: '24',
+        cy: '24',
+        r: '9.8',
+        fill: `url(#${bodyId})`,
+        stroke: 'rgba(255,255,255,0.84)',
+        'stroke-width': '1.5',
+      });
+      mk('ellipse', {
+        cx: '24',
+        cy: '24',
+        rx: '19',
+        ry: '5.8',
+        transform: 'rotate(-22 24 24)',
+        stroke: 'rgba(255,255,255,0.9)',
+        'stroke-width': '2',
+      });
+      mk('circle', { cx: '24', cy: '24', r: '5.2', fill: `url(#${coreId})` });
     } else if (shape === 'spark') {
-      const poly = document.createElementNS(ns, 'polygon');
-      poly.setAttribute('points', '24,4 28.8,19.2 44,24 28.8,28.8 24,44 19.2,28.8 4,24 19.2,19.2');
-      poly.setAttribute('fill', hex);
-      poly.setAttribute('fill-opacity', '0.32');
-      poly.setAttribute('stroke', hex);
-      poly.setAttribute('stroke-width', '2.2');
-      poly.setAttribute('stroke-linejoin', 'round');
-      const core = document.createElementNS(ns, 'circle');
-      core.setAttribute('cx', '24');
-      core.setAttribute('cy', '24');
-      core.setAttribute('r', '3.5');
-      core.setAttribute('fill', coreHex);
-      svg.append(poly, core);
+      mk('polygon', {
+        points: '24,4 29,19 44,24 29,29 24,44 19,29 4,24 19,19',
+        fill: `url(#${bodyId})`,
+        stroke: 'rgba(255,255,255,0.85)',
+        'stroke-width': '1.5',
+        'stroke-linejoin': 'round',
+      });
+      mk('polygon', { points: '24,4 24,24 4,24 19,19', fill: `url(#${glossId})` });
+      mk('circle', { cx: '24', cy: '24', r: '6.8', fill: `url(#${coreId})` });
+      mk('circle', { cx: '24', cy: '24', r: '2.5', fill: '#ffffff' });
     } else {
-      const poly = document.createElementNS(ns, 'polygon');
-      poly.setAttribute('points', '24,5 29.3,16.5 42,18.1 32.6,26.8 35.1,39.4 24,33.2 12.9,39.4 15.4,26.8 6,18.1 18.7,16.5');
-      poly.setAttribute('fill', hex);
-      poly.setAttribute('fill-opacity', '0.32');
-      poly.setAttribute('stroke', hex);
-      poly.setAttribute('stroke-width', '2.2');
-      svg.appendChild(poly);
+      mk('polygon', {
+        points: '24,4.5 29.5,16.2 42.5,18 32.8,26.9 35.4,39.8 24,33.4 12.6,39.8 15.2,26.9 5.5,18 18.5,16.2',
+        fill: `url(#${bodyId})`,
+        stroke: 'rgba(255,255,255,0.84)',
+        'stroke-width': '1.5',
+        'stroke-linejoin': 'round',
+      });
+      mk('polygon', { points: '24,4.5 18.5,16.2 5.5,18 15.2,26.9 24,23.5', fill: `url(#${glossId})` });
+      mk('path', {
+        d: 'M24 5.5V33M18.5 16.5L24 23.5L29.5 16.5M6.5 18.2L24 23.5L41.5 18.2',
+        stroke: 'rgba(255,255,255,0.44)',
+        'stroke-width': '0.95',
+        'stroke-linecap': 'round',
+      });
+      mk('circle', { cx: '24', cy: '23.5', r: '6.8', fill: `url(#${coreId})` });
+      mk('circle', { cx: '24', cy: '23.5', r: '2.5', fill: '#ffffff' });
     }
     return svg;
   }
@@ -1625,6 +2252,7 @@ function bootGiftLabRecipient(): void {
     {
       paletteId: payload.paletteId,
       globalGlowColor: payload.globalGlowColor,
+      envelopeSettings: payload.envelopeSettings,
       stars: normalizedStars,
       connections: resolvedConnections,
       selectedStarId: null,

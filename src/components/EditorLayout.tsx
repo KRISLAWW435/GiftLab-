@@ -287,7 +287,7 @@ export function EditorLayout({
     setCardFocusedField(field ?? null);
     if (target === 'text') setCardTab('text');
     else if (target === 'illustration') setCardTab('illustration');
-    else if (target === 'decor') setCardTab('decor');
+    else if (target === 'decor') setCardTab('theme');
     else if (target === 'card' && cardTab !== 'theme') setCardTab('card');
   };
 
@@ -305,7 +305,7 @@ export function EditorLayout({
       }
     } else if (target === 'decor') {
       goToStep('card');
-      setCardTab('decor');
+      setCardTab('theme');
     }
   };
 
@@ -320,13 +320,20 @@ export function EditorLayout({
   };
 
   const handleCardSelectTargetView = (
-    phase: 'constellation' | 'starStory',
+    phase: 'sealed' | 'constellation' | 'starStory',
     starIndex = 0,
   ) => {
     jumpNonceRef.current += 1;
     setCardIframePhase(phase);
     if (phase === 'starStory') {
       setCardIframeStarIndex(starIndex);
+    }
+    if (phase === 'sealed') {
+      setCardSelectedTarget('envelope');
+      setCardFocusedField(null);
+    } else if (cardSelectedTarget === 'envelope') {
+      setCardSelectedTarget('text');
+      setCardFocusedField(null);
     }
     setCardJumpTo({
       nonce: jumpNonceRef.current,
@@ -558,7 +565,7 @@ export function EditorLayout({
   return (
     <div
       data-palette={project.paletteId}
-      className="gl-h-screen w-screen overflow-hidden gl-cosmic-bg text-gl-text flex flex-col"
+      className="gl-h-screen w-screen overflow-hidden bg-transparent text-gl-text flex flex-col"
     >
       {/* Top Studio Header + Horizontal 5-Step Progress Bar */}
       <header className="gl-workshop-header relative z-30 shrink-0 border-b gl-glass-header gl-safe-top">
@@ -706,7 +713,7 @@ export function EditorLayout({
             >
               <div
                 data-testid="workshop-star-sidebar"
-                className={`gl-editor-sidebar-left-inner flex-1 min-h-0 flex flex-col transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+                className={`gl-editor-sidebar-left-inner flex-1 min-h-0 flex flex-col bg-[#070512]/58 transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
                   zenMode ? '-translate-x-full opacity-0' : 'translate-x-0 opacity-100'
                 }`}
               >
@@ -733,8 +740,22 @@ export function EditorLayout({
                   <div className="flex items-center gap-1 overflow-x-auto max-w-full">
                     <button
                       type="button"
+                      data-testid="card-stage-envelope-btn"
+                      data-selected={cardIframePhase === 'sealed'}
+                      onClick={() => handleCardSelectTargetView('sealed')}
+                      className="gl-choice px-2.5 py-1 text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
+                    >
+                      <Mail className="w-3 h-3 text-violet-300" />
+                      <span>Конверт</span>
+                    </button>
+
+                    <button
+                      type="button"
                       data-testid="card-stage-finale-btn"
-                      data-selected={cardIframePhase !== 'starStory'}
+                      data-selected={
+                        cardIframePhase === 'constellation' ||
+                        cardIframePhase === 'finalReveal'
+                      }
                       onClick={() => handleCardSelectTargetView('constellation')}
                       className="gl-choice px-2.5 py-1 text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
                     >
@@ -826,7 +847,9 @@ export function EditorLayout({
                 </div>
 
                 <div className="hidden sm:flex items-center justify-center px-3 py-1 border-t border-white/8 bg-gl-input/55 text-[11px] text-gl-text-muted">
-                  Нажми на любой текст открытки, чтобы изменить его прямо здесь, или перетащи узор и картинку
+                  {cardIframePhase === 'sealed'
+                    ? 'Нажми на любую надпись или кнопку прямо на конверте, чтобы отредактировать их'
+                    : 'Нажми на текст открытки для правки или потяни за уголки открытки и текста, чтобы изменить размер'}
                 </div>
               </main>
             ) : (
@@ -969,10 +992,6 @@ export function EditorLayout({
                           setPracticeRotatedScene(true);
                         }
                       }}
-                    />
-                    <div
-                      className="pointer-events-none absolute inset-0 z-[1] gl-scene-edge-blend"
-                      aria-hidden="true"
                     />
 
             {/* Live Star Movement HUD during 3D Drag */}

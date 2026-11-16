@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CosmicBackdrop } from './components/CosmicBackdrop';
 import { EditorLayout } from './components/EditorLayout';
 import {
   PreviewWorkspace,
@@ -437,52 +438,54 @@ function StudioApp() {
     [],
   );
 
-  if (screen === 'preview' && activeProject) {
-    return (
-      <PreviewWorkspace
-        project={activeProject}
-        saveState={saveState}
-        returnLabel={
-          previewReturnScreenRef.current === 'editor' ? 'В редактор' : 'К проектам'
-        }
-        onExitPreview={async () => {
-          if (saveTimerRef.current) {
-            await flushSave(activeProject);
-          }
-          setScreen(previewReturnScreenRef.current);
-        }}
-      />
-    );
-  }
-
-  if (screen === 'editor' && activeProject) {
-    return (
-      <EditorLayout
-        project={activeProject}
-        saveState={saveState}
-        onUpdateProject={handleUpdateProject}
-        onBackToProjects={async () => {
-          await flushSave(activeProject);
-          setScreen('start');
-        }}
-        onOpenPreview={async () => {
-          await flushSave(activeProject);
-          handlePreviewProject(activeProject, 'editor');
-        }}
-      />
-    );
-  }
+  const backdropPaletteId =
+    screen === 'start' ? 'lavender' : (activeProject?.paletteId ?? 'lavender');
 
   return (
-    <ProjectStart
-      projects={projects}
-      loading={loading}
-      onCreateProject={handleCreateProject}
-      onOpenProject={handleOpenProject}
-      onPreviewProject={(proj) => handlePreviewProject(proj, 'start')}
-      onDuplicateProject={handleDuplicateProject}
-      onDeleteProject={handleDeleteProject}
-    />
+    <div className="relative min-h-screen w-full">
+      <CosmicBackdrop paletteId={backdropPaletteId} />
+      <div className="relative z-10">
+        {screen === 'preview' && activeProject ? (
+          <PreviewWorkspace
+            project={activeProject}
+            saveState={saveState}
+            returnLabel={
+              previewReturnScreenRef.current === 'editor' ? 'В редактор' : 'К проектам'
+            }
+            onExitPreview={async () => {
+              if (saveTimerRef.current) {
+                await flushSave(activeProject);
+              }
+              setScreen(previewReturnScreenRef.current);
+            }}
+          />
+        ) : screen === 'editor' && activeProject ? (
+          <EditorLayout
+            project={activeProject}
+            saveState={saveState}
+            onUpdateProject={handleUpdateProject}
+            onBackToProjects={async () => {
+              await flushSave(activeProject);
+              setScreen('start');
+            }}
+            onOpenPreview={async () => {
+              await flushSave(activeProject);
+              handlePreviewProject(activeProject, 'editor');
+            }}
+          />
+        ) : (
+          <ProjectStart
+            projects={projects}
+            loading={loading}
+            onCreateProject={handleCreateProject}
+            onOpenProject={handleOpenProject}
+            onPreviewProject={(proj) => handlePreviewProject(proj, 'start')}
+            onDuplicateProject={handleDuplicateProject}
+            onDeleteProject={handleDeleteProject}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 

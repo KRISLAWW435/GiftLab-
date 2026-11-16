@@ -39,7 +39,7 @@ export function StarList({
     const activeStar = stars.find((s) => s.id === selectedStarId) ?? stars[0];
 
     return (
-      <div className="border-b border-white/10 bg-black/15 px-3 py-2 space-y-2 shrink-0">
+      <div className="border-b border-white/10 bg-[#070512]/60 px-3 py-2 space-y-2 shrink-0">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-semibold text-gl-text truncate">
@@ -163,10 +163,10 @@ export function StarList({
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-semibold text-gl-text-muted tabular-nums shrink-0">
+                    <span className="text-[11px] font-semibold text-gl-text-secondary tabular-nums shrink-0">
                       {idx + 1}.
                     </span>
-                    <span className="text-xs font-semibold text-gl-text truncate">
+                    <span className="text-xs font-semibold text-white truncate">
                       {star.title.trim() || 'Без названия'}
                     </span>
                   </div>

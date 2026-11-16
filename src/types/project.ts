@@ -51,6 +51,7 @@ export type CardDecorMotif =
   | 'orbital'
   | 'hearts'
   | 'corners'
+  | 'floral_corners'
   | 'soft_flowers'
   | 'petals'
   | 'magic_rays';
@@ -156,6 +157,19 @@ export interface DeviceCardLayout {
   width: CardWidthPreset;
   /** Bounded vertical offset for card / finale letter (-60..60) */
   offsetY: number;
+  /** Optional direct-dragged card width in px for this device */
+  customWidthPx?: number;
+  /** Optional direct-dragged card height in px for this device */
+  customHeightPx?: number;
+}
+
+export interface EnvelopeSettings {
+  kickerText?: string;
+  headlineText?: string;
+  hintText?: string;
+  ctaText?: string;
+  envelopeColor?: string;
+  sealColor?: string;
 }
 
 export interface StarDeviceLayoutEntry {
@@ -237,6 +251,8 @@ export interface ConstellationProject {
   finalDecor?: StarDecorSettings;
   /** Independent presentation layouts per viewport device (phone / desktop) */
   deviceLayouts?: ProjectDeviceLayouts;
+  /** Sealed envelope texts & colors */
+  envelopeSettings?: EnvelopeSettings;
   musicTrackId: MusicTrackId;
   createdAt: number;
   updatedAt: number;

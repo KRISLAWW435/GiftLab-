@@ -29,6 +29,19 @@ export interface SharedStarGeometries {
 
 const _tintA = new THREE.Color();
 const _tintB = new THREE.Color();
+const _neonCyan = new THREE.Color('#38bdf8');
+const _neonMagenta = new THREE.Color('#e879f9');
+
+function computeCrystalNeonStops(
+  glow: GlowColorConfig,
+  outA: THREE.Color,
+  outB: THREE.Color,
+): void {
+  // Primary upper facet tone: bright star color kissed with icy cyan refraction
+  outA.set(glow.hex).lerp(_neonCyan, glow.id === 'blue' || glow.id === 'turquoise' ? 0.55 : 0.36);
+  // Counter lower/edge facet tone: star hue swept toward radiant magenta/violet
+  outB.set(glow.haloHex).lerp(_neonMagenta, glow.id === 'pink' || glow.id === 'lilac' ? 0.55 : 0.42);
+}
 
 function buildStarShapeGeometry(): THREE.BufferGeometry {
   // True sculpted 3D double-pyramid faceted 5-pointed star (20 crisp triangular facets)
@@ -351,6 +364,11 @@ export class StarNode {
   private linkRingMat: THREE.MeshBasicMaterial;
   private hitMat: THREE.MeshBasicMaterial;
 
+  private crystalUniforms: {
+    uNeonA: { value: THREE.Color };
+    uNeonB: { value: THREE.Color };
+  };
+
   private phaseOffset: number;
   private currentScale = 0.001;
   private targetReveal = 1;
@@ -374,6 +392,7 @@ export class StarNode {
     glow: GlowColorConfig,
     glowTex: THREE.Texture,
     flareTex: THREE.Texture,
+    isSoftwareGl = false,
   ) {
     this.id = id;
     this.geos = geos;
@@ -384,29 +403,86 @@ export class StarNode {
     _tintB.set(glow.hex);
     _tintA.lerp(_tintB, 0.56);
 
-    // Sculpted pearlescent crystal PBR material (iridescent clearcoat + readable facets)
+    const neonA = new THREE.Color();
+    const neonB = new THREE.Color();
+    computeCrystalNeonStops(glow, neonA, neonB);
+    this.crystalUniforms = {
+      uNeonA: { value: neonA },
+      uNeonB: { value: neonB },
+    };
+
+    // Sculpted refractive crystal PBR material (crisp glossy facets, controlled emission, rich specular reflection)
     this.bodyMat = new THREE.MeshPhysicalMaterial({
       color: _tintA.clone(),
       emissive: glow.hex,
-      emissiveIntensity: 0.24,
+      emissiveIntensity: 0.12,
       transparent: true,
-      opacity: 0.88,
-      metalness: 0.3,
-      roughness: 0.12,
+      opacity: isSoftwareGl ? 0.9 : 0.96,
+      metalness: 0.62,
+      roughness: 0.07,
+      transmission: isSoftwareGl ? 0 : 0.6,
+      thickness: 1.05,
+      attenuationDistance: 1.35,
+      attenuationColor: new THREE.Color(glow.hex),
+      ior: 1.88,
+      reflectivity: 1.0,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.06,
-      ior: 1.65,
-      reflectivity: 0.96,
-      iridescence: 0.45,
-      iridescenceIOR: 1.45,
-      envMapIntensity: 1.35,
+      clearcoatRoughness: 0.03,
+      specularIntensity: 1.0,
+      specularColor: new THREE.Color('#ffffff'),
+      iridescence: 0.72,
+      iridescenceIOR: 1.52,
+      envMapIntensity: 1.05,
     });
 
-    // Crisp luminous crystal edge highlights
+    this.bodyMat.customProgramCacheKey = () => 'gl-crystal-neon-v2';
+    this.bodyMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uNeonA = this.crystalUniforms.uNeonA;
+      shader.uniforms.uNeonB = this.crystalUniforms.uNeonB;
+
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+varying vec3 vCrystalLocalPos;`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+vCrystalLocalPos = position;`,
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+uniform vec3 uNeonA;
+uniform vec3 uNeonB;
+varying vec3 vCrystalLocalPos;`,
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+float gradMix = clamp((vCrystalLocalPos.x * 0.55 + vCrystalLocalPos.y * 0.85) * 1.15 + 0.5, 0.0, 1.0);
+vec3 neonGrad = mix(uNeonB, uNeonA, gradMix);
+diffuseColor.rgb = mix(diffuseColor.rgb, neonGrad, 0.72);`,
+        )
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+float emMix = clamp((vCrystalLocalPos.x * 0.55 + vCrystalLocalPos.y * 0.85) * 1.15 + 0.5, 0.0, 1.0);
+float rimCrest = pow(clamp(1.0 - abs(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0))), 0.0, 1.0), 2.1);
+vec3 crystalNeon = mix(uNeonB, uNeonA, emMix);
+totalEmissiveRadiance = totalEmissiveRadiance * mix(vec3(1.0), crystalNeon, 0.82) * (0.42 + rimCrest * 1.35);`,
+        );
+    };
+
+    // Crisp crystal edge highlights (subtle specular facet lines without blowout)
+    _tintA.set(glow.coreHex).lerp(_tintB, 0.42);
     this.edgeMat = new THREE.LineBasicMaterial({
-      color: glow.coreHex,
+      color: _tintA.clone(),
       transparent: true,
-      opacity: 0.54,
+      opacity: 0.36,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -415,31 +491,31 @@ export class StarNode {
     this.gemMat = new THREE.MeshStandardMaterial({
       color: glow.coreHex,
       emissive: glow.hex,
-      emissiveIntensity: 0.96,
-      metalness: 0.24,
-      roughness: 0.14,
-      envMapIntensity: 1.2,
+      emissiveIntensity: 0.36,
+      metalness: 0.32,
+      roughness: 0.12,
+      envMapIntensity: 0.95,
     });
 
     // Metallic filigree accent for rings / companion starlets
     this.accentMat = new THREE.MeshStandardMaterial({
       color: '#fde68a',
       emissive: glow.haloHex,
-      emissiveIntensity: 0.32,
-      metalness: 0.88,
-      roughness: 0.18,
-      envMapIntensity: 1.3,
+      emissiveIntensity: 0.14,
+      metalness: 0.9,
+      roughness: 0.14,
+      envMapIntensity: 1.0,
     });
 
     // Translucent volumetric comet plasma tail
     this.tailMat = new THREE.MeshPhysicalMaterial({
       color: glow.hex,
       emissive: glow.hex,
-      emissiveIntensity: 0.48,
+      emissiveIntensity: 0.18,
       transparent: true,
-      opacity: 0.64,
-      metalness: 0.18,
-      roughness: 0.18,
+      opacity: 0.52,
+      metalness: 0.28,
+      roughness: 0.14,
       clearcoat: 0.85,
       iridescence: 0.35,
       depthWrite: false,
@@ -452,9 +528,9 @@ export class StarNode {
     this.sparkleMat = new THREE.PointsMaterial({
       map: glowTex,
       color: glow.coreHex,
-      size: 0.125,
+      size: 0.11,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.42,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true,
@@ -464,17 +540,17 @@ export class StarNode {
 
     this.group.add(this.crystalGroup);
 
-    // Soft outer halo (controlled opacity so silhouette & facets stay sharp)
+    // Soft outer halo (restrained opacity so crystal silhouettes & facets stay razor-sharp)
     this.haloMat = new THREE.SpriteMaterial({
       map: glowTex,
       color: glow.hex,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.18,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     this.haloSprite = new THREE.Sprite(this.haloMat);
-    this.haloSprite.scale.set(1.75, 1.75, 1);
+    this.haloSprite.scale.set(1.38, 1.38, 1);
     this.group.add(this.haloSprite);
 
     // Subtle diffraction flare
@@ -482,12 +558,12 @@ export class StarNode {
       map: flareTex,
       color: glow.coreHex,
       transparent: true,
-      opacity: 0.28,
+      opacity: 0.14,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     this.flareSprite = new THREE.Sprite(this.flareMat);
-    this.flareSprite.scale.set(1.25, 1.25, 1);
+    this.flareSprite.scale.set(1.05, 1.05, 1);
     this.group.add(this.flareSprite);
 
     // Expanding selection pulse ring
@@ -684,7 +760,14 @@ export class StarNode {
 
     this.bodyMat.color.copy(_tintA);
     this.bodyMat.emissive.set(glow.hex);
-    this.edgeMat.color.set(glow.coreHex);
+    this.bodyMat.attenuationColor.set(glow.hex);
+    computeCrystalNeonStops(
+      glow,
+      this.crystalUniforms.uNeonA.value,
+      this.crystalUniforms.uNeonB.value,
+    );
+    _tintA.set(glow.coreHex).lerp(_tintB, 0.42);
+    this.edgeMat.color.copy(_tintA);
     this.gemMat.color.set(glow.coreHex);
     this.gemMat.emissive.set(glow.hex);
     this.accentMat.emissive.set(glow.haloHex);
@@ -847,25 +930,25 @@ export class StarNode {
                   ? 1.06
                   : 1.0;
 
-    this.bodyMat.emissiveIntensity = 0.24 * boost * shimmer;
-    this.bodyMat.iridescence = reducedMotion ? 0.35 : 0.38 + 0.16 * Math.sin(elapsed * 1.6 + this.phaseOffset);
-    this.gemMat.emissiveIntensity = 0.96 * boost * shimmer;
-    this.edgeMat.opacity = Math.min(0.86, 0.48 * boost * shimmer);
-    this.haloMat.opacity = Math.min(0.58, 0.36 * boost * shimmer);
-    this.flareMat.opacity = Math.min(0.48, 0.24 * boost * shimmer);
+    this.bodyMat.emissiveIntensity = 0.12 * boost * shimmer;
+    this.bodyMat.iridescence = reducedMotion ? 0.56 : 0.64 + 0.18 * Math.sin(elapsed * 1.6 + this.phaseOffset);
+    this.gemMat.emissiveIntensity = 0.4 * boost * shimmer;
+    this.edgeMat.opacity = Math.min(0.56, 0.32 * boost * shimmer);
+    this.haloMat.opacity = Math.min(0.32, 0.17 * boost * shimmer);
+    this.flareMat.opacity = Math.min(0.24, 0.12 * boost * shimmer);
 
     const haloSize =
       (this.isStoryHero
-        ? 2.25
+        ? 1.72
         : this.isStoryBackground
-          ? 1.2
+          ? 0.96
           : this.isSelected || this.isPendingLink || this.isDragging
-            ? 2.05
+            ? 1.56
             : this.isFinaleActive
-              ? 1.98
+              ? 1.52
               : this.isHovered
-                ? 1.88
-                : 1.68) * shimmer;
+                ? 1.46
+                : 1.32) * shimmer;
     this.haloSprite.scale.set(haloSize, haloSize, 1);
 
     // Steady active-selection ring in editor mode
