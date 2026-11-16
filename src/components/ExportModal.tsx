@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, Download, X } from 'lucide-react';
 import { exportProjectToZip } from '../services/zipExporter';
 import {
   canExportProject,
-  isStarComplete,
+  isStarFilled,
   type ConstellationProject,
 } from '../types/project';
 
@@ -22,10 +22,12 @@ export function ExportModal({
   const [error, setError] = useState<string | null>(null);
   const [doneFile, setDoneFile] = useState<string | null>(null);
 
-  const primaryFive = project.stars.slice(0, 5);
-  const incompletePrimary = primaryFive
+  const totalStars = project.stars.length;
+  const hasEnoughStars = totalStars >= 5;
+  const unfilledStars = project.stars
     .map((s, idx) => ({ star: s, idx }))
-    .filter((item) => !isStarComplete(item.star));
+    .filter((item) => !isStarFilled(item.star));
+  const starsCheckOk = hasEnoughStars && unfilledStars.length === 0;
   const hasTitle = project.title.trim().length > 0;
   const hasFinal = project.finalMessage.trim().length > 0;
   const ready = canExportProject(project);
@@ -58,7 +60,7 @@ export function ExportModal({
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#070B1A]/80"
+      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#06040a]/82"
     >
       <div className="w-full max-w-lg gl-card p-6 space-y-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
@@ -94,35 +96,40 @@ export function ExportModal({
           </div>
 
           <div className="flex items-center gap-2">
-            {incompletePrimary.length === 0 ? (
+            {starsCheckOk ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             ) : (
               <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
             )}
             <span
-              className={
-                incompletePrimary.length === 0 ? 'text-slate-200' : 'text-amber-200'
-              }
+              className={starsCheckOk ? 'text-slate-200' : 'text-amber-200'}
             >
-              Заполнены все 5 основных звёзд ({5 - incompletePrimary.length}/5)
+              {hasEnoughStars
+                ? `Заполнены все звёзды (${totalStars - unfilledStars.length}/${totalStars})`
+                : `Добавьте минимум 5 звёзд (${totalStars}/5)`}
             </span>
           </div>
 
-          {incompletePrimary.length > 0 && (
-            <div className="pl-6 flex flex-wrap gap-1.5 pt-0.5">
-              {incompletePrimary.map(({ star, idx }) => (
-                <button
-                  key={star.id}
-                  type="button"
-                  onClick={() => {
-                    onSelectStar(star.id);
-                    onClose();
-                  }}
-                  className="rounded-lg border border-amber-400/40 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-100 hover:bg-amber-500/25 cursor-pointer"
-                >
-                  Заполнить звезду {idx + 1}
-                </button>
-              ))}
+          {unfilledStars.length > 0 && (
+            <div className="pl-6 space-y-2 pt-0.5">
+              <p className="text-xs text-amber-200/90">
+                Нельзя скачать архив, пока у всех звёзд не заполнены название и послание.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {unfilledStars.map(({ star, idx }) => (
+                  <button
+                    key={star.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectStar(star.id);
+                      onClose();
+                    }}
+                    className="rounded-lg border border-amber-400/40 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-100 hover:bg-amber-500/25 cursor-pointer"
+                  >
+                    Заполнить звезду {idx + 1}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

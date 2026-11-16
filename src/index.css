@@ -1,40 +1,48 @@
 @import "tailwindcss";
 
 :root {
-  /* Core GiftLab Cosmic Palette Tokens */
-  --gl-bg: #070B1A;
-  --gl-surface-panel: #0C1229;
-  --gl-surface-card: #121938;
-  --gl-surface-elevated: #172047;
-  --gl-surface-input: #090E24;
-  --gl-surface-hud: rgba(12, 18, 41, 0.88);
+  /* Core GiftLab Deep Cosmic Palette Tokens (Obsidian -> Deep Violet -> Burgundy) */
+  --gl-bg: #06040a;
+  --gl-surface-panel: rgba(14, 9, 24, 0.72);
+  --gl-surface-card: rgba(20, 12, 34, 0.74);
+  --gl-surface-elevated: rgba(30, 18, 48, 0.86);
+  --gl-surface-input: rgba(5, 3, 12, 0.56);
+  --gl-surface-hud: rgba(11, 8, 22, 0.74);
+
+  /* Global Cosmic Nebula Tokens (default: lavender) */
+  --gl-nebula-1: rgba(124, 58, 237, 0.44);
+  --gl-nebula-2: rgba(190, 24, 93, 0.36);
+  --gl-nebula-3: rgba(147, 51, 234, 0.32);
+  --gl-nebula-4: rgba(159, 18, 57, 0.28);
+  --gl-nebula-star-tint: rgba(233, 213, 255, 0.75);
+  --gl-nebula-warm-tint: rgba(253, 230, 138, 0.65);
 
   --gl-accent: #7C3AED;
   --gl-accent-hover: #6D28D9;
-  --gl-accent-light: #A78BFA;
-  --gl-accent-soft: rgba(124, 58, 237, 0.18);
+  --gl-accent-light: #C4B5FD;
+  --gl-accent-soft: rgba(124, 58, 237, 0.28);
   --gl-gold: #F59E0B;
   --gl-gold-soft: rgba(245, 158, 11, 0.14);
   --gl-gold-text: #FDE68A;
 
   --gl-text: #F8FAFC;
-  --gl-text-secondary: #CBD5E1;
-  --gl-text-muted: #94A3B8;
+  --gl-text-secondary: #E4DEF2;
+  --gl-text-muted: #B8AFD2;
 
-  --gl-border: rgba(255, 255, 255, 0.10);
-  --gl-border-hover: rgba(255, 255, 255, 0.22);
-  --gl-border-selected: rgba(167, 139, 250, 0.78);
+  --gl-border: rgba(255, 255, 255, 0.12);
+  --gl-border-hover: rgba(255, 255, 255, 0.20);
+  --gl-border-selected: rgba(196, 181, 253, 0.72);
 
   --gl-ok: #34D399;
   --gl-danger: #E11D48;
   --gl-danger-hover: #BE123C;
 
   /* Radii & Focus */
-  --gl-radius-sm: 10px;
-  --gl-radius-md: 12px;
-  --gl-radius-lg: 16px;
-  --gl-radius-xl: 20px;
-  --gl-focus-ring: 0 0 0 2px rgba(167, 139, 250, 0.78);
+  --gl-radius-sm: 12px;
+  --gl-radius-md: 14px;
+  --gl-radius-lg: 18px;
+  --gl-radius-xl: 22px;
+  --gl-focus-ring: 0 0 0 2px rgba(196, 181, 253, 0.78);
 }
 
 @theme {
@@ -55,14 +63,60 @@
 }
 
 @layer base {
+  html {
+    font-size: 16px;
+  }
+
   html,
   body {
     min-height: 100vh;
     min-height: 100dvh;
     overflow-x: hidden;
     font-family: var(--font-sans);
+    line-height: 1.55;
+    letter-spacing: 0.005em;
     background-color: var(--gl-bg);
     color: var(--gl-text);
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.78) 0 1.1px, transparent 1.7px),
+      radial-gradient(circle at 74% 38%, var(--gl-nebula-star-tint) 0 1.2px, transparent 1.9px),
+      radial-gradient(circle at 42% 76%, var(--gl-nebula-warm-tint) 0 1.2px, transparent 1.9px),
+      radial-gradient(circle at 86% 82%, rgba(255, 255, 255, 0.68) 0 1px, transparent 1.6px),
+      radial-gradient(circle at 26% 64%, rgba(255, 255, 255, 0.72) 0 2.5px, rgba(196, 181, 253, 0.34) 6px, transparent 16px),
+      radial-gradient(circle at 78% 24%, rgba(255, 255, 255, 0.72) 0 2.6px, rgba(244, 114, 182, 0.30) 6px, transparent 18px),
+      radial-gradient(ellipse 68% 58% at 10% 24%, var(--gl-nebula-1) 0%, transparent 66%),
+      radial-gradient(ellipse 64% 58% at 90% 24%, var(--gl-nebula-2) 0%, transparent 66%),
+      radial-gradient(ellipse 62% 54% at 86% 80%, var(--gl-nebula-3) 0%, transparent 68%),
+      radial-gradient(ellipse 68% 58% at 14% 82%, var(--gl-nebula-4) 0%, transparent 68%),
+      linear-gradient(155deg, #05030a 0%, #140928 45%, #230b22 76%, #07040c 100%);
+    background-size:
+      173px 173px,
+      239px 239px,
+      311px 311px,
+      197px 197px,
+      263px 263px,
+      337px 337px,
+      100% 100%,
+      100% 100%,
+      100% 100%,
+      100% 100%,
+      100% 100%;
+    background-repeat:
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat;
+    background-attachment: fixed;
   }
 
   #root {
@@ -89,6 +143,89 @@
 }
 
 @layer components {
+  [data-palette="aurora"] {
+    --gl-nebula-1: rgba(45, 212, 191, 0.36);
+    --gl-nebula-2: rgba(109, 40, 217, 0.42);
+    --gl-nebula-3: rgba(14, 165, 233, 0.28);
+    --gl-nebula-4: rgba(79, 70, 229, 0.34);
+    --gl-nebula-star-tint: rgba(167, 243, 208, 0.78);
+    --gl-nebula-warm-tint: rgba(125, 211, 252, 0.72);
+  }
+
+  [data-palette="galaxy"] {
+    --gl-nebula-1: rgba(245, 158, 11, 0.32);
+    --gl-nebula-2: rgba(159, 18, 57, 0.40);
+    --gl-nebula-3: rgba(147, 51, 234, 0.34);
+    --gl-nebula-4: rgba(217, 119, 6, 0.26);
+    --gl-nebula-star-tint: rgba(253, 230, 138, 0.80);
+    --gl-nebula-warm-tint: rgba(253, 186, 116, 0.74);
+  }
+
+  [data-palette="dawn"] {
+    --gl-nebula-1: rgba(251, 113, 133, 0.38);
+    --gl-nebula-2: rgba(147, 51, 234, 0.40);
+    --gl-nebula-3: rgba(225, 29, 72, 0.30);
+    --gl-nebula-4: rgba(124, 58, 237, 0.34);
+    --gl-nebula-star-tint: rgba(254, 205, 211, 0.80);
+    --gl-nebula-warm-tint: rgba(245, 208, 254, 0.74);
+  }
+
+  /* Deep Cosmic Nebula + Luminous Starfield & Bokeh Backdrop (shines cleanly through blur(16px) glass) */
+  .gl-cosmic-bg {
+    background-color: #06040a;
+    background-image:
+      radial-gradient(circle at 14% 20%, rgba(255, 255, 255, 0.82) 0 1.1px, transparent 1.7px),
+      radial-gradient(circle at 72% 36%, var(--gl-nebula-star-tint) 0 1.2px, transparent 1.9px),
+      radial-gradient(circle at 44% 78%, var(--gl-nebula-warm-tint) 0 1.2px, transparent 1.9px),
+      radial-gradient(circle at 86% 84%, rgba(255, 255, 255, 0.70) 0 1px, transparent 1.6px),
+      radial-gradient(circle at 58% 12%, rgba(253, 164, 175, 0.65) 0 1.1px, transparent 1.7px),
+      radial-gradient(circle at 24% 62%, rgba(255, 255, 255, 0.78) 0 2.4px, rgba(196, 181, 253, 0.38) 6px, transparent 17px),
+      radial-gradient(circle at 76% 24%, rgba(255, 255, 255, 0.76) 0 2.6px, rgba(244, 114, 182, 0.34) 6.5px, transparent 19px),
+      radial-gradient(circle at 52% 48%, rgba(254, 243, 199, 0.62) 0 2px, rgba(167, 139, 250, 0.28) 6px, transparent 16px),
+      radial-gradient(ellipse 68% 58% at 8% 24%, var(--gl-nebula-1) 0%, transparent 66%),
+      radial-gradient(ellipse 64% 58% at 92% 24%, var(--gl-nebula-2) 0%, transparent 66%),
+      radial-gradient(ellipse 60% 54% at 86% 80%, var(--gl-nebula-3) 0%, transparent 68%),
+      radial-gradient(ellipse 68% 56% at 14% 82%, var(--gl-nebula-4) 0%, transparent 68%),
+      radial-gradient(ellipse 56% 36% at 50% 6%, var(--gl-nebula-1) 0%, transparent 72%),
+      linear-gradient(155deg, #05030a 0%, #140928 45%, #230b22 76%, #07040c 100%);
+    background-size:
+      173px 173px,
+      239px 239px,
+      311px 311px,
+      197px 197px,
+      223px 223px,
+      263px 263px,
+      337px 337px,
+      293px 293px,
+      100% 100%,
+      100% 100%,
+      100% 100%,
+      100% 100%,
+      100% 100%,
+      100% 100%;
+    background-repeat:
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat,
+      no-repeat;
+  }
+
+  /* Soft edge vignette blending 3D viewport seamlessly into cosmic shell */
+  .gl-scene-edge-blend {
+    background:
+      radial-gradient(ellipse 84% 80% at 50% 50%, transparent 64%, rgba(6, 4, 10, 0.42) 90%, rgba(6, 4, 10, 0.78) 100%);
+  }
+
   /* Viewport & Safe Area Foundations */
   .gl-h-screen {
     height: 100vh;
@@ -117,12 +254,12 @@
   .gl-title-display {
     font-family: var(--font-display);
     color: var(--gl-text);
-    line-height: 1.2;
+    line-height: 1.24;
     font-weight: 700;
   }
 
   .gl-label {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--gl-text-secondary);
   }
@@ -143,6 +280,7 @@
     border: 1px solid var(--gl-border);
     border-radius: var(--gl-radius-lg);
     color: var(--gl-text);
+    box-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.78);
     transition: border-color 160ms ease, background-color 160ms ease;
   }
 
@@ -159,29 +297,79 @@
 
   .gl-hud {
     background-color: var(--gl-surface-hud);
-    border: 1px solid var(--gl-border);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: var(--gl-radius-lg);
+    box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.72);
   }
 
-  /* Unified Form Fields & Selectors */
+  /* True Cosmic Glassmorphism (low-alpha rgba + blur(16px) on md+; readable cosmic fallback on mobile) */
+  .gl-glass-panel {
+    background-color: rgba(11, 8, 22, 0.74);
+    border-color: rgba(255, 255, 255, 0.13);
+    color: var(--gl-text);
+    text-shadow: 0 1px 2px rgba(4, 2, 10, 0.75);
+    box-shadow:
+      0 18px 44px -18px rgba(0, 0, 0, 0.65),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .gl-glass-header {
+    background-color: rgba(10, 7, 20, 0.78);
+    border-color: rgba(255, 255, 255, 0.13);
+    color: var(--gl-text);
+    text-shadow: 0 1px 2px rgba(4, 2, 10, 0.75);
+    box-shadow:
+      0 10px 32px -14px rgba(0, 0, 0, 0.60),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .gl-hud {
+    text-shadow: 0 1px 2px rgba(4, 2, 10, 0.75);
+  }
+
+  @media (min-width: 768px) {
+    .gl-glass-panel {
+      background-color: rgba(11, 8, 22, 0.36);
+      border-color: rgba(255, 255, 255, 0.14);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+    }
+
+    .gl-glass-header {
+      background-color: rgba(10, 7, 20, 0.40);
+      border-color: rgba(255, 255, 255, 0.14);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+    }
+
+    .gl-hud {
+      background-color: rgba(11, 8, 22, 0.42);
+      border-color: rgba(255, 255, 255, 0.15);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+    }
+  }
+
+  /* Unified Form Fields & Selectors (denser than translucent glass panels for clear input readability) */
   .gl-input,
   .gl-textarea,
   .gl-select {
     width: 100%;
-    min-height: 44px;
+    min-height: 46px;
     border-radius: var(--gl-radius-md);
-    border: 1px solid var(--gl-border);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     background-color: var(--gl-surface-input);
-    padding: 0.625rem 0.875rem;
-    font-size: 0.9375rem;
+    padding: 0.6875rem 0.9375rem;
+    font-size: 1rem;
     color: var(--gl-text);
+    text-shadow: none;
     transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
   }
 
   .gl-input::placeholder,
   .gl-textarea::placeholder {
     color: var(--gl-text-muted);
-    opacity: 0.78;
+    opacity: 0.82;
   }
 
   .gl-input:hover:not(:disabled),
@@ -205,31 +393,42 @@
     cursor: not-allowed;
   }
 
-  /* Unified Buttons */
+  /* Unified Volumetric Buttons */
   .gl-btn-primary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    min-height: 44px;
-    padding: 0.625rem 1.125rem;
+    min-height: 46px;
+    padding: 0.75rem 1.375rem;
     border-radius: var(--gl-radius-md);
-    background-color: var(--gl-accent);
-    border: 1px solid rgba(167, 139, 250, 0.35);
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 55%, #6d28d9 100%);
+    border: 1px solid rgba(216, 180, 254, 0.36);
+    box-shadow:
+      0 10px 24px -8px rgba(124, 58, 237, 0.62),
+      inset 0 1px 0 rgba(255, 255, 255, 0.24);
     color: var(--gl-text);
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
-    transition: background-color 150ms ease, transform 120ms ease, opacity 150ms ease;
+    transition:
+      background 160ms ease,
+      box-shadow 160ms ease,
+      transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 150ms ease;
   }
 
   .gl-btn-primary:hover:not(:disabled) {
-    background-color: var(--gl-accent-hover);
+    background: linear-gradient(135deg, #9333ea 0%, #7c3aed 52%, #6d28d9 100%);
+    box-shadow:
+      0 12px 30px -6px rgba(139, 92, 246, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    transform: translateY(-1px);
   }
 
   .gl-btn-primary:active:not(:disabled) {
-    transform: scale(0.985);
+    transform: translateY(0) scale(0.985);
   }
 
   .gl-btn-primary:disabled {
@@ -241,22 +440,27 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.375rem;
-    min-height: 40px;
-    padding: 0.5rem 0.875rem;
+    gap: 0.4375rem;
+    min-height: 42px;
+    padding: 0.5625rem 1rem;
     border-radius: var(--gl-radius-md);
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--gl-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     color: var(--gl-text-secondary);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms ease;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      transform 120ms ease;
   }
 
   .gl-btn-secondary:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.10);
+    background-color: rgba(255, 255, 255, 0.11);
     border-color: var(--gl-border-hover);
     color: var(--gl-text);
   }
@@ -274,19 +478,23 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 42px;
+    min-height: 42px;
     padding: 0.5rem;
     border-radius: var(--gl-radius-md);
-    background-color: rgba(255, 255, 255, 0.04);
+    background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--gl-border);
     color: var(--gl-text-secondary);
     cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms ease;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      transform 120ms ease;
   }
 
   .gl-btn-icon:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.10);
+    background-color: rgba(255, 255, 255, 0.11);
     border-color: var(--gl-border-hover);
     color: var(--gl-text);
   }
@@ -311,9 +519,9 @@
 
   .gl-tab {
     min-height: 40px;
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0.875rem;
     border-radius: var(--gl-radius-md);
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--gl-text-secondary);
     white-space: nowrap;
@@ -327,21 +535,22 @@
   }
 
   .gl-tab[data-selected="true"] {
-    background-color: var(--gl-accent);
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
     color: var(--gl-text);
+    box-shadow: 0 4px 14px -4px rgba(124, 58, 237, 0.55);
   }
 
   .gl-choice {
     border-radius: var(--gl-radius-md);
     border: 1px solid var(--gl-border);
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: rgba(7, 4, 16, 0.34);
     color: var(--gl-text-secondary);
     cursor: pointer;
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
   }
 
   .gl-choice:hover:not(:disabled):not([data-selected="true"]) {
-    background-color: rgba(255, 255, 255, 0.07);
+    background-color: rgba(255, 255, 255, 0.10);
     border-color: var(--gl-border-hover);
     color: var(--gl-text);
   }
@@ -357,33 +566,73 @@
     pointer-events: none;
   }
 
+  .gl-editor-sidebar-right-inner {
+    width: 100%;
+  }
+
   @media (min-width: 768px) {
-    .gl-editor-sidebar-right {
-      width: 300px;
+    .gl-editor-sidebar-right-shell {
+      width: 380px;
+      min-width: 380px;
+      transition:
+        width 280ms cubic-bezier(0.16, 1, 0.3, 1),
+        min-width 280ms cubic-bezier(0.16, 1, 0.3, 1),
+        border-color 280ms ease;
+    }
+    .gl-editor-sidebar-right-shell[data-zen="true"] {
+      width: 0px;
+      min-width: 0px;
+      border-left-width: 0px;
+    }
+    .gl-editor-sidebar-right-inner {
+      width: 380px;
     }
   }
 
   @media (min-width: 1024px) {
-    .gl-editor-sidebar-left {
+    .gl-editor-sidebar-left-shell {
+      width: 210px;
+      transition:
+        width 280ms cubic-bezier(0.16, 1, 0.3, 1),
+        border-color 280ms ease;
+    }
+    .gl-editor-sidebar-left-shell[data-zen="true"] {
+      width: 0px;
+      border-right-width: 0px;
+    }
+    .gl-editor-sidebar-left-inner {
       width: 210px;
     }
-    .gl-editor-sidebar-right {
-      width: 332px;
+
+    .gl-editor-sidebar-right-shell {
+      width: 400px;
+      min-width: 400px;
+    }
+    .gl-editor-sidebar-right-inner {
+      width: 400px;
     }
   }
 
   @media (min-width: 1440px) {
-    .gl-editor-sidebar-left {
-      width: 236px;
+    .gl-editor-sidebar-left-shell {
+      width: 232px;
     }
-    .gl-editor-sidebar-right {
-      width: 368px;
+    .gl-editor-sidebar-left-inner {
+      width: 232px;
+    }
+
+    .gl-editor-sidebar-right-shell {
+      width: 424px;
+      min-width: 424px;
+    }
+    .gl-editor-sidebar-right-inner {
+      width: 424px;
     }
   }
 
   @media (pointer: coarse) {
     .gl-btn-primary {
-      min-height: 46px;
+      min-height: 48px;
     }
     .gl-btn-secondary,
     .gl-tab {
@@ -447,14 +696,21 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(12, 18, 41, 0.45);
+  background: rgba(10, 6, 18, 0.45);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.28);
+  background: rgba(167, 139, 250, 0.26);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.48);
+  background: rgba(167, 139, 250, 0.46);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-editor-sidebar-left-shell,
+  .gl-editor-sidebar-right-shell {
+    transition: none;
+  }
 }

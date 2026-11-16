@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   ArrowLeft,
@@ -29,10 +29,11 @@ import type {
   PreviewJumpTarget,
 } from '../preview/previewProtocol';
 import {
-  computeAutoDepthForIndex,
+  computeNextStarSpawnPosition,
   makeConnectionId,
 } from '../scene/paletteConfig';
 import {
+  MAX_STARS,
   canExportProject,
   isStarComplete,
   type ConstellationProject,
@@ -57,7 +58,7 @@ import {
   type PreviewDeviceId,
 } from './LivePreviewStage';
 import { PreviewWorkspace } from './PreviewWorkspace';
-import { StarEditor } from './StarEditor';
+import { StarEditor, type StarEditStep } from './StarEditor';
 import { StarList } from './StarList';
 
 interface EditorLayoutProps {
@@ -119,6 +120,9 @@ export function EditorLayout({
   const [connectNotice, setConnectNotice] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('panel');
   const [zenMode, setZenMode] = useState(false);
+  const [isDesktopMd, setIsDesktopMd] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
+  );
   const [reducedMotion, setReducedMotion] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [dragReadout, setDragReadout] = useState<{
@@ -130,6 +134,17 @@ export function EditorLayout({
   const [cardDevice, setCardDevice] = useState<PreviewDeviceId>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'phone' : 'desktop',
   );
+  const [starEditStep, setStarEditStep] = useState<StarEditStep>('shape');
+  const [starSubStepById, setStarSubStepById] = useState<Record<string, StarEditStep>>({});
+  const [starsCenterView, setStarsCenterView] = useState<'3d' | 'card'>('3d');
+  const [starCardSelectedTarget, setStarCardSelectedTarget] =
+    useState<EditableCardTarget | null>('text');
+  const [starCardJumpTo, setStarCardJumpTo] = useState<PreviewJumpTarget>({
+    nonce: 1,
+    phase: 'starStory',
+    starIndex: 0,
+  });
+
   const [cardTab, setCardTab] = useState<CardEditorTab>('theme');
   const [cardSelectedTarget, setCardSelectedTarget] =
     useState<EditableCardTarget | null>('text');
@@ -143,13 +158,7 @@ export function EditorLayout({
     phase: 'constellation',
   });
 
-  const [tutorialOpen, setTutorialOpen] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem(CANVAS_TUTORIAL_STORAGE_KEY) !== '1';
-    } catch {
-      return false;
-    }
-  });
+  const [tutorialOpen, setTutorialOpen] = useState<boolean>(false);
   const [tutorialStep, setTutorialStep] = useState<TutorialStep>('overview');
   const [practiceMovedStar, setPracticeMovedStar] = useState(false);
   const [practiceRotatedScene, setPracticeRotatedScene] = useState(false);
@@ -186,6 +195,35 @@ export function EditorLayout({
   );
   const activeStar = project.stars[activeStarIndex] ?? project.stars[0];
 
+  const syncStarCardPreview = (targetStarIndex: number) => {
+    jumpNonceRef.current += 1;
+    setStarCardJumpTo({
+      nonce: jumpNonceRef.current,
+      phase: 'starStory',
+      starIndex: targetStarIndex,
+    });
+  };
+
+  useEffect(() => {
+    if (activeStep === 'stars' && starsCenterView === 'card') {
+      syncStarCardPreview(activeStarIndex);
+    }
+  }, [activeStep, starsCenterView, activeStarIndex]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 768px)');
+    const syncViewport = () => {
+      setIsDesktopMd(mq.matches);
+      if (!mq.matches) {
+        setZenMode(false);
+      }
+    };
+    syncViewport();
+    mq.addEventListener('change', syncViewport);
+    return () => mq.removeEventListener('change', syncViewport);
+  }, []);
+
   const switchMode = (nextMode: EditorInteractionMode) => {
     setInteractionMode(nextMode);
     if (nextMode !== 'connect') {
@@ -220,6 +258,18 @@ export function EditorLayout({
       setCardSelectedTarget('text');
       setCardFocusedField(null);
     }
+    if (nextStep === 'constellation' && activeStep !== 'constellation') {
+      try {
+        if (window.localStorage.getItem(CANVAS_TUTORIAL_STORAGE_KEY) !== '1') {
+          setTutorialStep('overview');
+          setPracticeMovedStar(false);
+          setPracticeRotatedScene(false);
+          setTutorialOpen(true);
+        }
+      } catch {
+        // ignore storage quota / privacy mode errors
+      }
+    }
     setActiveStep(nextStep);
     setVisitedSteps((prev) => {
       if (prev.has(nextStep)) return prev;
@@ -239,6 +289,34 @@ export function EditorLayout({
     else if (target === 'illustration') setCardTab('illustration');
     else if (target === 'decor') setCardTab('decor');
     else if (target === 'card' && cardTab !== 'theme') setCardTab('card');
+  };
+
+  const handleStarCardSelectTarget = (target: EditableCardTarget | null) => {
+    setStarCardSelectedTarget(target);
+    if (target === 'illustration') {
+      setStarEditStep('look');
+      if (activeStar) {
+        setStarSubStepById((prev) => ({ ...prev, [activeStar.id]: 'look' }));
+      }
+    } else if (target === 'text') {
+      setStarEditStep('message');
+      if (activeStar) {
+        setStarSubStepById((prev) => ({ ...prev, [activeStar.id]: 'message' }));
+      }
+    } else if (target === 'decor') {
+      goToStep('card');
+      setCardTab('decor');
+    }
+  };
+
+  const handleStarEditStepChange = (nextSubStep: StarEditStep) => {
+    setStarEditStep(nextSubStep);
+    if (activeStar) {
+      setStarSubStepById((prev) => ({ ...prev, [activeStar.id]: nextSubStep }));
+    }
+    if (nextSubStep === 'shape') {
+      setStarsCenterView('3d');
+    }
   };
 
   const handleCardSelectTargetView = (
@@ -274,8 +352,11 @@ export function EditorLayout({
   };
 
   const handleSelectStarFromList = (starId: string) => {
+    const rememberedStep = starSubStepById[starId] ?? 'shape';
     setSelectedStarId(starId);
+    setStarEditStep(rememberedStep);
     if (activeStep !== 'stars') {
+      setStarsCenterView('3d');
       goToStep('stars');
     }
   };
@@ -368,12 +449,9 @@ export function EditorLayout({
   };
 
   const handleAddStar = () => {
-    if (project.stars.length >= 7) return;
+    if (project.stars.length >= MAX_STARS) return;
     const idx = project.stars.length;
-    const angle = idx * 1.1;
-    const x = Number((Math.cos(angle) * 2.4).toFixed(2));
-    const y = Number((Math.sin(angle) * 1.6).toFixed(2));
-    const z = computeAutoDepthForIndex(idx, x, y);
+    const position = computeNextStarSpawnPosition(project.stars, idx);
 
     const newStar: ConstellationStar = {
       id: `star_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
@@ -383,7 +461,8 @@ export function EditorLayout({
       illustration: { type: 'builtin', id: 'comet' },
       shape: 'star',
       glowColor: 'inherit',
-      position: { x, y, z },
+      position,
+      isDraft: true,
     };
 
     onUpdateProject((prev) => ({
@@ -391,6 +470,9 @@ export function EditorLayout({
       stars: [...prev.stars, newStar],
     }));
     setSelectedStarId(newStar.id);
+    setStarSubStepById((prev) => ({ ...prev, [newStar.id]: 'shape' }));
+    setStarEditStep('shape');
+    setStarsCenterView('3d');
     if (activeStep !== 'stars') {
       goToStep('stars');
     }
@@ -399,6 +481,23 @@ export function EditorLayout({
   const handleRemoveStar = (starId: string) => {
     if (project.stars.length <= 5) return;
     if (pendingLinkStarId === starId) setPendingLinkStarId(null);
+
+    const remaining = project.stars.filter((s) => s.id !== starId);
+    if (selectedStarId === starId && remaining[0]) {
+      setSelectedStarId(remaining[0].id);
+    }
+    if (selectedConnectionId) {
+      const stillExists = project.connections.some(
+        (c) =>
+          c.id === selectedConnectionId &&
+          c.from !== starId &&
+          c.to !== starId,
+      );
+      if (!stillExists) {
+        setSelectedConnectionId(null);
+      }
+    }
+
     onUpdateProject((prev) => {
       const filtered = prev.stars
         .filter((s) => s.id !== starId)
@@ -406,15 +505,6 @@ export function EditorLayout({
       const nextConnections = prev.connections.filter(
         (c) => c.from !== starId && c.to !== starId,
       );
-      if (selectedStarId === starId && filtered[0]) {
-        setSelectedStarId(filtered[0].id);
-      }
-      if (
-        selectedConnectionId &&
-        !nextConnections.some((c) => c.id === selectedConnectionId)
-      ) {
-        setSelectedConnectionId(null);
-      }
       return { ...prev, stars: filtered, connections: nextConnections };
     });
   };
@@ -430,16 +520,25 @@ export function EditorLayout({
     : null;
 
   // Readiness & step completion flags
-  const primaryFive = project.stars.slice(0, 5);
-  const incompletePrimary = primaryFive
-    .map((s, idx) => ({ star: s, idx }))
-    .filter((item) => !isStarComplete(item.star));
   const hasTitle = project.title.trim().length > 0;
   const hasFinalMessage = project.finalMessage.trim().length > 0;
   const readyToExport = canExportProject(project);
+  const hasNextStar = activeStarIndex + 1 < project.stars.length;
+
+  const handleNextStarOrConstellation = () => {
+    if (hasNextStar) {
+      const nextStar = project.stars[activeStarIndex + 1];
+      setSelectedStarId(nextStar.id);
+      setStarSubStepById((prev) => ({ ...prev, [nextStar.id]: 'shape' }));
+      setStarEditStep('shape');
+      setStarsCenterView('3d');
+    } else {
+      goToStep('constellation');
+    }
+  };
 
   const stepCompleted: Record<WorkshopStepId, boolean> = {
-    stars: project.stars.length >= 5 && incompletePrimary.length === 0,
+    stars: project.stars.length >= 5 && project.stars.every(isStarComplete),
     constellation: project.connections.length > 0,
     card: hasTitle && hasFinalMessage,
     atmosphere: visitedSteps.has('atmosphere'),
@@ -457,113 +556,127 @@ export function EditorLayout({
   void activeStepMeta;
 
   return (
-    <div className="gl-h-screen w-screen overflow-hidden bg-gl-bg text-gl-text flex flex-col">
-      {/* Top Studio Header */}
-      <header className="gl-workshop-header min-h-12 sm:min-h-14 shrink-0 border-b gl-panel gl-safe-top px-3 sm:px-5 py-1.5 flex items-center justify-between gap-2 sm:gap-3">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={onBackToProjects}
-            title="К списку проектов"
-            aria-label="К списку проектов"
-            className="gl-btn-secondary !min-h-[36px] !px-2.5 sm:!px-3 !py-1.5 text-xs shrink-0"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">Проекты</span>
-          </button>
+    <div
+      data-palette={project.paletteId}
+      className="gl-h-screen w-screen overflow-hidden gl-cosmic-bg text-gl-text flex flex-col"
+    >
+      {/* Top Studio Header + Horizontal 5-Step Progress Bar */}
+      <header className="gl-workshop-header relative z-30 shrink-0 border-b gl-glass-header gl-safe-top">
+        <div className="min-h-[50px] px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onBackToProjects}
+              title="К списку проектов"
+              aria-label="К списку проектов"
+              className="gl-btn-secondary !min-h-[36px] !px-3 !py-1.5 text-xs shrink-0"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Проекты</span>
+            </button>
 
-          <div className="min-w-0">
-            <h1 className="font-display text-sm sm:text-base font-bold text-gl-text truncate">
-              {project.title || 'Новое созвездие'}
-            </h1>
-            <p className="text-[11px] text-gl-text-muted truncate leading-tight">
-              {saveState === 'saving' ? 'Сохранение...' : 'Сохранено'}
-            </p>
+            <div className="flex items-baseline gap-2.5 min-w-0">
+              <h1 className="font-display text-sm sm:text-base font-bold text-gl-text truncate">
+                {project.title || 'Новое созвездие'}
+              </h1>
+              <span className="text-[11px] text-gl-text-muted shrink-0 hidden sm:inline">
+                {saveState === 'saving' ? 'Сохранение...' : 'Сохранено'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {activeStep !== 'preview' && (
+              <button
+                type="button"
+                onClick={() => goToStep('preview')}
+                title="Перейти к предпросмотру подарка"
+                className="gl-btn-secondary !min-h-[36px] !px-3 !py-1.5 text-xs text-gl-text"
+              >
+                <Eye className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Предпросмотр</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowExport(true)}
+              title="Скачать подарок в ZIP"
+              className="gl-btn-primary !min-h-[36px] !px-3.5 !py-1.5 text-xs"
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Скачать ZIP</span>
+              <span className="sm:hidden">ZIP</span>
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {activeStep !== 'preview' && (
-            <button
-              type="button"
-              onClick={() => goToStep('preview')}
-              title="Перейти к предпросмотру подарка"
-              className="gl-btn-secondary !min-h-[36px] !px-2.5 sm:!px-3 !py-1.5 text-xs text-gl-text"
-            >
-              <Eye className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Предпросмотр</span>
-            </button>
-          )}
+        {/* Clickable Horizontal Progress Bar (1 -> 2 -> 3 -> 4 -> 5) */}
+        <nav
+          data-testid="workshop-top-nav"
+          aria-label="Этапы создания подарка"
+          className="gl-workshop-stepper border-t border-white/[0.07] bg-white/[0.02] px-4 sm:px-6 py-2.5 overflow-x-auto"
+        >
+          <div className="flex items-center justify-start md:justify-center gap-1.5 sm:gap-2 min-w-max mx-auto">
+            {WORKSHOP_STEPS.map((step, idx) => {
+              const Icon = step.icon;
+              const isCurrent = activeStep === step.id;
+              const isDone = stepCompleted[step.id];
 
-          <button
-            type="button"
-            onClick={() => setShowExport(true)}
-            title="Скачать подарок в ZIP"
-            className="gl-btn-primary !min-h-[36px] !px-3 sm:!px-3.5 !py-1.5 text-xs"
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">Скачать ZIP</span>
-            <span className="sm:hidden">ZIP</span>
-          </button>
-        </div>
+              return (
+                <div key={step.id} className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <button
+                    type="button"
+                    data-step={step.id}
+                    data-selected={isCurrent}
+                    aria-current={isCurrent ? 'step' : undefined}
+                    onClick={() => goToStep(step.id)}
+                    className={`gl-workshop-step min-h-[36px] px-3 sm:px-3.5 py-1.5 rounded-2xl border text-xs sm:text-[13px] font-semibold flex items-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                      isCurrent
+                        ? 'border-violet-300/70 bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-[0_0_20px_-4px_rgba(139,92,246,0.65)]'
+                        : isDone
+                          ? 'border-emerald-400/25 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/20'
+                          : 'border-white/10 bg-white/[0.035] text-gl-text-secondary hover:bg-white/[0.08] hover:text-gl-text'
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums shrink-0 ${
+                        isCurrent
+                          ? 'bg-white/22 text-white'
+                          : isDone
+                            ? 'bg-emerald-500/25 text-emerald-200'
+                            : 'bg-white/10 text-gl-text-muted'
+                      }`}
+                    >
+                      {step.num}
+                    </span>
+                    <Icon className="w-3.5 h-3.5 shrink-0 opacity-90 sm:hidden lg:inline" />
+                    <span>{step.label}</span>
+                    {isDone && (
+                      <Check
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isCurrent ? 'text-emerald-200' : 'text-emerald-300'
+                        }`}
+                        aria-label="Этап заполнен"
+                      />
+                    )}
+                  </button>
+
+                  {idx < WORKSHOP_STEPS.length - 1 && (
+                    <ArrowRight
+                      aria-hidden="true"
+                      className="w-4 h-4 text-violet-300/65 shrink-0 mx-0.5"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
       </header>
 
-      {/* 5-Step Guided Workshop Stepper (mobile/tablet only; lg+ uses unified Left Sidebar) */}
-      <nav
-        aria-label="Этапы создания подарка"
-        className="gl-workshop-stepper lg:hidden shrink-0 border-b border-white/10 bg-gl-input/85 px-2 sm:px-4 py-1.5 overflow-x-auto"
-      >
-        <div className="flex items-center gap-1.5 min-w-max max-w-6xl mx-auto">
-          {WORKSHOP_STEPS.map((step) => {
-            const Icon = step.icon;
-            const isCurrent = activeStep === step.id;
-            const isDone = stepCompleted[step.id];
-
-            return (
-              <button
-                key={step.id}
-                type="button"
-                data-step={step.id}
-                data-selected={isCurrent}
-                aria-current={isCurrent ? 'step' : undefined}
-                onClick={() => goToStep(step.id)}
-                className={`gl-workshop-step min-h-[36px] px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  isCurrent
-                    ? 'border-gl-accent-light/70 bg-gl-accent text-white shadow-sm'
-                    : isDone
-                      ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/18'
-                      : 'border-white/8 bg-white/[0.03] text-gl-text-secondary hover:bg-white/[0.07] hover:text-gl-text'
-                }`}
-              >
-                <span
-                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums shrink-0 ${
-                    isCurrent
-                      ? 'bg-white/20 text-white'
-                      : isDone
-                        ? 'bg-emerald-500/25 text-emerald-200'
-                        : 'bg-white/10 text-gl-text-muted'
-                  }`}
-                >
-                  {step.num}
-                </span>
-                <Icon className="w-3.5 h-3.5 shrink-0 opacity-90 hidden sm:inline" />
-                <span>{step.label}</span>
-                {isDone && (
-                  <Check
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      isCurrent ? 'text-emerald-200' : 'text-emerald-300'
-                    }`}
-                    aria-label="Этап заполнен"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-
-      {/* Main Workspace: Embedded Preview on Step 5 OR Left Nav+Stars + Center Live Result + Right Step Panel on Steps 1-4 */}
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row relative">
+      {/* Main Workspace: Embedded Preview on Step 5 OR strict 3-Column Flex (Left Stars | Center Stage | Right Step Panel) */}
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row relative overflow-hidden">
         {activeStep === 'preview' ? (
           <div
             data-testid="workshop-embedded-preview"
@@ -581,89 +694,42 @@ export function EditorLayout({
           </div>
         ) : (
           <>
-            {/* Left Sidebar on lg+: Compact 5-Step Navigation + Stars List */}
-            {!zenMode && (
-              <aside
-                data-testid="workshop-left-sidebar"
-                className="hidden lg:flex gl-editor-sidebar-left shrink-0 flex-col border-r gl-panel min-h-0"
+            {/* Column 1 (lg+): Left Sidebar — Stars List Only */}
+            <aside
+              data-testid="workshop-left-sidebar"
+              data-zen={zenMode}
+              aria-hidden={zenMode}
+              inert={zenMode && isDesktopMd ? true : undefined}
+              className={`hidden lg:flex gl-editor-sidebar-left-shell shrink-0 flex-col border-r gl-glass-panel min-h-0 overflow-hidden ${
+                zenMode ? 'pointer-events-none' : 'pointer-events-auto'
+              }`}
+            >
+              <div
+                data-testid="workshop-star-sidebar"
+                className={`gl-editor-sidebar-left-inner flex-1 min-h-0 flex flex-col transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+                  zenMode ? '-translate-x-full opacity-0' : 'translate-x-0 opacity-100'
+                }`}
               >
-                <nav
-                  data-testid="workshop-left-nav"
-                  aria-label="Этапы создания подарка"
-                  className="p-2 border-b border-white/10 space-y-1 shrink-0"
-                >
-                  {WORKSHOP_STEPS.map((step) => {
-                    const Icon = step.icon;
-                    const isCurrent = activeStep === step.id;
-                    const isDone = stepCompleted[step.id];
+                <StarList
+                  stars={project.stars}
+                  selectedStarId={activeStar?.id ?? ''}
+                  globalGlowColor={project.globalGlowColor}
+                  onSelectStar={handleSelectStarFromList}
+                  onAddStar={handleAddStar}
+                  onRemoveStar={handleRemoveStar}
+                />
+              </div>
+            </aside>
 
-                    return (
-                      <button
-                        key={step.id}
-                        type="button"
-                        data-step={step.id}
-                        data-selected={isCurrent}
-                        aria-current={isCurrent ? 'step' : undefined}
-                        onClick={() => goToStep(step.id)}
-                        className={`gl-workshop-step w-full min-h-[34px] px-2 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-colors text-left cursor-pointer ${
-                          isCurrent
-                            ? 'border-gl-accent-light/70 bg-gl-accent text-white shadow-sm'
-                            : isDone
-                              ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-100 hover:bg-emerald-500/16'
-                              : 'border-white/5 bg-white/[0.02] text-gl-text-secondary hover:bg-white/[0.06] hover:text-gl-text'
-                        }`}
-                      >
-                        <span
-                          className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums shrink-0 ${
-                            isCurrent
-                              ? 'bg-white/20 text-white'
-                              : isDone
-                                ? 'bg-emerald-500/25 text-emerald-200'
-                                : 'bg-white/10 text-gl-text-muted'
-                          }`}
-                        >
-                          {step.num}
-                        </span>
-                        <Icon className="w-3.5 h-3.5 shrink-0 opacity-90" />
-                        <span className="truncate flex-1">{step.label}</span>
-                        {isDone && (
-                          <Check
-                            className={`w-3.5 h-3.5 shrink-0 ${
-                              isCurrent ? 'text-emerald-200' : 'text-emerald-300'
-                            }`}
-                            aria-label="Этап заполнен"
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </nav>
-
-                <div
-                  data-testid="workshop-star-sidebar"
-                  className="flex-1 min-h-0 flex flex-col"
-                >
-                  <StarList
-                    stars={project.stars}
-                    selectedStarId={activeStar?.id ?? ''}
-                    globalGlowColor={project.globalGlowColor}
-                    onSelectStar={handleSelectStarFromList}
-                    onAddStar={handleAddStar}
-                    onRemoveStar={handleRemoveStar}
-                  />
-                </div>
-              </aside>
-            )}
-
-            {/* Center Area: Live Card Editor on Step 3 OR Live 3D Scene on Steps 1, 2, 4 */}
+            {/* Column 2: Center Area — Live Card Editor on Step 3 OR Live 3D Scene on Steps 1, 2, 4 */}
             {activeStep === 'card' ? (
               <main
                 data-testid="workshop-card-main"
                 className={`${
                   mobilePane === 'scene' ? 'flex' : 'hidden'
-                } md:flex flex-1 min-w-0 min-h-0 relative flex-col bg-[#050814]`}
+                } md:flex flex-1 min-w-0 min-h-0 relative flex-col bg-transparent`}
               >
-                <div className="shrink-0 border-b border-white/10 bg-gl-input/80 px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="shrink-0 border-b border-white/10 bg-black/25 backdrop-blur-md px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1 overflow-x-auto max-w-full">
                     <button
                       type="button"
@@ -728,9 +794,9 @@ export function EditorLayout({
                       type="button"
                       onClick={() => setZenMode((z) => !z)}
                       aria-pressed={zenMode}
-                      title={zenMode ? 'Показать боковые панели' : 'Развернуть открытку'}
-                      aria-label={zenMode ? 'Показать боковые панели' : 'Развернуть открытку'}
-                      className="hidden lg:inline-flex gl-btn-icon !min-w-[32px] !min-h-[32px] !w-[32px] !h-[32px] !p-0"
+                      title={zenMode ? 'Показать панели' : 'Скрыть панели'}
+                      aria-label={zenMode ? 'Показать панели' : 'Скрыть панели'}
+                      className="hidden md:inline-flex gl-btn-icon !min-w-[32px] !min-h-[32px] !w-[32px] !h-[32px] !p-0"
                     >
                       {zenMode ? (
                         <Minimize2 className="w-3.5 h-3.5" />
@@ -768,41 +834,152 @@ export function EditorLayout({
                 data-testid="workshop-3d-main"
                 className={`${
                   mobilePane === 'scene' ? 'flex' : 'hidden'
-                } md:flex flex-1 min-w-0 min-h-0 relative flex-col`}
+                } md:flex flex-1 min-w-0 min-h-0 relative flex-col bg-transparent`}
               >
-                <div className="flex-1 min-h-0 relative">
-                  <Constellation3D
-                    ref={sceneRef}
-              paletteId={project.paletteId}
-              globalGlowColor={project.globalGlowColor}
-              stars={project.stars}
-              connections={project.connections}
-              selectedStarId={activeStar?.id ?? null}
-              selectedConnectionId={selectedConnectionId}
-              pendingLinkStarId={pendingLinkStarId}
-              interactionMode={interactionMode}
-              finaleActive={activeStep === 'constellation'}
-              lowPerformance={typeof window !== 'undefined' && window.innerWidth < 768}
-              reducedMotion={reducedMotion}
-              onSelectStar={handleSelectStarOnScene}
-              onSelectConnection={handleSelectConnection}
-              onMoveStar={handleMoveStar}
-              onDragStar={(starId, position, isDepthDrag) =>
-                setDragReadout({ starId, position, isDepthDrag })
-              }
-              onDragEnd={() => setDragReadout(null)}
-              onCameraOrbit={() => {
-                if (tutorialOpen && tutorialStep === 'practice') {
-                  setPracticeRotatedScene(true);
-                }
-              }}
-            />
+                {activeStep === 'stars' && (
+                  <div className="shrink-0 border-b border-white/10 bg-black/25 backdrop-blur-md px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+                    <div
+                      role="group"
+                      aria-label="Режим предпросмотра этапа звёзд"
+                      className="inline-flex items-center gap-1 p-0.5 rounded-xl bg-gl-input border border-white/10"
+                    >
+                      <button
+                        type="button"
+                        data-testid="stars-center-3d"
+                        data-selected={starsCenterView === '3d'}
+                        onClick={() => setStarsCenterView('3d')}
+                        className="gl-tab !min-h-[30px] !px-2.5 text-xs inline-flex items-center gap-1.5"
+                      >
+                        <Orbit className="w-3.5 h-3.5 shrink-0" />
+                        <span>3D-сцена</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="stars-center-card"
+                        data-selected={starsCenterView === 'card'}
+                        onClick={() => {
+                          setStarsCenterView('card');
+                          syncStarCardPreview(activeStarIndex);
+                        }}
+                        className="gl-tab !min-h-[30px] !px-2.5 text-xs inline-flex items-center gap-1.5"
+                      >
+                        <Mail className="w-3.5 h-3.5 shrink-0" />
+                        <span>Карточка звезды</span>
+                      </button>
+                    </div>
+
+                    {starsCenterView === 'card' && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div
+                          role="group"
+                          aria-label="Экран карточки звезды"
+                          className="inline-flex items-center gap-1 p-0.5 rounded-xl bg-gl-input border border-white/10"
+                        >
+                          <button
+                            type="button"
+                            data-testid="stars-card-device-phone"
+                            data-selected={cardDevice === 'phone'}
+                            onClick={() => setCardDevice('phone')}
+                            className="gl-tab !min-h-[30px] !px-2 text-[11px] inline-flex items-center gap-1"
+                          >
+                            <Smartphone className="w-3 h-3 shrink-0" />
+                            <span>Телефон</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            data-testid="stars-card-device-desktop"
+                            data-selected={cardDevice === 'desktop'}
+                            onClick={() => setCardDevice('desktop')}
+                            className="gl-tab !min-h-[30px] !px-2 text-[11px] inline-flex items-center gap-1"
+                          >
+                            <Monitor className="w-3 h-3 shrink-0" />
+                            <span>Компьютер</span>
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setZenMode((z) => !z)}
+                          aria-pressed={zenMode}
+                          title={zenMode ? 'Показать панели' : 'Скрыть панели'}
+                          aria-label={zenMode ? 'Показать панели' : 'Скрыть панели'}
+                          className="hidden md:inline-flex gl-btn-icon !min-w-[32px] !min-h-[32px] !w-[32px] !h-[32px] !p-0"
+                        >
+                          {zenMode ? (
+                            <Minimize2 className="w-3.5 h-3.5" />
+                          ) : (
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeStep === 'stars' && starsCenterView === 'card' ? (
+                  <>
+                    <div className="flex-1 min-h-0 flex overflow-hidden">
+                      <LivePreviewStage
+                        project={project}
+                        device={cardDevice}
+                        editMode={true}
+                        selectedTarget={starCardSelectedTarget}
+                        jumpTo={starCardJumpTo}
+                        frameTestId="star-card-editor-frame"
+                        onPhaseStateChange={(phase, idx) => {
+                          if (phase === 'starStory' && project.stars[idx]) {
+                            setSelectedStarId(project.stars[idx].id);
+                          }
+                        }}
+                        onSelectTarget={handleStarCardSelectTarget}
+                        onPatchStar={handleCardPatchStar}
+                        onPatchProject={handleCardPatchProject}
+                      />
+                    </div>
+                    <div className="hidden sm:flex items-center justify-center px-3 py-1 border-t border-white/8 bg-gl-input/55 text-[11px] text-gl-text-muted">
+                      Живая карточка выбранной звезды — изменения текста, картинки и узора видны сразу
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 min-h-0 relative w-full h-full overflow-hidden">
+                    <Constellation3D
+                      ref={sceneRef}
+                      paletteId={project.paletteId}
+                      globalGlowColor={project.globalGlowColor}
+                      stars={project.stars}
+                      connections={project.connections}
+                      selectedStarId={activeStar?.id ?? null}
+                      selectedConnectionId={selectedConnectionId}
+                      pendingLinkStarId={pendingLinkStarId}
+                      interactionMode={interactionMode}
+                      finaleActive={activeStep === 'constellation'}
+                      lowPerformance={typeof window !== 'undefined' && window.innerWidth < 768}
+                      reducedMotion={reducedMotion}
+                      onSelectStar={handleSelectStarOnScene}
+                      onSelectConnection={handleSelectConnection}
+                      onMoveStar={handleMoveStar}
+                      onDragStar={(starId, position, isDepthDrag) =>
+                        setDragReadout({ starId, position, isDepthDrag })
+                      }
+                      onDragEnd={() => setDragReadout(null)}
+                      onCameraOrbit={() => {
+                        if (tutorialOpen && tutorialStep === 'practice') {
+                          setPracticeRotatedScene(true);
+                        }
+                      }}
+                    />
+                    <div
+                      className="pointer-events-none absolute inset-0 z-[1] gl-scene-edge-blend"
+                      aria-hidden="true"
+                    />
 
             {/* Live Star Movement HUD during 3D Drag */}
             {dragReadout && interactionMode === 'arrange' && (
               <div
                 aria-live="polite"
-                className={`pointer-events-none absolute top-3 left-3 z-10 gl-hud !rounded-xl px-3 py-1.5 text-xs flex flex-wrap items-center gap-x-2 gap-y-0.5 ${
+                className={`pointer-events-none absolute top-14 xl:top-3 left-3 z-10 gl-hud !rounded-xl px-3 py-1.5 text-xs flex flex-wrap items-center gap-x-2 gap-y-0.5 max-w-[calc(100%-24px)] xl:max-w-[calc(100%-340px)] ${
                   dragReadout.isDepthDrag ? '!border-amber-300/50' : '!border-gl-accent/45'
                 }`}
               >
@@ -819,7 +996,7 @@ export function EditorLayout({
 
             {/* Contextual Connect-Mode Helper */}
             {interactionMode === 'connect' && (
-              <div className="pointer-events-none absolute top-3 left-3 z-10 flex flex-col items-start gap-2 max-w-[calc(100%-220px)]">
+              <div className="pointer-events-none absolute top-14 xl:top-3 left-3 z-10 flex flex-col items-start gap-2 max-w-[calc(100%-24px)] xl:max-w-[calc(100%-340px)]">
                 <div className="gl-hud !rounded-xl px-3 py-1.5 text-[11px] sm:text-xs text-gl-text-secondary">
                   {pendingSourceTitle
                     ? `Выберите вторую звезду для соединения с «${pendingSourceTitle}»`
@@ -873,7 +1050,7 @@ export function EditorLayout({
             )}
 
             {/* Compact Secondary Scene Controls (top-right bar) */}
-            <div className="gl-hud absolute top-3 right-3 z-10 !rounded-xl p-1 flex items-center gap-1">
+            <div className="pointer-events-auto gl-hud absolute top-3 right-3 z-10 !rounded-xl p-1 flex items-center gap-1">
               <button
                 type="button"
                 onClick={handleOpenTutorial}
@@ -909,17 +1086,19 @@ export function EditorLayout({
 
               <button
                 type="button"
+                data-testid="toggle-zen-mode"
                 onClick={() => setZenMode((z) => !z)}
                 aria-pressed={zenMode}
-                title={zenMode ? 'Показать боковые панели' : 'Развернуть 3D-сцену'}
-                aria-label={zenMode ? 'Показать боковые панели' : 'Развернуть 3D-сцену'}
-                className="hidden lg:inline-flex gl-btn-icon !min-w-[34px] !min-h-[34px] !w-[34px] !h-[34px] !p-0 !border-transparent !bg-transparent hover:!bg-white/[0.08]"
+                title={zenMode ? 'Показать панели' : 'Скрыть панели'}
+                aria-label={zenMode ? 'Показать панели' : 'Скрыть панели'}
+                className="hidden md:inline-flex items-center gap-1.5 rounded-xl px-2.5 sm:px-3 h-[34px] text-xs font-semibold text-gl-text hover:bg-white/[0.1] whitespace-nowrap transition-colors cursor-pointer"
               >
                 {zenMode ? (
-                  <Minimize2 className="w-4 h-4" />
+                  <Minimize2 className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
                 ) : (
-                  <Maximize2 className="w-4 h-4" />
+                  <Maximize2 className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
                 )}
+                <span>{zenMode ? 'Показать панели' : 'Скрыть панели'}</span>
               </button>
             </div>
 
@@ -939,7 +1118,7 @@ export function EditorLayout({
             />
 
             {/* Bottom Single-Row Primary Dock (Arrange, Connect, Reset Camera) */}
-            <div className="gl-hud absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex flex-nowrap items-center gap-1 !rounded-2xl p-1.5 max-w-[96%] overflow-x-auto">
+            <div className="pointer-events-auto gl-hud absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex flex-nowrap items-center gap-1 !rounded-2xl p-1.5 max-w-[96%] overflow-x-auto">
               <button
                 type="button"
                 onClick={() => switchMode('arrange')}
@@ -970,17 +1149,27 @@ export function EditorLayout({
                 <span>Сброс</span>
               </button>
             </div>
-              </div>
-            </main>
+                  </div>
+                )}
+              </main>
             )}
 
-            {/* Right Panel: Step-driven Workshop Content */}
-            {!zenMode && (
-              <aside
-                data-testid="workshop-right-panel"
-                className={`${
-                  mobilePane === 'panel' ? 'flex' : 'hidden'
-                } md:flex gl-editor-sidebar-right shrink-0 flex-col md:border-l gl-panel min-h-0 flex-1 md:flex-none`}
+            {/* Column 3: Right Panel — Step-driven Workshop Content */}
+            <aside
+              data-testid="workshop-right-panel"
+              data-zen={zenMode}
+              aria-hidden={isDesktopMd ? zenMode : undefined}
+              inert={zenMode && isDesktopMd ? true : undefined}
+              className={`${
+                mobilePane === 'panel' ? 'flex' : 'hidden'
+              } md:flex gl-editor-sidebar-right-shell shrink-0 flex-col md:border-l gl-glass-panel min-h-0 flex-1 md:flex-none overflow-hidden ${
+                zenMode ? 'md:pointer-events-none' : 'md:pointer-events-auto'
+              }`}
+            >
+              <div
+                className={`gl-editor-sidebar-right-inner flex-1 min-h-0 flex flex-col md:transition-[transform,opacity] md:duration-300 md:ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+                  zenMode ? 'md:translate-x-full md:opacity-0' : 'md:translate-x-0 md:opacity-100'
+                }`}
               >
                 {/* Compact Horizontal Star Strip on Step 1 for < lg screens (portrait phones, landscape phones, tablets) */}
                 {activeStep === 'stars' && (
@@ -999,29 +1188,38 @@ export function EditorLayout({
 
                 {/* Step Body */}
                 <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4 overscroll-contain">
-                  {activeStep === 'stars' && activeStar && (
-                    <StarEditor
-                      projectId={project.id}
-                      paletteId={project.paletteId}
-                      occasion={project.occasion}
-                      recipientName={project.recipientName}
-                      star={activeStar}
-                      starIndex={activeStarIndex}
-                      globalGlowColor={project.globalGlowColor}
-                      cardTheme={project.cardTheme}
-                      cardColors={project.cardColors}
-                      onChange={handleUpdateStar}
-                      onApplyTextStyleToAll={(style) =>
-                        onUpdateProject((prev) => ({
-                          ...prev,
-                          stars: prev.stars.map((s) => ({
-                            ...s,
-                            textStyle: { ...style },
-                          })),
-                        }))
-                      }
-                    />
-                  )}
+                  {activeStep === 'stars' &&
+                    (activeStar ? (
+                      <StarEditor
+                        projectId={project.id}
+                        occasion={project.occasion}
+                        recipientName={project.recipientName}
+                        star={activeStar}
+                        starIndex={activeStarIndex}
+                        globalGlowColor={project.globalGlowColor}
+                        editStep={starEditStep}
+                        hasNextStar={hasNextStar}
+                        onEditStepChange={handleStarEditStepChange}
+                        onNextStarOrConstellation={handleNextStarOrConstellation}
+                        onChange={handleUpdateStar}
+                      />
+                    ) : (
+                      <div
+                        data-testid="stars-empty-state"
+                        className="rounded-2xl border border-dashed border-white/15 bg-white/[0.025] p-6 text-center space-y-3"
+                      >
+                        <p className="text-sm text-gl-text-secondary leading-relaxed">
+                          У вас пока нет звезд. Нажмите +, чтобы добавить
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleAddStar}
+                          className="gl-btn-primary !min-h-[40px] !px-4 text-xs"
+                        >
+                          + Добавить звезду
+                        </button>
+                      </div>
+                    ))}
 
                   {activeStep === 'card' && (
                     <CardEditorPanel
@@ -1052,27 +1250,18 @@ export function EditorLayout({
                       section={activeStep}
                       selectedConnectionId={selectedConnectionId}
                       reducedMotion={reducedMotion}
-                      interactionMode={interactionMode}
-                      activeStarTitle={activeStar?.title}
-                      activeStarPosition={activeStar?.position}
                       onChange={(patch) =>
                         onUpdateProject((prev) => ({ ...prev, ...patch }))
                       }
                       onSelectConnection={handleSelectConnection}
                       onDeleteConnection={handleDeleteConnection}
-                      onSwitchMode={switchMode}
-                      onResetCamera={() => sceneRef.current?.resetCamera()}
-                      onEnterConnectMode={() => {
-                        switchMode('connect');
-                        setMobilePane('scene');
-                      }}
                       onToggleReducedMotion={() => setReducedMotion((r) => !r)}
                     />
                   )}
                 </div>
 
                 {/* Step Navigation Footer: Назад / Далее */}
-                <div className="gl-workshop-footer shrink-0 border-t border-white/10 bg-gl-input/60 px-3.5 py-2.5 flex items-center justify-between gap-2">
+                <div className="gl-workshop-footer shrink-0 border-t border-white/10 bg-black/10 px-3.5 py-2.5 flex items-center justify-between gap-2">
                   <button
                     type="button"
                     onClick={() => prevStep && goToStep(prevStep.id)}
@@ -1103,8 +1292,8 @@ export function EditorLayout({
                     </button>
                   )}
                 </div>
-              </aside>
-            )}
+              </div>
+            </aside>
           </>
         )}
       </div>
@@ -1113,7 +1302,7 @@ export function EditorLayout({
       {activeStep !== 'preview' && (
         <nav
           aria-label="Переключение между настройками и результатом"
-          className="md:hidden shrink-0 border-t gl-panel gl-safe-bottom grid grid-cols-2 p-1.5 gap-1.5"
+          className="md:hidden shrink-0 border-t gl-glass-panel gl-safe-bottom grid grid-cols-2 p-1.5 gap-1.5"
         >
           <button
             type="button"
@@ -1133,10 +1322,10 @@ export function EditorLayout({
             data-selected={mobilePane === 'scene'}
             className="gl-tab !min-h-[40px] flex items-center justify-center gap-1.5"
           >
-            {activeStep === 'card' ? (
+            {activeStep === 'card' || (activeStep === 'stars' && starsCenterView === 'card') ? (
               <>
                 <Mail className="w-3.5 h-3.5 shrink-0" />
-                <span>Открытка</span>
+                <span>{activeStep === 'card' ? 'Открытка' : 'Карточка'}</span>
               </>
             ) : (
               <>
@@ -1153,7 +1342,15 @@ export function EditorLayout({
           project={project}
           onClose={() => setShowExport(false)}
           onSelectStar={(starId) => {
+            const target = project.stars.find((s) => s.id === starId);
+            const targetSubStep: StarEditStep =
+              target && target.title.trim().length === 0
+                ? 'title'
+                : 'message';
             setSelectedStarId(starId);
+            setStarSubStepById((prev) => ({ ...prev, [starId]: targetSubStep }));
+            setStarEditStep(targetSubStep);
+            setStarsCenterView('3d');
             goToStep('stars');
             setMobilePane('panel');
           }}

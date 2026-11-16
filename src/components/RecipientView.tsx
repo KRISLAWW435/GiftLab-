@@ -1865,7 +1865,10 @@ export function RecipientView({
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) =>
-                              onPatchStar?.(activeStar.id, { title: e.target.value })
+                              onPatchStar?.(activeStar.id, {
+                                title: e.target.value,
+                                isDraft: false,
+                              })
                             }
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === 'Escape') {
@@ -1929,7 +1932,10 @@ export function RecipientView({
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) =>
-                            onPatchStar?.(activeStar.id, { message: e.target.value })
+                            onPatchStar?.(activeStar.id, {
+                              message: e.target.value,
+                              isDraft: false,
+                            })
                           }
                           onKeyDown={(e) => {
                             if (e.key === 'Escape') {

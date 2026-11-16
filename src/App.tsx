@@ -318,8 +318,10 @@ function StudioApp() {
     null,
   );
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved');
+  const [dirtyTick, setDirtyTick] = useState(0);
 
   const saveTimerRef = useRef<number | null>(null);
+  const editVersionRef = useRef(0);
   const previewReturnScreenRef = useRef<'start' | 'editor'>('start');
 
   const reloadProjects = useCallback(async () => {
@@ -344,6 +346,8 @@ function StudioApp() {
         window.clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
       }
+      const versionAtStart = editVersionRef.current;
+      setDirtyTick(0);
       setSaveState('saving');
       const saved = await saveProject(proj);
       await cleanupUnusedProjectImages(saved);
@@ -354,20 +358,42 @@ function StudioApp() {
           : [saved, ...prev];
         return [...next].sort((a, b) => b.updatedAt - a.updatedAt);
       });
-      setSaveState('saved');
+      if (editVersionRef.current === versionAtStart) {
+        setSaveState('saved');
+      }
     },
     [],
   );
 
+  useEffect(() => {
+    if (dirtyTick === 0 || !activeProject) return;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSave(activeProject);
+    }, 450);
+
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [dirtyTick, activeProject, flushSave]);
+
   const handleCreateProject = async (project: ConstellationProject) => {
     const saved = await saveProject(project);
     setProjects((prev) => [saved, ...prev]);
+    setDirtyTick(0);
     setActiveProject(saved);
     setSaveState('saved');
     setScreen('editor');
   };
 
   const handleOpenProject = (project: ConstellationProject) => {
+    setDirtyTick(0);
     setActiveProject(project);
     setSaveState('saved');
     setScreen('editor');
@@ -378,6 +404,7 @@ function StudioApp() {
     from: 'start' | 'editor',
   ) => {
     previewReturnScreenRef.current = from;
+    setDirtyTick(0);
     setActiveProject(project);
     setScreen('preview');
   };
@@ -391,6 +418,7 @@ function StudioApp() {
     await deleteProject(projectId);
     setProjects((prev) => prev.filter((p) => p.id !== projectId));
     if (activeProject?.id === projectId) {
+      setDirtyTick(0);
       setActiveProject(null);
       setScreen('start');
     }
@@ -398,22 +426,15 @@ function StudioApp() {
 
   const handleUpdateProject = useCallback(
     (updater: (prev: ConstellationProject) => ConstellationProject) => {
+      editVersionRef.current += 1;
       setActiveProject((prev) => {
         if (!prev) return prev;
-        const next = { ...updater(prev), updatedAt: Date.now() };
-        setSaveState('saving');
-
-        if (saveTimerRef.current) {
-          window.clearTimeout(saveTimerRef.current);
-        }
-        saveTimerRef.current = window.setTimeout(() => {
-          flushSave(next);
-        }, 450);
-
-        return next;
+        return { ...updater(prev), updatedAt: Date.now() };
       });
+      setSaveState('saving');
+      setDirtyTick((t) => t + 1);
     },
-    [flushSave],
+    [],
   );
 
   if (screen === 'preview' && activeProject) {

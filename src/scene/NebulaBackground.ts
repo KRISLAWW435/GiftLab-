@@ -18,7 +18,7 @@ export class NebulaBackground {
   private wispMaterials: THREE.SpriteMaterial[] = [];
 
   constructor(palette: CosmicPaletteConfig, cloudTexture: THREE.Texture) {
-    this.skyGeometry = new THREE.SphereGeometry(62, 32, 24);
+    this.skyGeometry = new THREE.SphereGeometry(95, 32, 24);
     this.skyMaterial = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -76,8 +76,8 @@ export class NebulaBackground {
 
         void main() {
           vec3 dir = normalize(vWorldDir);
-          float horizon = smoothstep(-0.65, 0.75, dir.y);
-          vec3 base = mix(uDeep, uMid, horizon * 0.72);
+          float horizon = smoothstep(-0.75, 0.80, dir.y);
+          vec3 base = mix(uDeep, uMid, horizon * 0.60);
 
           vec3 driftA = dir * 2.3 + vec3(uTime * 0.015, -uTime * 0.008, uTime * 0.01);
           vec3 driftB = dir * 3.1 + vec3(-uTime * 0.012, uTime * 0.011, -uTime * 0.009);
@@ -86,12 +86,12 @@ export class NebulaBackground {
           float cloudB = smoothstep(0.42, 0.88, fbm(driftB));
 
           // Milky-way style diagonal luminosity band
-          float band = exp(-pow((dir.y * 0.75 - dir.x * 0.48 + 0.08) * 2.6, 2.0));
+          float band = exp(-pow((dir.y * 0.75 - dir.x * 0.48 + 0.08) * 2.4, 2.0));
 
           vec3 col = base;
-          col = mix(col, uNebulaA, cloudA * (0.28 + band * 0.25));
-          col = mix(col, uNebulaB, cloudB * (0.22 + band * 0.22));
-          col += (uNebulaA * 0.14 + uNebulaB * 0.10) * band;
+          col = mix(col, uNebulaA, cloudA * (0.24 + band * 0.24));
+          col = mix(col, uNebulaB, cloudB * (0.20 + band * 0.22));
+          col += (uNebulaA * 0.12 + uNebulaB * 0.10) * band;
 
           gl_FragColor = vec4(col, 1.0);
         }
@@ -104,11 +104,11 @@ export class NebulaBackground {
 
     // Layered soft depth nebula cloud wisps behind the constellation
     const wispSpecs = [
-      { pos: [-8, 3.5, -13], scale: 18, secondary: false, opacity: 0.22 },
-      { pos: [9, -2.5, -14], scale: 20, secondary: true, opacity: 0.2 },
-      { pos: [0, 5.5, -17], scale: 24, secondary: false, opacity: 0.16 },
-      { pos: [-5, -5.0, -12], scale: 16, secondary: true, opacity: 0.18 },
-      { pos: [6, 4.0, -11], scale: 15, secondary: false, opacity: 0.15 },
+      { pos: [-11, 4.5, -22], scale: 24, secondary: false, opacity: 0.2 },
+      { pos: [12, -3.5, -24], scale: 26, secondary: true, opacity: 0.18 },
+      { pos: [0, 7.0, -28], scale: 32, secondary: false, opacity: 0.15 },
+      { pos: [-7, -6.5, -20], scale: 22, secondary: true, opacity: 0.17 },
+      { pos: [8, 5.5, -19], scale: 20, secondary: false, opacity: 0.14 },
     ];
 
     wispSpecs.forEach((spec, idx) => {

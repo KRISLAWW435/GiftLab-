@@ -4,8 +4,10 @@ import {
   Download,
   Mail,
   Monitor,
+  Palette,
   RotateCcw,
   Smartphone,
+  Sparkles,
   Star,
 } from 'lucide-react';
 import type { ConstellationProject } from '../types/project';
@@ -54,18 +56,18 @@ export function PreviewWorkspace({
       data-testid="preview-workspace-root"
       className={
         embedded
-          ? 'h-full w-full min-h-0 flex-1 overflow-hidden bg-[#050814] text-gl-text flex flex-col'
-          : 'gl-h-screen w-screen overflow-hidden bg-[#050814] text-gl-text flex flex-col'
+          ? 'h-full w-full min-h-0 flex-1 overflow-hidden gl-cosmic-bg text-gl-text flex flex-col'
+          : 'gl-h-screen w-screen overflow-hidden gl-cosmic-bg text-gl-text flex flex-col'
       }
     >
       {/* Top Recipient Preview Control Bar */}
       <header
-        className={`gl-preview-header relative z-20 shrink-0 border-b gl-panel px-2.5 sm:px-5 py-1.5 flex flex-wrap items-center justify-between gap-1.5 sm:gap-3 ${
+        className={`gl-preview-header relative z-20 shrink-0 border-b gl-glass-header px-2.5 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 ${
           embedded ? 'min-h-12' : 'min-h-14 gl-safe-top'
         }`}
       >
         {/* Left Zone: Return to Editor + Quick Step Links */}
-        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 max-w-full">
+        <div className="flex items-center gap-1.5 min-w-0 max-w-full">
           <button
             type="button"
             data-testid="preview-return-btn"
@@ -77,30 +79,48 @@ export function PreviewWorkspace({
           </button>
 
           {onJumpToStep && (
-            <div className="hidden lg:flex items-center gap-1 pl-1 border-l border-white/10">
+            <div className="hidden lg:flex items-center gap-1 pl-1.5 border-l border-white/10">
               <button
                 type="button"
                 data-testid="preview-jump-stars"
                 onClick={() => onJumpToStep('stars')}
-                className="gl-choice px-2.5 py-1 text-[11px] font-medium inline-flex items-center gap-1"
+                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
               >
-                <Star className="w-3 h-3 text-gl-accent-light" />
-                <span>К звёздам</span>
+                <Star className="w-3 h-3 text-gl-accent-light shrink-0" />
+                <span>Звёзды</span>
+              </button>
+              <button
+                type="button"
+                data-testid="preview-jump-constellation"
+                onClick={() => onJumpToStep('constellation')}
+                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
+              >
+                <Sparkles className="w-3 h-3 text-gl-accent-light shrink-0" />
+                <span>Созвездие</span>
               </button>
               <button
                 type="button"
                 data-testid="preview-jump-card"
                 onClick={() => onJumpToStep('card')}
-                className="gl-choice px-2.5 py-1 text-[11px] font-medium inline-flex items-center gap-1"
+                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
               >
-                <Mail className="w-3 h-3 text-gl-accent-light" />
-                <span>К открытке</span>
+                <Mail className="w-3 h-3 text-gl-accent-light shrink-0" />
+                <span>Открытка</span>
+              </button>
+              <button
+                type="button"
+                data-testid="preview-jump-atmosphere"
+                onClick={() => onJumpToStep('atmosphere')}
+                className="gl-choice px-2 py-1 text-[11px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
+              >
+                <Palette className="w-3 h-3 text-gl-accent-light shrink-0" />
+                <span>Атмосфера</span>
               </button>
             </div>
           )}
 
           {!embedded && (
-            <span className="hidden xl:block text-sm font-medium text-gl-text-secondary truncate max-w-[200px]">
+            <span className="hidden 2xl:block text-sm font-medium text-gl-text-secondary truncate max-w-[200px]">
               {project.title || 'Предпросмотр подарка'}
             </span>
           )}
@@ -118,11 +138,11 @@ export function PreviewWorkspace({
             onClick={() => setDevice('phone')}
             aria-pressed={device === 'phone'}
             data-selected={device === 'phone'}
-            className="gl-tab !min-h-[32px] sm:!min-h-[34px] !px-2.5 sm:!px-3 text-xs inline-flex items-center gap-1.5"
+            className="gl-tab !min-h-[32px] sm:!min-h-[34px] !px-2.5 text-xs inline-flex items-center gap-1.5"
           >
             <Smartphone className="w-3.5 h-3.5 shrink-0" />
             <span>Телефон</span>
-            <span className="hidden md:inline text-[11px] opacity-80 tabular-nums">
+            <span className="hidden 2xl:inline text-[11px] opacity-80 tabular-nums">
               390×844
             </span>
           </button>
@@ -133,19 +153,19 @@ export function PreviewWorkspace({
             onClick={() => setDevice('desktop')}
             aria-pressed={device === 'desktop'}
             data-selected={device === 'desktop'}
-            className="gl-tab !min-h-[32px] sm:!min-h-[34px] !px-2.5 sm:!px-3 text-xs inline-flex items-center gap-1.5"
+            className="gl-tab !min-h-[32px] sm:!min-h-[34px] !px-2.5 text-xs inline-flex items-center gap-1.5"
           >
             <Monitor className="w-3.5 h-3.5 shrink-0" />
             <span>Компьютер</span>
-            <span className="hidden md:inline text-[11px] opacity-80 tabular-nums">
+            <span className="hidden 2xl:inline text-[11px] opacity-80 tabular-nums">
               1280×720
             </span>
           </button>
         </div>
 
         {/* Right Zone: Scale + Restart + Export */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          <span className="hidden xl:inline text-xs text-gl-text-muted tabular-nums whitespace-nowrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <span className="hidden 2xl:inline text-xs text-gl-text-muted tabular-nums whitespace-nowrap">
             {preset.width}×{preset.height} · {Math.round(scale * 100)}%
           </span>
 

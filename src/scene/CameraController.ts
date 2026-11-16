@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const DEFAULT_CAM_POS = new THREE.Vector3(0, 0.5, 11.2);
+const DEFAULT_CAM_POS = new THREE.Vector3(0, 0.5, 12.2);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
-const FINALE_CAM_POS = new THREE.Vector3(0, 0.35, 13.4);
+const FINALE_CAM_POS = new THREE.Vector3(0, 0.35, 14.2);
 const FINALE_TARGET = new THREE.Vector3(0, -0.1, 0);
 
 export class CameraController {
@@ -34,9 +34,9 @@ export class CameraController {
     this.controls.dampingFactor = 0.065;
     this.controls.enablePan = false;
     this.controls.rotateSpeed = 0.78;
-    this.controls.zoomSpeed = 0.85;
+    this.controls.zoomSpeed = 0.92;
     this.controls.minDistance = 3.8;
-    this.controls.maxDistance = 21;
+    this.controls.maxDistance = 38;
     // Prevent camera flipping upside down or losing the constellation
     this.controls.minPolarAngle = 0.28;
     this.controls.maxPolarAngle = Math.PI - 0.28;

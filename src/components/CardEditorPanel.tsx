@@ -11,6 +11,7 @@ import {
   Maximize,
   Minimize,
   Monitor,
+  Move,
   Palette,
   RotateCcw,
   Smartphone,
@@ -109,6 +110,12 @@ export function CardEditorPanel({
   onResetDeviceLayout,
 }: CardEditorPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cropDragRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [appliedAllNotice, setAppliedAllNotice] = useState(false);
@@ -209,6 +216,40 @@ export function CardEditorPanel({
       ),
       imageSettings: { ...DEFAULT_STAR_IMAGE_SETTINGS },
     });
+  };
+
+  const handleCropPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    cropDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: activeImgSettings.offsetX,
+      originY: activeImgSettings.offsetY,
+    };
+  };
+
+  const handleCropPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    if (!drag) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dxPct = Math.round(((e.clientX - drag.startX) / Math.max(80, rect.width)) * 100);
+    const dyPct = Math.round(((e.clientY - drag.startY) / Math.max(80, rect.height)) * 100);
+    updateActiveImageSettings({
+      offsetX: Math.max(-50, Math.min(50, drag.originX + dxPct)),
+      offsetY: Math.max(-50, Math.min(50, drag.originY + dyPct)),
+    });
+  };
+
+  const handleCropPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropDragRef.current) return;
+    cropDragRef.current = null;
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const handleUploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -357,7 +398,7 @@ export function CardEditorPanel({
                     onSelectCardTargetView('starStory', safeStarIndex);
                   }
                 }}
-                className="gl-tab !min-h-[38px] !px-1 !py-1 flex flex-col items-center justify-center gap-0.5 text-[10px]"
+                className="gl-tab !min-h-[42px] !px-1 !py-1.5 flex flex-col items-center justify-center gap-0.5 text-[11px]"
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate max-w-full">{tab.label}</span>
@@ -379,15 +420,15 @@ export function CardEditorPanel({
       {/* TAB 2: Тексты и оформление */}
       {activeTab === 'text' && (
         <div className="space-y-3.5">
-          <div className="rounded-xl border border-gl-accent/25 bg-gl-accent/10 px-3 py-2 text-[11px] text-gl-text-secondary leading-snug">
+          <div className="rounded-xl border border-gl-accent/25 bg-gl-accent/10 px-3 py-2.5 text-xs text-gl-text-secondary leading-snug">
             Нажми на любой текст прямо на открытке слева, чтобы исправить его, или настрой ниже.
           </div>
 
           {isFinaleCard ? (
-            <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
-              <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
+              <div className="grid grid-cols-2 gap-2.5">
                 <label className="block space-y-1">
-                  <span className="text-[11px] text-gl-text-muted block">Кому</span>
+                  <span className="text-xs text-gl-text-muted block">Кому</span>
                   <input
                     type="text"
                     maxLength={40}
@@ -395,14 +436,14 @@ export function CardEditorPanel({
                     data-testid="card-input-recipientName"
                     onChange={(e) => onPatchProject({ recipientName: e.target.value })}
                     placeholder="Имя получателя"
-                    className={`gl-input text-xs ${
+                    className={`gl-input text-[13px] ${
                       focusedField === 'recipientName' ? 'ring-2 ring-gl-accent-light' : ''
                     }`}
                   />
                 </label>
 
                 <label className="block space-y-1">
-                  <span className="text-[11px] text-gl-text-muted block">От кого</span>
+                  <span className="text-xs text-gl-text-muted block">От кого</span>
                   <input
                     type="text"
                     maxLength={40}
@@ -410,7 +451,7 @@ export function CardEditorPanel({
                     data-testid="card-input-senderName"
                     onChange={(e) => onPatchProject({ senderName: e.target.value })}
                     placeholder="Твоё имя"
-                    className={`gl-input text-xs ${
+                    className={`gl-input text-[13px] ${
                       focusedField === 'senderName' ? 'ring-2 ring-gl-accent-light' : ''
                     }`}
                   />
@@ -418,7 +459,7 @@ export function CardEditorPanel({
               </div>
 
               <label className="block space-y-1">
-                <span className="text-[11px] text-gl-text-muted block">Заголовок открытки</span>
+                <span className="text-xs text-gl-text-muted block">Заголовок открытки</span>
                 <input
                   type="text"
                   maxLength={50}
@@ -426,14 +467,14 @@ export function CardEditorPanel({
                   data-testid="card-input-title"
                   onChange={(e) => onPatchProject({ title: e.target.value })}
                   placeholder="Название подарка"
-                  className={`gl-input text-xs ${
+                  className={`gl-input text-[13px] ${
                     focusedField === 'title' ? 'ring-2 ring-gl-accent-light' : ''
                   }`}
                 />
               </label>
 
               <label className="block space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center justify-between text-xs">
                   <span className="text-gl-text-muted">Финальное письмо</span>
                   <span className="text-gl-text-muted tabular-nums">
                     {project.finalMessage.length}/800
@@ -446,15 +487,15 @@ export function CardEditorPanel({
                   data-testid="card-input-finalMessage"
                   onChange={(e) => onPatchProject({ finalMessage: e.target.value })}
                   placeholder="Тёплые слова, которые появятся в конце..."
-                  className={`gl-textarea resize-y text-xs leading-relaxed ${
+                  className={`gl-textarea resize-y text-[13px] leading-relaxed ${
                     focusedField === 'finalMessage' ? 'ring-2 ring-gl-accent-light' : ''
                   }`}
                 />
               </label>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2.5">
                 <label className="block space-y-1">
-                  <span className="text-[11px] text-gl-text-muted block">Повод</span>
+                  <span className="text-xs text-gl-text-muted block">Повод</span>
                   <select
                     value={project.occasion}
                     onChange={(e) => {
@@ -465,7 +506,7 @@ export function CardEditorPanel({
                         occasionLabel: found?.label ?? 'Свой повод',
                       });
                     }}
-                    className="gl-select text-xs"
+                    className="gl-select text-[13px]"
                   >
                     {OCCASION_PRESETS.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -476,14 +517,14 @@ export function CardEditorPanel({
                 </label>
 
                 <label className="block space-y-1">
-                  <span className="text-[11px] text-gl-text-muted block">Подпись внизу</span>
+                  <span className="text-xs text-gl-text-muted block">Подпись внизу</span>
                   <input
                     type="text"
                     maxLength={36}
                     value={project.occasionLabel}
                     data-testid="card-input-occasionLabel"
                     onChange={(e) => onPatchProject({ occasionLabel: e.target.value })}
-                    className={`gl-input text-xs ${
+                    className={`gl-input text-[13px] ${
                       focusedField === 'occasionLabel' ? 'ring-2 ring-gl-accent-light' : ''
                     }`}
                   />
@@ -491,55 +532,59 @@ export function CardEditorPanel({
               </div>
             </div>
           ) : activeStar ? (
-            <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
               <div className="flex items-center justify-between gap-2 text-xs font-semibold text-gl-text">
                 <span>Карточка звезды {safeStarIndex + 1}</span>
                 <button
                   type="button"
                   onClick={() => onSelectCardTargetView('constellation')}
-                  className="text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                  className="text-xs font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
                 >
                   К финалу
                 </button>
               </div>
 
               <label className="block space-y-1">
-                <span className="text-[11px] text-gl-text-muted block">Заголовок звезды</span>
+                <span className="text-xs text-gl-text-muted block">Заголовок звезды</span>
                 <input
                   type="text"
                   maxLength={30}
                   value={activeStar.title}
                   data-testid="card-input-starTitle"
-                  onChange={(e) => onPatchStar(activeStar.id, { title: e.target.value })}
-                  className={`gl-input text-xs ${
+                  onChange={(e) =>
+                    onPatchStar(activeStar.id, { title: e.target.value, isDraft: false })
+                  }
+                  className={`gl-input text-[13px] ${
                     focusedField === 'starTitle' ? 'ring-2 ring-gl-accent-light' : ''
                   }`}
                 />
               </label>
 
               <label className="block space-y-1">
-                <span className="text-[11px] text-gl-text-muted block">Послание</span>
+                <span className="text-xs text-gl-text-muted block">Послание</span>
                 <textarea
                   rows={3}
                   maxLength={180}
                   value={activeStar.message}
                   data-testid="card-input-starMessage"
-                  onChange={(e) => onPatchStar(activeStar.id, { message: e.target.value })}
-                  className={`gl-textarea resize-none text-xs leading-relaxed ${
+                  onChange={(e) =>
+                    onPatchStar(activeStar.id, { message: e.target.value, isDraft: false })
+                  }
+                  className={`gl-textarea resize-none text-[13px] leading-relaxed ${
                     focusedField === 'starMessage' ? 'ring-2 ring-gl-accent-light' : ''
                   }`}
                 />
               </label>
 
               <label className="block space-y-1">
-                <span className="text-[11px] text-gl-text-muted block">Подпись (От кого)</span>
+                <span className="text-xs text-gl-text-muted block">Подпись (От кого)</span>
                 <input
                   type="text"
                   maxLength={40}
                   value={project.senderName ?? ''}
                   onChange={(e) => onPatchProject({ senderName: e.target.value })}
                   placeholder="Твоё имя"
-                  className="gl-input text-xs"
+                  className="gl-input text-[13px]"
                 />
               </label>
             </div>
@@ -943,35 +988,61 @@ export function CardEditorPanel({
             </div>
           </div>
 
-          <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
-            <span className="text-[11px] font-medium text-gl-text-secondary block">
-              Как показать внутри рамки
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3.5">
+            <span className="text-xs font-medium text-gl-text-secondary block">
+              Кадрирование внутри рамки
             </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(
-                [
-                  { id: 'cover', label: 'Заполнить', icon: Maximize },
-                  { id: 'contain', label: 'Вписать', icon: Minimize },
-                ] as Array<{ id: StarImageFitMode; label: string; icon: typeof Maximize }>
-              ).map((fitMode) => {
-                const Icon = fitMode.icon;
-                return (
-                  <button
-                    key={fitMode.id}
-                    type="button"
-                    data-selected={activeImgSettings.fit === fitMode.id}
-                    onClick={() => updateActiveImageSettings({ fit: fitMode.id })}
-                    className="gl-choice py-1.5 text-[11px] font-medium inline-flex items-center justify-center gap-1"
-                  >
-                    <Icon className="w-3 h-3" />
-                    {fitMode.label}
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-3">
+              <div
+                onPointerDown={handleCropPointerDown}
+                onPointerMove={handleCropPointerMove}
+                onPointerUp={handleCropPointerUp}
+                onPointerCancel={handleCropPointerUp}
+                title="Потяните картинку внутри рамки для смещения"
+                className="relative w-20 h-20 shrink-0 rounded-xl border border-white/15 bg-gl-input overflow-hidden cursor-grab active:cursor-grabbing touch-none"
+              >
+                <StarIllustrationView
+                  illustration={activeStar.illustration}
+                  imageSettings={activeImgSettings}
+                  alt={activeStar.title || 'Предпросмотр кадрирования'}
+                  className="w-full h-full"
+                />
+                <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/55 p-0.5 text-white/75">
+                  <Move className="w-2.5 h-2.5" />
+                </span>
+              </div>
+
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      { id: 'cover', label: 'Заполнить', icon: Maximize },
+                      { id: 'contain', label: 'Вписать', icon: Minimize },
+                    ] as Array<{ id: StarImageFitMode; label: string; icon: typeof Maximize }>
+                  ).map((fitMode) => {
+                    const Icon = fitMode.icon;
+                    return (
+                      <button
+                        key={fitMode.id}
+                        type="button"
+                        data-selected={activeImgSettings.fit === fitMode.id}
+                        onClick={() => updateActiveImageSettings({ fit: fitMode.id })}
+                        className="gl-choice py-1.5 text-xs font-medium inline-flex items-center justify-center gap-1"
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        {fitMode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-gl-text-muted leading-snug">
+                  Двигай картинку внутри рамки.
+                </p>
+              </div>
             </div>
 
             <label className="block space-y-1">
-              <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center justify-between text-xs">
                 <span className="text-gl-text-muted">Приблизить фото</span>
                 <span className="text-gl-text-muted">Дальше — Ближе</span>
               </div>

@@ -206,7 +206,7 @@ export function TextStyleEditor({
 
       {/* 1. Font Categories & Selection */}
       <div className="space-y-1.5">
-        <span className="text-[11px] text-gl-text-muted block">Шрифт послания</span>
+        <span className="text-xs text-gl-text-muted block">Шрифт послания</span>
         <div className="space-y-1.5">
           {MESSAGE_FONTS.map((font) => {
             const cat = MESSAGE_FONT_CATEGORIES.find((c) => c.id === font.category);
@@ -215,16 +215,17 @@ export function TextStyleEditor({
               <button
                 key={font.id}
                 type="button"
+                data-testid={`text-style-font-${font.id}`}
                 data-selected={active}
                 onClick={() => updateStyle({ fontId: font.id })}
-                className="gl-choice w-full text-left px-2.5 py-2 flex items-center justify-between gap-2"
+                className="gl-choice w-full text-left px-3 py-2 flex items-center justify-between gap-2"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gl-accent-light">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-gl-accent-light">
                       {cat?.name}
                     </span>
-                    <span className="text-[11px] text-gl-text-muted">· {font.name}</span>
+                    <span className="text-xs text-gl-text-muted">· {font.name}</span>
                   </div>
                   <p
                     className="text-sm text-gl-text truncate mt-0.5"
@@ -240,9 +241,9 @@ export function TextStyleEditor({
       </div>
 
       {/* 2. Weight & Alignment */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <span className="text-[11px] text-gl-text-muted block">Начертание</span>
+          <span className="text-xs text-gl-text-muted block">Начертание</span>
           <div className="grid grid-cols-2 gap-1">
             {(
               [
@@ -255,7 +256,7 @@ export function TextStyleEditor({
                 type="button"
                 data-selected={style.fontWeight === w.id}
                 onClick={() => updateStyle({ fontWeight: w.id })}
-                className={`gl-choice py-1.5 px-1.5 text-[11px] ${
+                className={`gl-choice py-1.5 px-1.5 text-xs ${
                   w.id === 'semibold' ? 'font-semibold' : 'font-normal'
                 }`}
               >
@@ -266,7 +267,7 @@ export function TextStyleEditor({
         </div>
 
         <div className="space-y-1">
-          <span className="text-[11px] text-gl-text-muted block">Выравнивание</span>
+          <span className="text-xs text-gl-text-muted block">Выравнивание</span>
           <div className="grid grid-cols-3 gap-1">
             {(
               [
@@ -299,9 +300,9 @@ export function TextStyleEditor({
       </div>
 
       {/* 3. Size & Line Height Sliders */}
-      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-2.5">
+      <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
         <label className="block space-y-1">
-          <div className="flex items-center justify-between text-[11px]">
+          <div className="flex items-center justify-between text-xs">
             <span className="text-gl-text-secondary font-medium">Размер текста</span>
             <span className="text-gl-text-muted">
               {style.fontSize <= 15
@@ -324,8 +325,8 @@ export function TextStyleEditor({
         </label>
 
         <label className="block space-y-1">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-gl-text-secondary font-medium">Расстояние между строками</span>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gl-text-secondary font-medium">Интервал строк</span>
             <span className="text-gl-text-muted">
               {style.lineHeight <= 1.35
                 ? 'Плотнее'
@@ -349,7 +350,7 @@ export function TextStyleEditor({
 
       {/* 4. Text Color */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-[11px]">
+        <div className="flex items-center justify-between text-xs">
           <span className="text-gl-text-muted">Цвет текста</span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -375,7 +376,7 @@ export function TextStyleEditor({
 
           <label
             title="Свой цвет текста"
-            className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2 h-7 text-[11px] text-gl-text-secondary cursor-pointer hover:border-white/30"
+            className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2 h-7 text-xs text-gl-text-secondary cursor-pointer hover:border-white/30"
           >
             <input
               type="color"
@@ -390,9 +391,9 @@ export function TextStyleEditor({
       </div>
 
       {/* 5. Shadow & Decorative Accent */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <span className="text-[11px] text-gl-text-muted block">Тень</span>
+          <span className="text-xs text-gl-text-muted block">Тень</span>
           <div className="grid grid-cols-3 gap-1">
             {(
               [
@@ -406,7 +407,7 @@ export function TextStyleEditor({
                 type="button"
                 data-selected={style.shadow === s.id}
                 onClick={() => updateStyle({ shadow: s.id })}
-                className="gl-choice py-1.5 px-1 text-[10px] font-medium"
+                className="gl-choice py-1.5 px-1 text-[11px] font-medium"
               >
                 {s.label}
               </button>
@@ -415,7 +416,7 @@ export function TextStyleEditor({
         </div>
 
         <div className="space-y-1">
-          <span className="text-[11px] text-gl-text-muted block">Акцент</span>
+          <span className="text-xs text-gl-text-muted block">Акцент</span>
           <div className="grid grid-cols-2 gap-1">
             {(
               [
@@ -430,7 +431,7 @@ export function TextStyleEditor({
                 type="button"
                 data-selected={style.accent === a.id}
                 onClick={() => updateStyle({ accent: a.id })}
-                className="gl-choice py-1 px-1.5 text-[10px] font-medium"
+                className="gl-choice py-1 px-1.5 text-[11px] font-medium"
               >
                 {a.label}
               </button>

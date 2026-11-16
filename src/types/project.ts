@@ -208,6 +208,8 @@ export interface ConstellationStar {
   /** If 'inherit' or undefined, uses project.globalGlowColor */
   glowColor: GlowColorId | 'inherit';
   position: StarPosition3D;
+  /** True for freshly generated preset or newly added draft stars until user edits or confirms text */
+  isDraft?: boolean;
 }
 
 export interface StarConnection {
@@ -249,17 +251,22 @@ export interface StoredImageRecord {
   updatedAt: number;
 }
 
-export function isStarComplete(star: ConstellationStar): boolean {
+export const MIN_STARS = 5;
+export const MAX_STARS = 20;
+
+export function isStarFilled(star: ConstellationStar): boolean {
   return star.title.trim().length > 0 && star.message.trim().length > 0;
 }
 
+export function isStarComplete(star: ConstellationStar): boolean {
+  return !star.isDraft && isStarFilled(star);
+}
+
 export function canExportProject(project: ConstellationProject): boolean {
-  if (project.stars.length < 5) return false;
-  const primaryFive = project.stars.slice(0, 5);
+  if (project.stars.length < MIN_STARS) return false;
   return (
     project.title.trim().length > 0 &&
     project.finalMessage.trim().length > 0 &&
-    primaryFive.every(isStarComplete)
+    project.stars.every(isStarFilled)
   );
 }
-

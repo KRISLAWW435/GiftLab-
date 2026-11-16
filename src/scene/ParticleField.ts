@@ -45,7 +45,7 @@ export class ParticleField {
     const tmpCol = new THREE.Color();
 
     for (let i = 0; i < bgCount; i++) {
-      const r = 18 + Math.random() * 28;
+      const r = 26 + Math.random() * 40;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
 
@@ -87,9 +87,9 @@ export class ParticleField {
     const dustPositions = new Float32Array(this.dustCount * 3);
 
     for (let i = 0; i < this.dustCount; i++) {
-      const x = (Math.random() - 0.5) * 14;
-      const y = (Math.random() - 0.5) * 9;
-      const z = (Math.random() - 0.5) * 10;
+      const x = (Math.random() - 0.5) * 22;
+      const y = (Math.random() - 0.5) * 14;
+      const z = (Math.random() - 0.5) * 14;
       this.dustBasePositions[i * 3] = x;
       this.dustBasePositions[i * 3 + 1] = y;
       this.dustBasePositions[i * 3 + 2] = z;

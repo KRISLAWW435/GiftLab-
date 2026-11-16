@@ -331,15 +331,15 @@ export class ConstellationEngine {
     const palette = COSMIC_PALETTES[this.state.paletteId];
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(palette.fogColor, 0.016);
+    this.scene.fog = new THREE.FogExp2(palette.fogColor, 0.011);
     this.envTexture = createStudioEnvironment(this.renderer);
     this.scene.environment = this.envTexture;
 
-    this.camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 160);
-    this.camera.position.set(0, 0.5, 11.2);
+    this.camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 240);
+    this.camera.position.set(0, 0.5, 12.2);
 
     // Three-point studio lighting for sculpted star crystals & envelope
-    const hemiLight = new THREE.HemisphereLight('#c4b5fd', '#0f172a', 0.9);
+    const hemiLight = new THREE.HemisphereLight('#d8b4fe', '#12081c', 0.9);
     this.scene.add(hemiLight);
 
     const keyLight = new THREE.DirectionalLight('#fff7ed', 2.0);
@@ -669,7 +669,7 @@ export class ConstellationEngine {
     if (prev.paletteId !== next.paletteId || prev.globalGlowColor !== next.globalGlowColor) {
       const palette = COSMIC_PALETTES[next.paletteId];
       const glowCfg = GLOW_COLORS[next.globalGlowColor];
-      this.scene.fog = new THREE.FogExp2(palette.fogColor, 0.016);
+      this.scene.fog = new THREE.FogExp2(palette.fogColor, 0.011);
       this.nebula.setPalette(palette);
       this.lines.setTint(palette.lineTint);
       this.particles.setDustColor(palette.dustTint);
@@ -1066,9 +1066,9 @@ export class ConstellationEngine {
           canvas.style.cursor = 'ns-resize';
 
           node.group.position.z = THREE.MathUtils.clamp(
-            node.group.position.z - dy * 0.022,
-            -3.2,
-            3.2,
+            node.group.position.z - dy * 0.024,
+            -5.5,
+            5.5,
           );
           this.refreshLinesFromNodes();
           this.callbacks.onDragStar?.(
@@ -1097,11 +1097,11 @@ export class ConstellationEngine {
         _raycaster.setFromCamera(_ndc, this.camera);
         if (_raycaster.ray.intersectPlane(_dragPlane, _hitPoint)) {
           _hitPoint.add(this.dragOffset);
-          const clampedX = THREE.MathUtils.clamp(_hitPoint.x, -4.6, 4.6);
-          const clampedY = THREE.MathUtils.clamp(_hitPoint.y, -2.9, 2.9);
+          const clampedX = THREE.MathUtils.clamp(_hitPoint.x, -8.5, 8.5);
+          const clampedY = THREE.MathUtils.clamp(_hitPoint.y, -5.5, 5.5);
           const nextZ = this.dragPlaneUsesWorldZ
             ? node.group.position.z
-            : THREE.MathUtils.clamp(_hitPoint.z, -3.2, 3.2);
+            : THREE.MathUtils.clamp(_hitPoint.z, -5.5, 5.5);
 
           node.group.position.set(clampedX, clampedY, nextZ);
           this.refreshLinesFromNodes();

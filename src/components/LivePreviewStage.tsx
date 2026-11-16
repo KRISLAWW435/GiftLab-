@@ -327,7 +327,7 @@ export function LivePreviewStage({
               transformOrigin: 'top left',
               border: 0,
               display: 'block',
-              backgroundColor: '#070B1A',
+              backgroundColor: '#06040a',
             }}
           />
         </div>

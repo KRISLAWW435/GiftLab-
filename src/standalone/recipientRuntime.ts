@@ -1488,6 +1488,15 @@ function bootGiftLabRecipient(): void {
   }> = [];
   const fallbackButtons = new Map<string, { btn: HTMLButtonElement; label: HTMLSpanElement; iconWrap: HTMLSpanElement }>();
 
+  const extentX = Math.max(
+    5.2,
+    ...normalizedStars.map((s) => Math.abs(s.position.x) * 1.12),
+  );
+  const extentY = Math.max(
+    3.4,
+    ...normalizedStars.map((s) => Math.abs(s.position.y) * 1.15),
+  );
+
   function toPct(
     x: number,
     y: number,
@@ -1497,8 +1506,8 @@ function bootGiftLabRecipient(): void {
     const shiftX = ((constLayout?.offsetX ?? 0) / 100) * 18;
     const shiftY = ((constLayout?.offsetY ?? 0) / 100) * 18;
     return {
-      left: Math.max(10, Math.min(90, 50 + ((x * scale) / 5.2) * 40 + shiftX)),
-      top: Math.max(14, Math.min(86, 50 - ((y * scale) / 3.4) * 38 + shiftY)),
+      left: Math.max(10, Math.min(90, 50 + ((x * scale) / extentX) * 40 + shiftX)),
+      top: Math.max(14, Math.min(86, 50 - ((y * scale) / extentY) * 38 + shiftY)),
     };
   }
 

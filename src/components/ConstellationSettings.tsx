@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
-  Hand,
-  Link2,
   Monitor,
   Music,
   Pause,
@@ -33,11 +31,9 @@ import type {
   CosmicPaletteId,
   DeviceConstellationLayout,
   DeviceLayoutKey,
-  EditorInteractionMode,
   GlowColorId,
   MusicTrackId,
   OccasionId,
-  StarPosition3D,
 } from '../types/project';
 import { CardLibraryPanel } from './CardLibraryPanel';
 import { TextStyleEditor } from './TextStyleEditor';
@@ -47,15 +43,9 @@ interface ConstellationSettingsProps {
   section?: 'constellation' | 'card' | 'atmosphere' | 'space' | 'all';
   selectedConnectionId?: string | null;
   reducedMotion?: boolean;
-  interactionMode?: EditorInteractionMode;
-  activeStarTitle?: string;
-  activeStarPosition?: StarPosition3D;
   onChange: (patch: Partial<ConstellationProject>) => void;
   onSelectConnection?: (connectionId: string | null) => void;
   onDeleteConnection?: (connectionId: string) => void;
-  onEnterConnectMode?: () => void;
-  onSwitchMode?: (mode: EditorInteractionMode) => void;
-  onResetCamera?: () => void;
   onToggleReducedMotion?: () => void;
 }
 
@@ -64,15 +54,9 @@ export function ConstellationSettings({
   section = 'all',
   selectedConnectionId = null,
   reducedMotion = false,
-  interactionMode = 'arrange',
-  activeStarTitle,
-  activeStarPosition,
   onChange,
   onSelectConnection,
   onDeleteConnection,
-  onEnterConnectMode,
-  onSwitchMode,
-  onResetCamera,
   onToggleReducedMotion,
 }: ConstellationSettingsProps) {
   const [auditionTrackId, setAuditionTrackId] = useState<MusicTrackId | null>(null);
@@ -176,46 +160,6 @@ export function ConstellationSettings({
             </p>
           </div>
 
-          {/* Quick 3D Interaction Controls */}
-          {onSwitchMode && (
-            <div className="space-y-2">
-              <span className="gl-label block">Действие на сцене</span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  data-selected={interactionMode === 'arrange'}
-                  onClick={() => onSwitchMode('arrange')}
-                  className="gl-choice px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5"
-                >
-                  <Hand className="w-3.5 h-3.5 shrink-0" />
-                  Двигать звёзды
-                </button>
-                <button
-                  type="button"
-                  data-selected={interactionMode === 'connect'}
-                  onClick={() => {
-                    onSwitchMode('connect');
-                    onEnterConnectMode?.();
-                  }}
-                  className="gl-choice px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5"
-                >
-                  <Link2 className="w-3.5 h-3.5 shrink-0" />
-                  Соединять
-                </button>
-              </div>
-              {onResetCamera && (
-                <button
-                  type="button"
-                  onClick={onResetCamera}
-                  className="gl-btn-secondary w-full !min-h-[36px] text-xs"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                  Вернуть камеру в центр
-                </button>
-              )}
-            </div>
-          )}
-
           {/* Constellation Composition Presets */}
           <div className="space-y-2">
             <span className="gl-label block">Готовая форма</span>
@@ -251,21 +195,11 @@ export function ConstellationSettings({
               <span className="gl-label tabular-nums">
                 Линии между звёздами ({project.connections.length})
               </span>
-              {!onSwitchMode && onEnterConnectMode && (
-                <button
-                  type="button"
-                  onClick={onEnterConnectMode}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-gl-accent-light hover:text-gl-text cursor-pointer"
-                >
-                  <Link2 className="w-3 h-3" />
-                  Соединить
-                </button>
-              )}
             </div>
 
             {project.connections.length === 0 ? (
               <p className="rounded-xl border border-dashed border-white/12 bg-white/[0.02] px-3 py-2.5 text-xs text-gl-text-muted leading-relaxed">
-                Линий пока нет. Выбери готовую форму выше или включи «Соединять» и нажми на две звезды на сцене.
+                Линий пока нет. Выбери готовую форму выше или включи «Связи» на панели внизу сцены и нажми на две звезды.
               </p>
             ) : (
               <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">

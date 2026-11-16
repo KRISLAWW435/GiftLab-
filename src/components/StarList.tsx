@@ -6,7 +6,9 @@ import {
   resolveStarShape,
 } from '../scene/paletteConfig';
 import {
+  MAX_STARS,
   isStarComplete,
+  isStarFilled,
   type ConstellationStar,
   type GlowColorId,
 } from '../types/project';
@@ -30,18 +32,18 @@ export function StarList({
   onAddStar,
   onRemoveStar,
 }: StarListProps) {
-  const canAddMore = stars.length < 7;
+  const canAddMore = stars.length < MAX_STARS;
   const canDelete = stars.length > 5;
 
   if (layout === 'strip') {
     const activeStar = stars.find((s) => s.id === selectedStarId) ?? stars[0];
 
     return (
-      <div className="border-b border-white/10 bg-gl-input/70 px-3 py-2 space-y-2 shrink-0">
+      <div className="border-b border-white/10 bg-black/15 px-3 py-2 space-y-2 shrink-0">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-semibold text-gl-text truncate">
-              Звёзды ({stars.length}/7)
+              Звёзды ({stars.length}/{MAX_STARS})
             </span>
           </div>
 
@@ -61,7 +63,7 @@ export function StarList({
               type="button"
               onClick={onAddStar}
               disabled={!canAddMore}
-              title={canAddMore ? 'Добавить звезду' : 'Максимум 7 звёзд'}
+              title={canAddMore ? 'Добавить звезду' : `Максимум ${MAX_STARS} звёзд`}
               className="gl-btn-primary !min-h-[32px] !px-2.5 !py-1 text-xs shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -100,7 +102,7 @@ export function StarList({
                 ) : (
                   <span
                     className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0"
-                    aria-label="Нужен текст"
+                    aria-label={isStarFilled(star) ? 'Черновик' : 'Нужен текст'}
                   />
                 )}
               </button>
@@ -116,7 +118,7 @@ export function StarList({
       <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between gap-1.5 shrink-0">
         <div className="min-w-0">
           <h2 className="font-display text-xs font-semibold text-gl-text truncate">
-            Звёзды ({stars.length}/7)
+            Звёзды ({stars.length}/{MAX_STARS})
           </h2>
         </div>
 
@@ -124,7 +126,7 @@ export function StarList({
           type="button"
           onClick={onAddStar}
           disabled={!canAddMore}
-          title={canAddMore ? 'Добавить звезду' : 'Максимум 7 звёзд'}
+          title={canAddMore ? 'Добавить звезду' : `Максимум ${MAX_STARS} звёзд`}
           className="gl-btn-primary !min-h-[30px] !px-2 !py-1 text-[11px] shrink-0"
         >
           <Plus className="w-3 h-3" />
@@ -174,6 +176,8 @@ export function StarList({
                         <Check className="w-2.5 h-2.5 shrink-0" />
                         Готова
                       </span>
+                    ) : isStarFilled(star) ? (
+                      <span className="text-amber-300/90">Черновик</span>
                     ) : (
                       <span className="text-amber-300/90">Нужен текст</span>
                     )}

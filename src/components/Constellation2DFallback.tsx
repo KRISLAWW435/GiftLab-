@@ -41,6 +41,8 @@ interface Constellation2DFallbackProps {
 function worldToPercent(
   x: number,
   y: number,
+  extentX: number,
+  extentY: number,
   layout?: DeviceConstellationLayout,
 ): { left: number; top: number } {
   const sc = layout ? Math.max(0.55, Math.min(1.45, layout.scale)) : 1;
@@ -48,20 +50,25 @@ function worldToPercent(
   const oy = layout ? (Math.max(-100, Math.min(100, layout.offsetY)) / 100) * 2.2 : 0;
   const sx = x * sc + ox;
   const sy = y * sc + oy;
-  const left = 50 + (sx / 5.2) * 40;
-  const top = 50 - (sy / 3.4) * 38;
+  const left = 50 + (sx / extentX) * 40;
+  const top = 50 - (sy / extentY) * 38;
   return {
     left: Math.max(8, Math.min(92, left)),
     top: Math.max(12, Math.min(88, top)),
   };
 }
 
-function percentToWorld(leftPct: number, topPct: number): { x: number; y: number } {
-  const x = ((leftPct - 50) / 40) * 5.2;
-  const y = -((topPct - 50) / 38) * 3.4;
+function percentToWorld(
+  leftPct: number,
+  topPct: number,
+  extentX: number,
+  extentY: number,
+): { x: number; y: number } {
+  const x = ((leftPct - 50) / 40) * extentX;
+  const y = -((topPct - 50) / 38) * extentY;
   return {
-    x: Number(Math.max(-4.6, Math.min(4.6, x)).toFixed(2)),
-    y: Number(Math.max(-2.9, Math.min(2.9, y)).toFixed(2)),
+    x: Number(Math.max(-8.5, Math.min(8.5, x)).toFixed(2)),
+    y: Number(Math.max(-5.5, Math.min(5.5, y)).toFixed(2)),
   };
 }
 
@@ -99,6 +106,15 @@ export function Constellation2DFallback({
     recipientPhase !== 'birthing'
       ? constellationLayout
       : undefined;
+
+  const extentX = Math.max(
+    5.2,
+    ...stars.map((s) => Math.abs(s.position.x) * 1.12),
+  );
+  const extentY = Math.max(
+    3.4,
+    ...stars.map((s) => Math.abs(s.position.y) * 1.15),
+  );
 
   const isRecipientStory =
     interactionMode === 'recipient' && recipientPhase === 'starStory';
@@ -140,7 +156,7 @@ export function Constellation2DFallback({
       if (!targetStar) return;
       const leftPct = ((e.clientX - rect.left) / rect.width) * 100;
       const topPct = ((e.clientY - rect.top) / rect.height) * 100;
-      const { x, y } = percentToWorld(leftPct, topPct);
+      const { x, y } = percentToWorld(leftPct, topPct, extentX, extentY);
       onMoveStar?.(draggingId, { x, y, z: targetStar.position.z });
       return;
     }
@@ -187,8 +203,8 @@ export function Constellation2DFallback({
             const toStar = starMap.get(conn.to);
             if (!fromStar || !toStar) return null;
 
-            const p1 = worldToPercent(fromStar.position.x, fromStar.position.y, appliedLayout);
-            const p2 = worldToPercent(toStar.position.x, toStar.position.y, appliedLayout);
+            const p1 = worldToPercent(fromStar.position.x, fromStar.position.y, extentX, extentY, appliedLayout);
+            const p2 = worldToPercent(toStar.position.x, toStar.position.y, extentX, extentY, appliedLayout);
             const isSelectedLine = conn.id === selectedConnectionId;
 
             return (
@@ -245,7 +261,7 @@ export function Constellation2DFallback({
             ? isPortrait
               ? { left: 50, top: 20 }
               : { left: 22, top: 50 }
-            : worldToPercent(star.position.x, star.position.y, appliedLayout);
+            : worldToPercent(star.position.x, star.position.y, extentX, extentY, appliedLayout);
 
           const glowCfg = GLOW_COLORS[resolveStarGlowHex(star, globalGlowColor)];
           const shape = resolveStarShape(star);

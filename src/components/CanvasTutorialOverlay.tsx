@@ -213,12 +213,12 @@ export function CanvasTutorialOverlay({
 
   return (
     <div
-      className="fixed lg:absolute inset-0 z-30 flex items-center justify-center p-3 sm:p-5 bg-[#050816]/65 backdrop-blur-sm"
+      className="pointer-events-auto fixed lg:absolute inset-0 z-30 flex items-center justify-center p-3 sm:p-5 bg-[#06040a]/65 md:backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="canvas-tutorial-title"
     >
-      <div className="gl-panel !rounded-2xl w-full max-w-md border border-gl-accent/35 shadow-2xl p-4 sm:p-5 space-y-3.5 max-h-[90vh] overflow-y-auto">
+      <div className="gl-glass-panel !rounded-2xl w-full max-w-md border border-gl-accent/35 shadow-2xl p-4 sm:p-5 space-y-3.5 max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gl-accent-light">

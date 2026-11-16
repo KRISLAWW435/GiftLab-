@@ -54,58 +54,58 @@ export const COSMIC_PALETTES: Record<CosmicPaletteId, CosmicPaletteConfig> = {
   lavender: {
     id: 'lavender',
     name: 'Лавандовая туманность',
-    description: 'Тёмно-синий космос, фиолетовые облака и мягкое сиренево-розовое свечение',
-    deepColor: '#090e26',
-    midColor: '#1f1647',
-    nebulaPrimary: '#7c4dff',
-    nebulaSecondary: '#f48fb1',
+    description: 'Глубокий чёрно-фиолетовый космос, бордовые отблески и сиреневое свечение',
+    deepColor: '#06040a',
+    midColor: '#1f0d34',
+    nebulaPrimary: '#7c3aed',
+    nebulaSecondary: '#9d174d',
     dustTint: '#e9d5ff',
     lineTint: '#c4b5fd',
-    fogColor: '#0c102b',
+    fogColor: '#08040e',
     cssGradient:
-      'radial-gradient(circle at 22% 28%, rgba(124,77,255,0.42), transparent 54%), radial-gradient(circle at 78% 72%, rgba(244,143,177,0.30), transparent 52%), linear-gradient(155deg, #090e26 0%, #1f1647 52%, #130f33 100%)',
+      'radial-gradient(circle at 22% 28%, rgba(124,58,237,0.34), transparent 54%), radial-gradient(circle at 78% 72%, rgba(157,23,77,0.28), transparent 54%), linear-gradient(155deg, #06040a 0%, #1d0c30 52%, #170818 100%)',
   },
   aurora: {
     id: 'aurora',
     name: 'Северное сияние',
-    description: 'Глубокий океан звёзд, бирюзовые всполохи и изумрудное свечение',
-    deepColor: '#061524',
-    midColor: '#0b384a',
+    description: 'Бездонный ночной космос, бирюзовые всполохи и изумрудное свечение',
+    deepColor: '#05080f',
+    midColor: '#0b2b3a',
     nebulaPrimary: '#2dd4bf',
-    nebulaSecondary: '#38bdf8',
+    nebulaSecondary: '#6d28d9',
     dustTint: '#a7f3d0',
     lineTint: '#7dd3fc',
-    fogColor: '#071a2b',
+    fogColor: '#060a12',
     cssGradient:
-      'radial-gradient(circle at 25% 24%, rgba(45,212,191,0.36), transparent 54%), radial-gradient(circle at 76% 74%, rgba(56,189,248,0.32), transparent 52%), linear-gradient(155deg, #061524 0%, #0b384a 52%, #07262d 100%)',
+      'radial-gradient(circle at 25% 24%, rgba(45,212,191,0.30), transparent 54%), radial-gradient(circle at 76% 74%, rgba(109,40,217,0.26), transparent 52%), linear-gradient(155deg, #05080f 0%, #0b2b3a 52%, #0c081d 100%)',
   },
   galaxy: {
     id: 'galaxy',
     name: 'Золотая галактика',
-    description: 'Тёмный индиго, сине-фиолетовая глубина и тёплая золотая пыльца',
-    deepColor: '#090b22',
-    midColor: '#22184a',
+    description: 'Бархатный космос, сливовая туманность и тёплая золотая пыльца',
+    deepColor: '#07040b',
+    midColor: '#230e36',
     nebulaPrimary: '#f59e0b',
-    nebulaSecondary: '#6366f1',
+    nebulaSecondary: '#881337',
     dustTint: '#fde68a',
     lineTint: '#fcd34d',
-    fogColor: '#0b0e28',
+    fogColor: '#090510',
     cssGradient:
-      'radial-gradient(circle at 28% 26%, rgba(245,158,11,0.30), transparent 50%), radial-gradient(circle at 75% 70%, rgba(99,102,241,0.36), transparent 55%), linear-gradient(155deg, #090b22 0%, #22184a 55%, #121032 100%)',
+      'radial-gradient(circle at 28% 26%, rgba(245,158,11,0.26), transparent 50%), radial-gradient(circle at 75% 70%, rgba(136,19,55,0.32), transparent 55%), linear-gradient(155deg, #07040b 0%, #220e35 55%, #160917 100%)',
   },
   dawn: {
     id: 'dawn',
     name: 'Космический рассвет',
-    description: 'Сливовый небосвод, розово-коралловые облака и нежный сиреневый свет',
-    deepColor: '#120d29',
-    midColor: '#3a1545',
+    description: 'Бордово-сливовый небосвод, розовые облака и нежный сиреневый свет',
+    deepColor: '#0a040d',
+    midColor: '#360d2d',
     nebulaPrimary: '#fb7185',
-    nebulaSecondary: '#c084fc',
+    nebulaSecondary: '#9333ea',
     dustTint: '#fecdd3',
     lineTint: '#fda4af',
-    fogColor: '#180f30',
+    fogColor: '#0e0513',
     cssGradient:
-      'radial-gradient(circle at 24% 28%, rgba(251,113,133,0.34), transparent 52%), radial-gradient(circle at 78% 72%, rgba(192,132,252,0.32), transparent 54%), linear-gradient(155deg, #120d29 0%, #3a1545 52%, #1d1238 100%)',
+      'radial-gradient(circle at 24% 28%, rgba(251,113,133,0.30), transparent 52%), radial-gradient(circle at 78% 72%, rgba(147,51,234,0.28), transparent 54%), linear-gradient(155deg, #0a040d 0%, #360d2d 52%, #180823 100%)',
   },
 };
 
@@ -451,8 +451,81 @@ export const DEFAULT_STAR_POSITIONS: StarPosition3D[] = [
 ];
 
 export function computeAutoDepthForIndex(index: number, x: number, y: number): number {
-  const wave = Math.sin(index * 1.45 + x * 0.35) * 1.15 + Math.cos(y * 0.45) * 0.45;
-  return Number(Math.max(-1.8, Math.min(1.8, wave)).toFixed(2));
+  const wave = Math.sin(index * 1.45 + x * 0.32) * 1.9 + Math.cos(y * 0.42) * 0.85;
+  return Number(Math.max(-3.2, Math.min(3.2, wave)).toFixed(2));
+}
+
+export const STAR_SPAWN_BOUNDS = {
+  maxX: 7.4,
+  maxY: 4.6,
+  maxZ: 3.4,
+} as const;
+
+/**
+ * Generates an expanded, non-overlapping 3D spawn position for newly added stars (up to 20+).
+ */
+export function computeNextStarSpawnPosition(
+  existingStars: ReadonlyArray<{ position: StarPosition3D }>,
+  index: number,
+): StarPosition3D {
+  const goldenAngle = 2.399963229728653;
+  let bestCandidate: StarPosition3D = { x: 0, y: 0, z: 0 };
+  let bestMinDistSq = -1;
+
+  for (let attempt = 0; attempt < 28; attempt++) {
+    const step = index + attempt * 0.73;
+    const shellT = Math.min(1, (step + 1.5) / 21);
+    const rx = 2.6 + shellT * (STAR_SPAWN_BOUNDS.maxX - 2.6);
+    const ry = 1.8 + shellT * (STAR_SPAWN_BOUNDS.maxY - 1.8);
+    const angle = step * goldenAngle + attempt * 0.41;
+
+    const x = Number(
+      Math.max(
+        -STAR_SPAWN_BOUNDS.maxX,
+        Math.min(STAR_SPAWN_BOUNDS.maxX, Math.cos(angle) * rx),
+      ).toFixed(2),
+    );
+    const y = Number(
+      Math.max(
+        -STAR_SPAWN_BOUNDS.maxY,
+        Math.min(STAR_SPAWN_BOUNDS.maxY, Math.sin(angle) * ry),
+      ).toFixed(2),
+    );
+    const zWave =
+      Math.sin(step * 1.35 + attempt * 0.85) * 2.35 +
+      Math.cos(angle * 1.7) * 0.95;
+    const z = Number(
+      Math.max(
+        -STAR_SPAWN_BOUNDS.maxZ,
+        Math.min(STAR_SPAWN_BOUNDS.maxZ, zWave),
+      ).toFixed(2),
+    );
+
+    if (existingStars.length === 0) {
+      return { x, y, z };
+    }
+
+    let nearestSq = Infinity;
+    for (const s of existingStars) {
+      const dx = s.position.x - x;
+      const dy = s.position.y - y;
+      const dz = s.position.z - z;
+      const dSq = dx * dx + dy * dy + dz * dz;
+      if (dSq < nearestSq) nearestSq = dSq;
+    }
+
+    // Found a roomy spot at least 2.35 units away from every existing star
+    if (nearestSq >= 2.35 * 2.35) {
+      return { x, y, z };
+    }
+
+    if (nearestSq > bestMinDistSq) {
+      bestMinDistSq = nearestSq;
+      bestCandidate = { x, y, z };
+    }
+  }
+
+  return bestCandidate;
 }
 
 export function resolveStarGlowHex(
@@ -1917,7 +1990,7 @@ export function applyCompositionPreset(
         { x: -1.85, y: 1.75, z: -0.3 },
       ];
       edgePairs.push([0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]);
-    } else {
+    } else if (count === 7) {
       // 6 heart contour points + 1 center heart star
       nextPositions = [
         { x: 0, y: 0.78, z: 0.65 },
@@ -1929,15 +2002,36 @@ export function applyCompositionPreset(
         { x: 0, y: -0.45, z: 1.15 },
       ];
       edgePairs.push([0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [0, 6]);
+    } else {
+      // Parametric heart contour + 1 center star for 8..20 stars (scaled for extra room)
+      const scaleBoost = 1 + Math.max(0, count - 7) * 0.055;
+      const contourCount = count - 1;
+      for (let i = 0; i < contourCount; i++) {
+        const t = (i / contourCount) * Math.PI * 2;
+        const hx = 16 * Math.pow(Math.sin(t), 3);
+        const hy =
+          13 * Math.cos(t) -
+          5 * Math.cos(2 * t) -
+          2 * Math.cos(3 * t) -
+          Math.cos(4 * t);
+        const x = Number(((hx / 16) * 2.95 * scaleBoost).toFixed(2));
+        const y = Number((((hy + 2.2) / 15) * 2.5 * scaleBoost).toFixed(2));
+        const z = Number((Math.cos(t * 2) * 0.55).toFixed(2));
+        nextPositions.push({ x, y, z });
+        edgePairs.push([i, (i + 1) % contourCount]);
+      }
+      nextPositions.push({ x: 0, y: -0.25, z: 1.15 });
+      edgePairs.push([0, contourCount]);
     }
   } else if (presetId === 'flower') {
+    const scaleBoost = 1 + Math.max(0, count - 7) * 0.06;
     const petalCount = count - 1;
     nextPositions.push({ x: 0, y: 0.05, z: 0.95 });
     for (let i = 0; i < petalCount; i++) {
       const angle = (i / petalCount) * Math.PI * 2 - Math.PI / 2;
-      const x = Number((Math.cos(angle) * 2.75).toFixed(2));
-      const y = Number((Math.sin(angle) * 2.15).toFixed(2));
-      const z = Number((i % 2 === 0 ? -0.45 : 0.35).toFixed(2));
+      const x = Number((Math.cos(angle) * 2.85 * scaleBoost).toFixed(2));
+      const y = Number((Math.sin(angle) * 2.25 * scaleBoost).toFixed(2));
+      const z = Number((i % 2 === 0 ? -0.55 : 0.45).toFixed(2));
       nextPositions.push({ x, y, z });
       edgePairs.push([0, i + 1]);
       if (petalCount >= 3) {
@@ -1946,11 +2040,11 @@ export function applyCompositionPreset(
       }
     }
   } else {
-    // Free graceful constellation arc
+    // Free graceful constellation arc (expands cleanly up to 20 stars)
     for (let i = 0; i < count; i++) {
       const fallback = DEFAULT_STAR_POSITIONS[i] ?? {
-        x: Number((Math.cos(i * 1.1) * 2.6).toFixed(2)),
-        y: Number((Math.sin(i * 1.1) * 1.7).toFixed(2)),
+        x: Number((Math.cos(i * 1.15) * (3.2 + Math.floor(i / 6) * 1.15)).toFixed(2)),
+        y: Number((Math.sin(i * 1.15) * (2.1 + Math.floor(i / 6) * 0.72)).toFixed(2)),
         z: computeAutoDepthForIndex(i, i, 0),
       };
       nextPositions.push({ ...fallback });
@@ -1996,6 +2090,7 @@ export function createNewProject(
     shape: item.shape ?? 'star',
     glowColor: 'inherit',
     position: { ...DEFAULT_STAR_POSITIONS[idx] },
+    isDraft: true,
   }));
 
   const composed = applyCompositionPreset(baseStars, composition);
