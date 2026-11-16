@@ -1,19 +1,34 @@
 import type {
   BuiltinIllustrationId,
   CardDecorMotif,
+  CardPaddingPreset,
+  CardThemeCustomColors,
+  CardThemeId,
+  CardVerticalAlign,
+  CardWidthPreset,
   CompositionPresetId,
   ConstellationProject,
   ConstellationStar,
   CosmicPaletteId,
+  DeviceCardLayout,
+  DeviceConstellationLayout,
+  DeviceDecorLayout,
+  DeviceLayoutKey,
+  DeviceTextLayout,
   GlowColorId,
   MessageFontCategory,
   MessageFontId,
   MessageTextAccent,
+  MessageTextAlign,
   MessageTextShadow,
   MusicTrackId,
   OccasionId,
+  ProjectDeviceLayoutEntry,
+  ProjectDeviceLayouts,
   StarConnection,
   StarDecorSettings,
+  StarDeviceLayoutEntry,
+  StarDeviceLayouts,
   StarIllustrationLayout,
   StarImageSettings,
   StarPosition3D,
@@ -518,6 +533,9 @@ export const CARD_DECOR_MOTIFS: Array<{ id: CardDecorMotif; name: string }> = [
   { id: 'orbital', name: 'Орбита' },
   { id: 'hearts', name: 'Сердечки' },
   { id: 'corners', name: 'Уголки' },
+  { id: 'soft_flowers', name: 'Цветы' },
+  { id: 'petals', name: 'Лепестки' },
+  { id: 'magic_rays', name: 'Лучи' },
 ];
 
 export const VALID_CARD_DECOR_MOTIFS = new Set<CardDecorMotif>(
@@ -629,13 +647,26 @@ export const VALID_MESSAGE_FONT_IDS = new Set<MessageFontId>(
   MESSAGE_FONTS.map((f) => f.id),
 );
 
-export const MESSAGE_TEXT_COLORS: Array<{ hex: string; name: string }> = [
+export const LIGHT_PAPER_TEXT_COLORS: Array<{ hex: string; name: string }> = [
+  { hex: '#3B2B30', name: 'Тёплый чернильный' },
+  { hex: '#3D2436', name: 'Сливовый чернильный' },
+  { hex: '#1E293B', name: 'Глубокий графит' },
+  { hex: '#4A3525', name: 'Шоколадный' },
+  { hex: '#14532D', name: 'Ботанический зелёный' },
+];
+
+export const DARK_CARD_TEXT_COLORS: Array<{ hex: string; name: string }> = [
   { hex: '#F8FAFC', name: 'Лунный белый' },
   { hex: '#FEF3C7', name: 'Тёплое золото' },
   { hex: '#E0E7FF', name: 'Перламутровый' },
   { hex: '#FCE7F3', name: 'Нежно-розовый' },
   { hex: '#CCFBF1', name: 'Бирюзовый свет' },
   { hex: '#E9D5FF', name: 'Сиреневый' },
+];
+
+export const MESSAGE_TEXT_COLORS: Array<{ hex: string; name: string }> = [
+  ...DARK_CARD_TEXT_COLORS,
+  ...LIGHT_PAPER_TEXT_COLORS,
 ];
 
 export const DEFAULT_STAR_TEXT_STYLE: StarTextStyle = {
@@ -758,6 +789,778 @@ export function computeTextBlockMarginLeftPct(
   const slack = Math.max(0, 100 - safeW);
   const tX = (Math.max(-100, Math.min(100, offsetX)) + 100) / 200;
   return Number((slack * tX).toFixed(2));
+}
+
+/** Classifies real viewports into phone (portrait & compact landscape like 390×844 / 844×390) vs desktop */
+export function resolveViewportDeviceMode(
+  width: number,
+  height: number,
+): DeviceLayoutKey {
+  const minSide = Math.min(width, height);
+  if (minSide < 540 || width < 640) return 'phone';
+  return 'desktop';
+}
+
+export const DEFAULT_CONSTELLATION_LAYOUT: Record<
+  DeviceLayoutKey,
+  DeviceConstellationLayout
+> = {
+  phone: { offsetX: 0, offsetY: 8, scale: 0.78 },
+  desktop: { offsetX: 0, offsetY: 0, scale: 1 },
+};
+
+export const DEFAULT_CARD_LAYOUT: Record<DeviceLayoutKey, DeviceCardLayout> = {
+  phone: { padding: 'compact', verticalAlign: 'center', width: 'standard', offsetY: 0 },
+  desktop: { padding: 'normal', verticalAlign: 'center', width: 'standard', offsetY: 0 },
+};
+
+export function getDefaultDeviceTextLayout(device: DeviceLayoutKey): DeviceTextLayout {
+  return device === 'phone'
+    ? {
+        fontSize: 16,
+        textAlign: 'auto',
+        lineHeight: 1.55,
+        offsetX: 0,
+        offsetY: 0,
+        widthPct: 100,
+      }
+    : {
+        fontSize: 17,
+        textAlign: 'auto',
+        lineHeight: 1.6,
+        offsetX: 0,
+        offsetY: 0,
+        widthPct: 100,
+      };
+}
+
+export function getDefaultDeviceIllustrationLayout(
+  device: DeviceLayoutKey,
+): StarIllustrationLayout {
+  return device === 'phone'
+    ? { offsetX: 0, offsetY: 0, scale: 1 }
+    : { offsetX: -100, offsetY: 0, scale: 1 };
+}
+
+export function getDefaultDeviceDecorLayout(
+  device: DeviceLayoutKey,
+): DeviceDecorLayout {
+  return device === 'phone'
+    ? { xPct: 82, yPct: 14, scale: 0.9 }
+    : { xPct: 82, yPct: 16, scale: 1 };
+}
+
+export function resolveDeviceTextLayout(
+  raw: Partial<DeviceTextLayout> | undefined,
+  device: DeviceLayoutKey,
+  legacyStyle?: Partial<StarTextStyle>,
+): DeviceTextLayout {
+  const fallback = getDefaultDeviceTextLayout(device);
+  const src = raw ?? legacyStyle;
+  if (!src) return { ...fallback };
+
+  const fontSize =
+    typeof src.fontSize === 'number' && Number.isFinite(src.fontSize)
+      ? Math.max(14, Math.min(24, Math.round(src.fontSize)))
+      : fallback.fontSize;
+  const textAlign: MessageTextAlign | 'auto' =
+    src.textAlign === 'left' || src.textAlign === 'center' || src.textAlign === 'right'
+      ? src.textAlign
+      : 'auto';
+  const lineHeight =
+    typeof src.lineHeight === 'number' && Number.isFinite(src.lineHeight)
+      ? Math.max(1.2, Math.min(2.0, Number(src.lineHeight.toFixed(2))))
+      : fallback.lineHeight;
+  const offsetX =
+    typeof src.offsetX === 'number' && Number.isFinite(src.offsetX)
+      ? Math.max(-100, Math.min(100, Math.round(src.offsetX)))
+      : fallback.offsetX;
+  const offsetY =
+    typeof src.offsetY === 'number' && Number.isFinite(src.offsetY)
+      ? Math.max(-100, Math.min(100, Math.round(src.offsetY)))
+      : fallback.offsetY;
+  const widthPct =
+    typeof src.widthPct === 'number' && Number.isFinite(src.widthPct)
+      ? Math.max(56, Math.min(100, Math.round(src.widthPct)))
+      : fallback.widthPct;
+
+  return { fontSize, textAlign, lineHeight, offsetX, offsetY, widthPct };
+}
+
+export function resolveEffectiveStarTextStyle(
+  star: Pick<ConstellationStar, 'textStyle' | 'deviceLayouts'> | undefined,
+  device: DeviceLayoutKey,
+): StarTextStyle {
+  const base = resolveStarTextStyle(star?.textStyle);
+  const devText = resolveDeviceTextLayout(
+    star?.deviceLayouts?.[device]?.text,
+    device,
+    star?.textStyle,
+  );
+  return { ...base, ...devText };
+}
+
+export function resolveEffectiveFinalTextStyle(
+  project: Pick<ConstellationProject, 'finalTextStyle' | 'deviceLayouts' | 'cardTheme' | 'cardColors'>,
+  device: DeviceLayoutKey,
+): StarTextStyle {
+  const cardTheme = resolveCardTheme(project.cardTheme);
+  const cardColors = resolveCardColors(project);
+  const base = project.finalTextStyle
+    ? resolveStarTextStyle(project.finalTextStyle)
+    : resolveStarTextStyle({
+        fontId: cardTheme.defaultFontId,
+        color: cardColors.textColor,
+        shadow: cardTheme.defaultTextShadow,
+        accent: cardTheme.defaultTextAccent,
+      });
+  const devText = resolveDeviceTextLayout(
+    project.deviceLayouts?.[device]?.finalText,
+    device,
+    project.finalTextStyle,
+  );
+  return { ...base, ...devText };
+}
+
+export function resolveEffectiveIllustrationLayout(
+  star: Pick<ConstellationStar, 'illustrationLayout' | 'deviceLayouts'> | undefined,
+  device: DeviceLayoutKey,
+): StarIllustrationLayout {
+  const devIllu = star?.deviceLayouts?.[device]?.illustration;
+  const fallback = getDefaultDeviceIllustrationLayout(device);
+  if (devIllu) {
+    return resolveStarIllustrationLayout(devIllu, fallback.offsetX);
+  }
+  if (star?.illustrationLayout) {
+    return resolveStarIllustrationLayout(star.illustrationLayout, fallback.offsetX);
+  }
+  return { ...fallback };
+}
+
+export function resolveDeviceDecorLayout(
+  raw: Partial<DeviceDecorLayout> | undefined,
+  device: DeviceLayoutKey,
+  legacyDecor?: Partial<StarDecorSettings>,
+): DeviceDecorLayout {
+  const fallback = getDefaultDeviceDecorLayout(device);
+  const src = raw ?? legacyDecor;
+  if (!src) return { ...fallback };
+  const xPct =
+    typeof src.xPct === 'number' && Number.isFinite(src.xPct)
+      ? Math.max(6, Math.min(94, Math.round(src.xPct)))
+      : fallback.xPct;
+  const yPct =
+    typeof src.yPct === 'number' && Number.isFinite(src.yPct)
+      ? Math.max(6, Math.min(88, Math.round(src.yPct)))
+      : fallback.yPct;
+  const scale =
+    typeof src.scale === 'number' && Number.isFinite(src.scale)
+      ? Math.max(0.7, Math.min(1.45, Number(src.scale.toFixed(2))))
+      : fallback.scale;
+  return { xPct, yPct, scale };
+}
+
+export function resolveEffectiveStarDecor(
+  star: Pick<ConstellationStar, 'decor' | 'deviceLayouts'> | undefined,
+  device: DeviceLayoutKey,
+): StarDecorSettings {
+  const base = resolveStarDecor(star?.decor);
+  const devDecor = resolveDeviceDecorLayout(
+    star?.deviceLayouts?.[device]?.decor,
+    device,
+    star?.decor,
+  );
+  return { motif: base.motif, ...devDecor };
+}
+
+export function resolveEffectiveFinalDecor(
+  project: Pick<ConstellationProject, 'finalDecor' | 'deviceLayouts'>,
+  device: DeviceLayoutKey,
+): StarDecorSettings {
+  const base = resolveStarDecor(project.finalDecor);
+  const devDecor = resolveDeviceDecorLayout(
+    project.deviceLayouts?.[device]?.finalDecor,
+    device,
+    project.finalDecor,
+  );
+  return { motif: base.motif, ...devDecor };
+}
+
+export function resolveEffectiveConstellationLayout(
+  project: Pick<ConstellationProject, 'deviceLayouts'> | undefined,
+  device: DeviceLayoutKey,
+): DeviceConstellationLayout {
+  const fallback = DEFAULT_CONSTELLATION_LAYOUT[device];
+  const raw = project?.deviceLayouts?.[device]?.constellation;
+  if (!raw) return { ...fallback };
+  const offsetX =
+    typeof raw.offsetX === 'number' && Number.isFinite(raw.offsetX)
+      ? Math.max(-100, Math.min(100, Math.round(raw.offsetX)))
+      : fallback.offsetX;
+  const offsetY =
+    typeof raw.offsetY === 'number' && Number.isFinite(raw.offsetY)
+      ? Math.max(-100, Math.min(100, Math.round(raw.offsetY)))
+      : fallback.offsetY;
+  const scale =
+    typeof raw.scale === 'number' && Number.isFinite(raw.scale)
+      ? Math.max(0.55, Math.min(1.45, Number(raw.scale.toFixed(2))))
+      : fallback.scale;
+  return { offsetX, offsetY, scale };
+}
+
+export function resolveEffectiveCardLayout(
+  project: Pick<ConstellationProject, 'deviceLayouts'> | undefined,
+  device: DeviceLayoutKey,
+): DeviceCardLayout {
+  const fallback = DEFAULT_CARD_LAYOUT[device];
+  const raw = project?.deviceLayouts?.[device]?.card;
+  if (!raw) return { ...fallback };
+  const padding: CardPaddingPreset =
+    raw.padding === 'compact' || raw.padding === 'normal' || raw.padding === 'spacious'
+      ? raw.padding
+      : fallback.padding;
+  const verticalAlign: CardVerticalAlign =
+    raw.verticalAlign === 'top' || raw.verticalAlign === 'center' || raw.verticalAlign === 'spread'
+      ? raw.verticalAlign
+      : fallback.verticalAlign;
+  const width: CardWidthPreset =
+    raw.width === 'compact' || raw.width === 'standard' || raw.width === 'wide'
+      ? raw.width
+      : fallback.width;
+  const offsetY =
+    typeof raw.offsetY === 'number' && Number.isFinite(raw.offsetY)
+      ? Math.max(-60, Math.min(60, Math.round(raw.offsetY)))
+      : fallback.offsetY;
+  return { padding, verticalAlign, width, offsetY };
+}
+
+const SHARED_TEXT_STYLE_KEYS = new Set<keyof StarTextStyle>([
+  'fontId',
+  'fontWeight',
+  'color',
+  'shadow',
+  'accent',
+]);
+
+export function buildStarTextDevicePatch(
+  star: ConstellationStar,
+  device: DeviceLayoutKey,
+  patch: Partial<StarTextStyle>,
+): Partial<ConstellationStar> {
+  const hasSharedStyleChange = Object.keys(patch).some((k) =>
+    SHARED_TEXT_STYLE_KEYS.has(k as keyof StarTextStyle),
+  );
+  const currentShared = resolveStarTextStyle(star.textStyle);
+  const currentDeviceText = resolveDeviceTextLayout(
+    star.deviceLayouts?.[device]?.text,
+    device,
+    star.textStyle,
+  );
+
+  const nextDeviceText = resolveDeviceTextLayout(
+    { ...currentDeviceText, ...patch },
+    device,
+  );
+
+  const result: Partial<ConstellationStar> = {
+    deviceLayouts: {
+      ...star.deviceLayouts,
+      [device]: {
+        ...star.deviceLayouts?.[device],
+        text: nextDeviceText,
+      },
+    },
+  };
+
+  if (hasSharedStyleChange) {
+    result.textStyle = resolveStarTextStyle({
+      ...currentShared,
+      fontId: patch.fontId ?? currentShared.fontId,
+      fontWeight: patch.fontWeight ?? currentShared.fontWeight,
+      color: patch.color ?? currentShared.color,
+      shadow: patch.shadow ?? currentShared.shadow,
+      accent: patch.accent ?? currentShared.accent,
+    });
+  }
+
+  return result;
+}
+
+export function buildStarIllustrationDevicePatch(
+  star: ConstellationStar,
+  device: DeviceLayoutKey,
+  patch: Partial<StarIllustrationLayout>,
+): Partial<ConstellationStar> {
+  const current = resolveEffectiveIllustrationLayout(star, device);
+  const next = resolveStarIllustrationLayout(
+    { ...current, ...patch },
+    getDefaultDeviceIllustrationLayout(device).offsetX,
+  );
+  return {
+    deviceLayouts: {
+      ...star.deviceLayouts,
+      [device]: {
+        ...star.deviceLayouts?.[device],
+        illustration: next,
+      },
+    },
+  };
+}
+
+export function buildStarDecorDevicePatch(
+  star: ConstellationStar,
+  device: DeviceLayoutKey,
+  patch: Partial<StarDecorSettings>,
+): Partial<ConstellationStar> {
+  const currentDecor = resolveStarDecor(star.decor);
+  const currentDeviceDecor = resolveDeviceDecorLayout(
+    star.deviceLayouts?.[device]?.decor,
+    device,
+    star.decor,
+  );
+  const nextDeviceDecor = resolveDeviceDecorLayout(
+    { ...currentDeviceDecor, ...patch },
+    device,
+  );
+
+  const result: Partial<ConstellationStar> = {
+    deviceLayouts: {
+      ...star.deviceLayouts,
+      [device]: {
+        ...star.deviceLayouts?.[device],
+        decor: nextDeviceDecor,
+      },
+    },
+  };
+
+  if (patch.motif !== undefined) {
+    result.decor = resolveStarDecor({
+      ...currentDecor,
+      motif: patch.motif,
+    });
+  }
+
+  return result;
+}
+
+export function buildProjectConstellationDevicePatch(
+  project: ConstellationProject,
+  device: DeviceLayoutKey,
+  patch: Partial<DeviceConstellationLayout>,
+): Partial<ConstellationProject> {
+  const current = resolveEffectiveConstellationLayout(project, device);
+  const next = resolveEffectiveConstellationLayout(
+    {
+      deviceLayouts: {
+        ...project.deviceLayouts,
+        [device]: {
+          ...project.deviceLayouts?.[device],
+          constellation: { ...current, ...patch },
+        },
+      },
+    },
+    device,
+  );
+  return {
+    deviceLayouts: {
+      ...project.deviceLayouts,
+      [device]: {
+        ...project.deviceLayouts?.[device],
+        constellation: next,
+      },
+    },
+  };
+}
+
+export function buildProjectCardDevicePatch(
+  project: ConstellationProject,
+  device: DeviceLayoutKey,
+  patch: Partial<DeviceCardLayout>,
+): Partial<ConstellationProject> {
+  const current = resolveEffectiveCardLayout(project, device);
+  const next = resolveEffectiveCardLayout(
+    {
+      deviceLayouts: {
+        ...project.deviceLayouts,
+        [device]: {
+          ...project.deviceLayouts?.[device],
+          card: { ...current, ...patch },
+        },
+      },
+    },
+    device,
+  );
+  return {
+    deviceLayouts: {
+      ...project.deviceLayouts,
+      [device]: {
+        ...project.deviceLayouts?.[device],
+        card: next,
+      },
+    },
+  };
+}
+
+export function buildProjectFinalTextDevicePatch(
+  project: ConstellationProject,
+  device: DeviceLayoutKey,
+  patch: Partial<StarTextStyle>,
+): Partial<ConstellationProject> {
+  const hasSharedStyleChange = Object.keys(patch).some((k) =>
+    SHARED_TEXT_STYLE_KEYS.has(k as keyof StarTextStyle),
+  );
+  const cardTheme = resolveCardTheme(project.cardTheme);
+  const cardColors = resolveCardColors(project);
+  const currentShared = project.finalTextStyle
+    ? resolveStarTextStyle(project.finalTextStyle)
+    : resolveStarTextStyle({
+        fontId: cardTheme.defaultFontId,
+        color: cardColors.textColor,
+        shadow: cardTheme.defaultTextShadow,
+        accent: cardTheme.defaultTextAccent,
+      });
+  const currentDeviceText = resolveDeviceTextLayout(
+    project.deviceLayouts?.[device]?.finalText,
+    device,
+    project.finalTextStyle,
+  );
+  const nextDeviceText = resolveDeviceTextLayout(
+    { ...currentDeviceText, ...patch },
+    device,
+  );
+
+  const result: Partial<ConstellationProject> = {
+    deviceLayouts: {
+      ...project.deviceLayouts,
+      [device]: {
+        ...project.deviceLayouts?.[device],
+        finalText: nextDeviceText,
+      },
+    },
+  };
+
+  if (hasSharedStyleChange) {
+    result.finalTextStyle = resolveStarTextStyle({
+      ...currentShared,
+      fontId: patch.fontId ?? currentShared.fontId,
+      fontWeight: patch.fontWeight ?? currentShared.fontWeight,
+      color: patch.color ?? currentShared.color,
+      shadow: patch.shadow ?? currentShared.shadow,
+      accent: patch.accent ?? currentShared.accent,
+    });
+  }
+
+  return result;
+}
+
+export function buildProjectFinalDecorDevicePatch(
+  project: ConstellationProject,
+  device: DeviceLayoutKey,
+  patch: Partial<StarDecorSettings>,
+): Partial<ConstellationProject> {
+  const currentDecor = resolveStarDecor(project.finalDecor);
+  const currentDeviceDecor = resolveDeviceDecorLayout(
+    project.deviceLayouts?.[device]?.finalDecor,
+    device,
+    project.finalDecor,
+  );
+  const nextDeviceDecor = resolveDeviceDecorLayout(
+    { ...currentDeviceDecor, ...patch },
+    device,
+  );
+
+  const result: Partial<ConstellationProject> = {
+    deviceLayouts: {
+      ...project.deviceLayouts,
+      [device]: {
+        ...project.deviceLayouts?.[device],
+        finalDecor: nextDeviceDecor,
+      },
+    },
+  };
+
+  if (patch.motif !== undefined) {
+    result.finalDecor = resolveStarDecor({
+      ...currentDecor,
+      motif: patch.motif,
+    });
+  }
+
+  return result;
+}
+
+/** Resets ONLY the target device's layout (constellation, card padding/composition, text & illustration & decor placement) without modifying content or the other device. */
+export function resetDeviceLayoutInProject(
+  project: ConstellationProject,
+  device: DeviceLayoutKey,
+): ConstellationProject {
+  const nextProjectEntry: ProjectDeviceLayoutEntry = {
+    constellation: { ...DEFAULT_CONSTELLATION_LAYOUT[device] },
+    card: { ...DEFAULT_CARD_LAYOUT[device] },
+    finalText: getDefaultDeviceTextLayout(device),
+    finalDecor: getDefaultDeviceDecorLayout(device),
+  };
+
+  return {
+    ...project,
+    deviceLayouts: {
+      ...project.deviceLayouts,
+      [device]: nextProjectEntry,
+    },
+    stars: project.stars.map((star) => ({
+      ...star,
+      deviceLayouts: {
+        ...star.deviceLayouts,
+        [device]: {
+          text: getDefaultDeviceTextLayout(device),
+          illustration: getDefaultDeviceIllustrationLayout(device),
+          decor: getDefaultDeviceDecorLayout(device),
+        } satisfies StarDeviceLayoutEntry,
+      },
+    })),
+  };
+}
+
+export interface CardThemeConfig {
+  id: CardThemeId;
+  name: string;
+  description: string;
+  isLightPaper: boolean;
+  defaultSurfaceBg: string;
+  surfaceBgAlt: string;
+  borderColor: string;
+  defaultAccentColor: string;
+  defaultTextColor: string;
+  defaultBadgeColor: string;
+  defaultFontId: MessageFontId;
+  defaultTextShadow: MessageTextShadow;
+  defaultTextAccent: MessageTextAccent;
+  defaultDecorMotif: CardDecorMotif;
+  paperPattern: 'paper' | 'stars' | 'botanical' | 'aurora' | 'minimal';
+}
+
+export const CARD_THEMES: Record<CardThemeId, CardThemeConfig> = {
+  gentle_letter: {
+    id: 'gentle_letter',
+    name: 'Нежное письмо',
+    description: 'Светлая фактурная бумага, мягкие цветы и тёплый рукописный шрифт',
+    isLightPaper: true,
+    defaultSurfaceBg: '#FAF5EB',
+    surfaceBgAlt: '#F2E8D5',
+    borderColor: '#D6C2AA',
+    defaultAccentColor: '#B87D6A',
+    defaultTextColor: '#3B2B30',
+    defaultBadgeColor: '#7D524A',
+    defaultFontId: 'caveat',
+    defaultTextShadow: 'none',
+    defaultTextAccent: 'line',
+    defaultDecorMotif: 'soft_flowers',
+    paperPattern: 'paper',
+  },
+  cosmic_card: {
+    id: 'cosmic_card',
+    name: 'Космическая открытка',
+    description: 'Глубокий ночной фон, золотые звёзды и сияющие акценты',
+    isLightPaper: false,
+    defaultSurfaceBg: '#0C1436',
+    surfaceBgAlt: '#15204F',
+    borderColor: '#F59E0B',
+    defaultAccentColor: '#F59E0B',
+    defaultTextColor: '#F8FAFC',
+    defaultBadgeColor: '#FDE68A',
+    defaultFontId: 'cormorant',
+    defaultTextShadow: 'soft',
+    defaultTextAccent: 'frame',
+    defaultDecorMotif: 'sparkles',
+    paperPattern: 'stars',
+  },
+  floral: {
+    id: 'floral',
+    name: 'Цветочная',
+    description: 'Пастельные лепестки, ботанические узоры и классическая типографика',
+    isLightPaper: true,
+    defaultSurfaceBg: '#FDF4F7',
+    surfaceBgAlt: '#F8E3EB',
+    borderColor: '#E4B8C9',
+    defaultAccentColor: '#D9779B',
+    defaultTextColor: '#3D2436',
+    defaultBadgeColor: '#8C4663',
+    defaultFontId: 'lora',
+    defaultTextShadow: 'none',
+    defaultTextAccent: 'quote',
+    defaultDecorMotif: 'petals',
+    paperPattern: 'botanical',
+  },
+  magical: {
+    id: 'magical',
+    name: 'Волшебная',
+    description: 'Волшебное сияние, золотисто-сиреневые лучи и звёздные частицы',
+    isLightPaper: false,
+    defaultSurfaceBg: '#16103A',
+    surfaceBgAlt: '#26185E',
+    borderColor: '#C084FC',
+    defaultAccentColor: '#C084FC',
+    defaultTextColor: '#F5F3FF',
+    defaultBadgeColor: '#E9D5FF',
+    defaultFontId: 'comfortaa',
+    defaultTextShadow: 'glow',
+    defaultTextAccent: 'frame',
+    defaultDecorMotif: 'magic_rays',
+    paperPattern: 'aurora',
+  },
+  minimalist: {
+    id: 'minimalist',
+    name: 'Минималистичная',
+    description: 'Чистая матовая композиция и минимум декоративных деталей',
+    isLightPaper: false,
+    defaultSurfaceBg: '#0E1324',
+    surfaceBgAlt: '#141B31',
+    borderColor: '#475569',
+    defaultAccentColor: '#94A3B8',
+    defaultTextColor: '#F8FAFC',
+    defaultBadgeColor: '#CBD5E1',
+    defaultFontId: 'manrope',
+    defaultTextShadow: 'none',
+    defaultTextAccent: 'none',
+    defaultDecorMotif: 'none',
+    paperPattern: 'minimal',
+  },
+};
+
+export const CARD_THEME_LIST: CardThemeConfig[] = [
+  CARD_THEMES.gentle_letter,
+  CARD_THEMES.cosmic_card,
+  CARD_THEMES.floral,
+  CARD_THEMES.magical,
+  CARD_THEMES.minimalist,
+];
+
+export const VALID_CARD_THEME_IDS = new Set<CardThemeId>(
+  CARD_THEME_LIST.map((t) => t.id),
+);
+
+export function resolveCardTheme(
+  holder?: { cardTheme?: CardThemeId } | CardThemeId | null,
+): CardThemeConfig {
+  const id =
+    typeof holder === 'string'
+      ? holder
+      : holder && typeof holder === 'object'
+        ? holder.cardTheme
+        : undefined;
+  if (id && VALID_CARD_THEME_IDS.has(id)) {
+    return CARD_THEMES[id];
+  }
+  return CARD_THEMES.cosmic_card;
+}
+
+export function isHexLight(hex: string): boolean {
+  if (!HEX_COLOR_RE.test(hex)) return false;
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.52;
+}
+
+function sanitizeCardHex(value: string | undefined, fallback: string): string {
+  return typeof value === 'string' && HEX_COLOR_RE.test(value)
+    ? value.toUpperCase()
+    : fallback;
+}
+
+export function sanitizeCardColors(
+  colors?: CardThemeCustomColors,
+): CardThemeCustomColors | undefined {
+  if (!colors || typeof colors !== 'object') return undefined;
+  const clean: CardThemeCustomColors = {};
+  if (typeof colors.surfaceBg === 'string' && HEX_COLOR_RE.test(colors.surfaceBg)) {
+    clean.surfaceBg = colors.surfaceBg.toUpperCase();
+  }
+  if (typeof colors.accentColor === 'string' && HEX_COLOR_RE.test(colors.accentColor)) {
+    clean.accentColor = colors.accentColor.toUpperCase();
+  }
+  if (typeof colors.textColor === 'string' && HEX_COLOR_RE.test(colors.textColor)) {
+    clean.textColor = colors.textColor.toUpperCase();
+  }
+  if (typeof colors.badgeColor === 'string' && HEX_COLOR_RE.test(colors.badgeColor)) {
+    clean.badgeColor = colors.badgeColor.toUpperCase();
+  }
+  return Object.keys(clean).length > 0 ? clean : undefined;
+}
+
+export interface ResolvedCardColors {
+  surfaceBg: string;
+  surfaceBgAlt: string;
+  borderColor: string;
+  accentColor: string;
+  textColor: string;
+  badgeColor: string;
+  isLightPaper: boolean;
+}
+
+export function resolveCardColors(
+  holder?: Pick<ConstellationProject, 'cardTheme' | 'cardColors'> | null,
+): ResolvedCardColors {
+  const theme = resolveCardTheme(holder?.cardTheme);
+  const custom = holder?.cardColors;
+  const surfaceBg = sanitizeCardHex(custom?.surfaceBg, theme.defaultSurfaceBg);
+  const accentColor = sanitizeCardHex(custom?.accentColor, theme.defaultAccentColor);
+  const textColor = sanitizeCardHex(custom?.textColor, theme.defaultTextColor);
+  const badgeColor = sanitizeCardHex(custom?.badgeColor, theme.defaultBadgeColor);
+  const lightPaper = custom?.surfaceBg ? isHexLight(surfaceBg) : theme.isLightPaper;
+  return {
+    surfaceBg,
+    surfaceBgAlt: custom?.surfaceBg ? surfaceBg : theme.surfaceBgAlt,
+    borderColor: custom?.accentColor ? accentColor : theme.borderColor,
+    accentColor,
+    textColor,
+    badgeColor,
+    isLightPaper: lightPaper,
+  };
+}
+
+/**
+ * Non-destructively applies a card composition theme to a project.
+ * Strictly preserves user texts, illustrations, star shapes, glow colors, positions, and connections.
+ */
+export function applyCardThemeToProject(
+  project: ConstellationProject,
+  themeId: CardThemeId,
+): ConstellationProject {
+  const theme = CARD_THEMES[themeId] ?? CARD_THEMES.cosmic_card;
+
+  const mergeTextStyle = (prev?: StarTextStyle): StarTextStyle => {
+    const resolved = resolveStarTextStyle(prev);
+    return {
+      ...resolved,
+      fontId: theme.defaultFontId,
+      color: theme.defaultTextColor,
+      shadow: theme.defaultTextShadow,
+      accent: theme.defaultTextAccent,
+    };
+  };
+
+  const mergeDecor = (prev?: StarDecorSettings): StarDecorSettings => {
+    const resolved = resolveStarDecor(prev);
+    return {
+      ...resolved,
+      motif: theme.defaultDecorMotif,
+    };
+  };
+
+  return {
+    ...project,
+    cardTheme: theme.id,
+    cardColors: undefined,
+    stars: project.stars.map((star) => ({
+      ...star,
+      textStyle: mergeTextStyle(star.textStyle),
+      decor: mergeDecor(star.decor),
+    })),
+    finalTextStyle: mergeTextStyle(project.finalTextStyle),
+    finalDecor: mergeDecor(project.finalDecor),
+  };
 }
 
 export interface StarIdeaItem {
@@ -991,6 +1794,49 @@ export function sanitizeConnections(
   return clean;
 }
 
+function normalizeStarDeviceLayouts(star: ConstellationStar): StarDeviceLayouts {
+  const normalizeEntry = (device: DeviceLayoutKey): StarDeviceLayoutEntry => ({
+    text: resolveDeviceTextLayout(
+      star.deviceLayouts?.[device]?.text,
+      device,
+      star.textStyle,
+    ),
+    illustration: resolveEffectiveIllustrationLayout(star, device),
+    decor: resolveDeviceDecorLayout(
+      star.deviceLayouts?.[device]?.decor,
+      device,
+      star.decor,
+    ),
+  });
+  return {
+    phone: normalizeEntry('phone'),
+    desktop: normalizeEntry('desktop'),
+  };
+}
+
+function normalizeProjectDeviceLayouts(
+  project: ConstellationProject,
+): ProjectDeviceLayouts {
+  const normalizeEntry = (device: DeviceLayoutKey): ProjectDeviceLayoutEntry => ({
+    constellation: resolveEffectiveConstellationLayout(project, device),
+    card: resolveEffectiveCardLayout(project, device),
+    finalText: resolveDeviceTextLayout(
+      project.deviceLayouts?.[device]?.finalText,
+      device,
+      project.finalTextStyle,
+    ),
+    finalDecor: resolveDeviceDecorLayout(
+      project.deviceLayouts?.[device]?.finalDecor,
+      device,
+      project.finalDecor,
+    ),
+  });
+  return {
+    phone: normalizeEntry('phone'),
+    desktop: normalizeEntry('desktop'),
+  };
+}
+
 /** Safe migration & normalization for both newly created and legacy IndexedDB projects */
 export function normalizeProject(project: ConstellationProject): ConstellationProject {
   const stars: ConstellationStar[] = (project.stars ?? []).map((s, idx) => ({
@@ -1004,6 +1850,7 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
       : undefined,
     textStyle: s.textStyle ? resolveStarTextStyle(s.textStyle) : undefined,
     decor: s.decor ? resolveStarDecor(s.decor) : undefined,
+    deviceLayouts: normalizeStarDeviceLayouts(s),
   }));
 
   const connections = sanitizeConnections(
@@ -1011,15 +1858,28 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
     stars,
   );
 
-  return {
+  const cardTheme =
+    project.cardTheme && VALID_CARD_THEME_IDS.has(project.cardTheme)
+      ? project.cardTheme
+      : undefined;
+  const cardColors = sanitizeCardColors(project.cardColors);
+
+  const normalizedBase: ConstellationProject = {
     ...project,
     composition: project.composition ?? 'free',
+    cardTheme,
+    cardColors,
     stars,
     connections,
     finalTextStyle: project.finalTextStyle
       ? resolveStarTextStyle(project.finalTextStyle)
       : undefined,
     finalDecor: project.finalDecor ? resolveStarDecor(project.finalDecor) : undefined,
+  };
+
+  return {
+    ...normalizedBase,
+    deviceLayouts: normalizeProjectDeviceLayouts(normalizedBase),
   };
 }
 
@@ -1140,7 +2000,7 @@ export function createNewProject(
 
   const composed = applyCompositionPreset(baseStars, composition);
 
-  return {
+  const draft: ConstellationProject = {
     id: projectId,
     title: customTitle?.trim() || preset.defaultTitle,
     recipientName: customRecipient?.trim() || preset.defaultRecipient,
@@ -1156,5 +2016,7 @@ export function createNewProject(
     createdAt: now,
     updatedAt: now,
   };
+
+  return normalizeProject(draft);
 }
 

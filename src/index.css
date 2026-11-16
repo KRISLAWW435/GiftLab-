@@ -357,21 +357,27 @@
     pointer-events: none;
   }
 
+  @media (min-width: 768px) {
+    .gl-editor-sidebar-right {
+      width: 300px;
+    }
+  }
+
   @media (min-width: 1024px) {
     .gl-editor-sidebar-left {
-      width: 240px;
+      width: 210px;
     }
     .gl-editor-sidebar-right {
-      width: 320px;
+      width: 332px;
     }
   }
 
   @media (min-width: 1440px) {
     .gl-editor-sidebar-left {
-      width: 280px;
+      width: 236px;
     }
     .gl-editor-sidebar-right {
-      width: 360px;
+      width: 368px;
     }
   }
 
@@ -387,6 +393,28 @@
       min-width: 44px;
       min-height: 44px;
     }
+  }
+}
+
+@media (max-height: 520px) {
+  .gl-workshop-header,
+  .gl-preview-header {
+    min-height: 2.5rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  .gl-workshop-stepper {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  .gl-workshop-step {
+    min-height: 2rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  .gl-workshop-footer {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
   }
 }
 

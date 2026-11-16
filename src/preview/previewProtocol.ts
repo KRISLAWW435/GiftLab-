@@ -1,10 +1,25 @@
 import type {
   ConstellationProject,
   ConstellationStar,
+  DeviceLayoutKey,
   RecipientPhase,
 } from '../types/project';
 
-export type EditableCardTarget = 'text' | 'illustration' | 'decor';
+export type EditableCardTarget =
+  | 'text'
+  | 'illustration'
+  | 'decor'
+  | 'card'
+  | 'constellation';
+
+export type EditableTextField =
+  | 'title'
+  | 'recipientName'
+  | 'senderName'
+  | 'finalMessage'
+  | 'occasionLabel'
+  | 'starTitle'
+  | 'starMessage';
 
 export interface PreviewJumpTarget {
   nonce: number;
@@ -16,6 +31,7 @@ export type ParentToIframeMessage = {
   source: 'giftlab-preview-host';
   type: 'sync';
   project: ConstellationProject;
+  deviceMode?: DeviceLayoutKey;
   editMode: boolean;
   selectedTarget: EditableCardTarget | null;
   jumpTo?: PreviewJumpTarget | null;
@@ -38,6 +54,7 @@ export type IframeToParentMessage =
       source: 'giftlab-preview-iframe';
       type: 'selectTarget';
       target: EditableCardTarget | null;
+      field?: EditableTextField;
     }
   | {
       source: 'giftlab-preview-iframe';

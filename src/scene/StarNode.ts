@@ -10,12 +10,15 @@ export interface ShapeGeometryPack {
 export interface SharedStarGeometries {
   shapes: Record<StarShapeId, ShapeGeometryPack>;
   innerGem: THREE.OctahedronGeometry;
+  flowerPetal: THREE.ExtrudeGeometry;
+  flowerPetalEdges: THREE.EdgesGeometry;
   flowerCore: THREE.OctahedronGeometry;
   moonStarlet: THREE.OctahedronGeometry;
   cometTailCone: THREE.ConeGeometry;
   cometPlume: THREE.ExtrudeGeometry;
   cometPlumeEdges: THREE.EdgesGeometry;
   planetRing: THREE.TorusGeometry;
+  planetInnerRing: THREE.TorusGeometry;
   planetMoonlet: THREE.OctahedronGeometry;
   sparkMote: THREE.OctahedronGeometry;
   hitProxy: THREE.SphereGeometry;
@@ -24,35 +27,46 @@ export interface SharedStarGeometries {
   sparklePoints: THREE.BufferGeometry;
 }
 
-function buildStarShapeGeometry(): THREE.ExtrudeGeometry {
-  const shape = new THREE.Shape();
-  const points = 10; // 5-pointed star
-  const outerR = 0.46;
-  const innerR = 0.2;
+const _tintA = new THREE.Color();
+const _tintB = new THREE.Color();
+
+function buildStarShapeGeometry(): THREE.BufferGeometry {
+  // True sculpted 3D double-pyramid faceted 5-pointed star (20 crisp triangular facets)
+  const points = 10;
+  const outerR = 0.47;
+  const innerR = 0.21;
+  const zPeak = 0.185;
+
+  const ring: Array<[number, number, number]> = [];
   for (let i = 0; i < points; i++) {
     const angle = (i / points) * Math.PI * 2 + Math.PI / 2;
     const r = i % 2 === 0 ? outerR : innerR;
-    const x = Math.cos(angle) * r;
-    const y = Math.sin(angle) * r;
-    if (i === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
+    ring.push([Math.cos(angle) * r, Math.sin(angle) * r, 0]);
   }
-  shape.closePath();
 
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.1,
-    bevelEnabled: true,
-    bevelThickness: 0.065,
-    bevelSize: 0.04,
-    bevelSegments: 2,
-  });
-  geo.center();
+  const front: [number, number, number] = [0, 0, zPeak];
+  const back: [number, number, number] = [0, 0, -zPeak];
+  const verts: number[] = [];
+
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    // Front crystal ridge facet
+    verts.push(front[0], front[1], front[2], a[0], a[1], a[2], b[0], b[1], b[2]);
+    // Back crystal ridge facet
+    verts.push(back[0], back[1], back[2], b[0], b[1], b[2], a[0], a[1], a[2]);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
   return geo;
 }
 
 function buildHeartShapeGeometry(): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
-  const steps = 48;
+  const steps = 56;
   const scale = 0.0255;
   for (let i = 0; i <= steps; i++) {
     const t = (i / steps) * Math.PI * 2;
@@ -69,22 +83,23 @@ function buildHeartShapeGeometry(): THREE.ExtrudeGeometry {
   shape.closePath();
 
   const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.11,
+    depth: 0.14,
     bevelEnabled: true,
-    bevelThickness: 0.085,
+    bevelThickness: 0.1,
     bevelSize: 0.055,
-    bevelSegments: 3,
+    bevelSegments: 4,
   });
   geo.center();
   return geo;
 }
 
 function buildFlowerShapeGeometry(): THREE.ExtrudeGeometry {
+  // Sculpted flower base receptacle
   const shape = new THREE.Shape();
-  const steps = 72; // 6 sculpted petals
+  const steps = 60;
   for (let i = 0; i <= steps; i++) {
     const t = (i / steps) * Math.PI * 2;
-    const r = 0.185 + 0.275 * Math.pow(Math.abs(Math.sin(3 * t)), 0.72);
+    const r = 0.16 + 0.04 * Math.cos(6 * t);
     const x = Math.cos(t) * r;
     const y = Math.sin(t) * r;
     if (i === 0) shape.moveTo(x, y);
@@ -93,13 +108,34 @@ function buildFlowerShapeGeometry(): THREE.ExtrudeGeometry {
   shape.closePath();
 
   const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.08,
+    depth: 0.09,
     bevelEnabled: true,
     bevelThickness: 0.055,
-    bevelSize: 0.035,
-    bevelSegments: 2,
+    bevelSize: 0.03,
+    bevelSegments: 3,
   });
   geo.center();
+  return geo;
+}
+
+function buildFlowerPetalGeometry(): THREE.ExtrudeGeometry {
+  // Sculpted 3D crystal petal extending upward from radial origin
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0.06);
+  shape.quadraticCurveTo(0.115, 0.22, 0.078, 0.39);
+  shape.quadraticCurveTo(0, 0.48, 0, 0.48);
+  shape.quadraticCurveTo(0, 0.48, -0.078, 0.39);
+  shape.quadraticCurveTo(-0.115, 0.22, 0, 0.06);
+  shape.closePath();
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.055,
+    bevelEnabled: true,
+    bevelThickness: 0.038,
+    bevelSize: 0.02,
+    bevelSegments: 3,
+  });
+  geo.translate(0, 0, -0.0275);
   return geo;
 }
 
@@ -117,7 +153,7 @@ function buildMoonShapeGeometry(): THREE.ExtrudeGeometry {
   const aTop2 = Math.atan2(iy, ix - cx2);
 
   const shape = new THREE.Shape();
-  const outerSteps = 26;
+  const outerSteps = 28;
   for (let i = 0; i <= outerSteps; i++) {
     const a = THREE.MathUtils.lerp(aTop1, aBot1, i / outerSteps);
     const x = Math.cos(a) * r1;
@@ -126,7 +162,7 @@ function buildMoonShapeGeometry(): THREE.ExtrudeGeometry {
     else shape.lineTo(x, y);
   }
 
-  const innerSteps = 20;
+  const innerSteps = 22;
   for (let i = 1; i <= innerSteps; i++) {
     const a = THREE.MathUtils.lerp(aBot2, aTop2, i / innerSteps);
     const x = cx2 + Math.cos(a) * r2;
@@ -136,11 +172,11 @@ function buildMoonShapeGeometry(): THREE.ExtrudeGeometry {
   shape.closePath();
 
   const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.09,
+    depth: 0.12,
     bevelEnabled: true,
-    bevelThickness: 0.06,
-    bevelSize: 0.035,
-    bevelSegments: 2,
+    bevelThickness: 0.078,
+    bevelSize: 0.036,
+    bevelSegments: 3,
   });
   geo.center();
   geo.rotateZ(0.24);
@@ -150,19 +186,20 @@ function buildMoonShapeGeometry(): THREE.ExtrudeGeometry {
 function buildCometPlumeGeometry(): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
   shape.moveTo(0.2, 0.22);
-  shape.quadraticCurveTo(0.05, 0.26, -0.34, -0.08);
-  shape.quadraticCurveTo(-0.18, -0.06, -0.44, -0.38);
-  shape.quadraticCurveTo(-0.08, -0.22, -0.04, -0.36);
+  shape.quadraticCurveTo(0.05, 0.26, -0.36, -0.1);
+  shape.quadraticCurveTo(-0.18, -0.07, -0.46, -0.4);
+  shape.quadraticCurveTo(-0.08, -0.23, -0.05, -0.37);
   shape.quadraticCurveTo(0.26, -0.02, 0.2, 0.22);
   shape.closePath();
 
   const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.04,
+    depth: 0.045,
     bevelEnabled: true,
-    bevelThickness: 0.025,
+    bevelThickness: 0.026,
     bevelSize: 0.018,
     bevelSegments: 2,
   });
+  geo.translate(0, 0, -0.0225);
   return geo;
 }
 
@@ -170,8 +207,8 @@ function buildSparkShapeGeometry(): THREE.BufferGeometry {
   // Faceted volumetric 4-pointed diamond crystal (16 crisp triangular facets)
   const rx = 0.48;
   const ry = 0.56;
-  const w = 0.105;
-  const zPeak = 0.165;
+  const w = 0.11;
+  const zPeak = 0.19;
 
   const ring: Array<[number, number, number]> = [
     [0, ry, 0],
@@ -191,18 +228,8 @@ function buildSparkShapeGeometry(): THREE.BufferGeometry {
   for (let i = 0; i < ring.length; i++) {
     const a = ring[i];
     const b = ring[(i + 1) % ring.length];
-    // Front crystal facet (CCW toward +Z)
-    verts.push(
-      front[0], front[1], front[2],
-      a[0], a[1], a[2],
-      b[0], b[1], b[2],
-    );
-    // Back crystal facet (CCW toward -Z)
-    verts.push(
-      back[0], back[1], back[2],
-      b[0], b[1], b[2],
-      a[0], a[1], a[2],
-    );
+    verts.push(front[0], front[1], front[2], a[0], a[1], a[2], b[0], b[1], b[2]);
+    verts.push(back[0], back[1], back[2], b[0], b[1], b[2], a[0], a[1], a[2]);
   }
 
   const geo = new THREE.BufferGeometry();
@@ -216,22 +243,23 @@ export function createSharedStarGeometries(): SharedStarGeometries {
   const starGeo = buildStarShapeGeometry();
   const heartGeo = buildHeartShapeGeometry();
   const flowerGeo = buildFlowerShapeGeometry();
+  const flowerPetal = buildFlowerPetalGeometry();
   const moonGeo = buildMoonShapeGeometry();
   const sparkGeo = buildSparkShapeGeometry();
-  const cometHeadGeo = new THREE.IcosahedronGeometry(0.23, 0);
-  const planetBodyGeo = new THREE.IcosahedronGeometry(0.28, 1);
+  const cometHeadGeo = new THREE.IcosahedronGeometry(0.24, 0);
+  const planetBodyGeo = new THREE.IcosahedronGeometry(0.275, 1);
 
   const cometPlume = buildCometPlumeGeometry();
 
-  // Gentle miniature sparkle orbit cloud (8 dust points per object)
-  const sparkleCount = 8;
+  // Orbit cloud micro-particles around every 3D object
+  const sparkleCount = 10;
   const sparklePositions = new Float32Array(sparkleCount * 3);
   for (let i = 0; i < sparkleCount; i++) {
     const a = (i / sparkleCount) * Math.PI * 2;
     const r = 0.56 + (i % 2) * 0.14;
     sparklePositions[i * 3] = Math.cos(a) * r;
     sparklePositions[i * 3 + 1] = Math.sin(a) * r * 0.85;
-    sparklePositions[i * 3 + 2] = ((i % 3) - 1) * 0.22;
+    sparklePositions[i * 3 + 2] = ((i % 3) - 1) * 0.24;
   }
   const sparklePoints = new THREE.BufferGeometry();
   sparklePoints.setAttribute(
@@ -241,23 +269,26 @@ export function createSharedStarGeometries(): SharedStarGeometries {
 
   return {
     shapes: {
-      star: { body: starGeo, edges: new THREE.EdgesGeometry(starGeo, 20) },
-      heart: { body: heartGeo, edges: new THREE.EdgesGeometry(heartGeo, 20) },
-      flower: { body: flowerGeo, edges: new THREE.EdgesGeometry(flowerGeo, 20) },
-      moon: { body: moonGeo, edges: new THREE.EdgesGeometry(moonGeo, 20) },
-      comet: { body: cometHeadGeo, edges: new THREE.EdgesGeometry(cometHeadGeo, 14) },
-      planet: { body: planetBodyGeo, edges: new THREE.EdgesGeometry(planetBodyGeo, 18) },
+      star: { body: starGeo, edges: new THREE.EdgesGeometry(starGeo, 8) },
+      heart: { body: heartGeo, edges: new THREE.EdgesGeometry(heartGeo, 18) },
+      flower: { body: flowerGeo, edges: new THREE.EdgesGeometry(flowerGeo, 16) },
+      moon: { body: moonGeo, edges: new THREE.EdgesGeometry(moonGeo, 16) },
+      comet: { body: cometHeadGeo, edges: new THREE.EdgesGeometry(cometHeadGeo, 12) },
+      planet: { body: planetBodyGeo, edges: new THREE.EdgesGeometry(planetBodyGeo, 16) },
       spark: { body: sparkGeo, edges: new THREE.EdgesGeometry(sparkGeo, 8) },
     },
     innerGem: new THREE.OctahedronGeometry(0.145, 0),
+    flowerPetal,
+    flowerPetalEdges: new THREE.EdgesGeometry(flowerPetal, 16),
     flowerCore: new THREE.OctahedronGeometry(0.165, 1),
-    moonStarlet: new THREE.OctahedronGeometry(0.09, 0),
-    cometTailCone: new THREE.ConeGeometry(0.14, 0.72, 7),
+    moonStarlet: new THREE.OctahedronGeometry(0.095, 0),
+    cometTailCone: new THREE.ConeGeometry(0.15, 0.78, 8),
     cometPlume,
-    cometPlumeEdges: new THREE.EdgesGeometry(cometPlume, 20),
-    planetRing: new THREE.TorusGeometry(0.47, 0.042, 8, 40),
-    planetMoonlet: new THREE.OctahedronGeometry(0.068, 0),
-    sparkMote: new THREE.OctahedronGeometry(0.052, 0),
+    cometPlumeEdges: new THREE.EdgesGeometry(cometPlume, 18),
+    planetRing: new THREE.TorusGeometry(0.49, 0.044, 10, 44),
+    planetInnerRing: new THREE.TorusGeometry(0.39, 0.018, 8, 40),
+    planetMoonlet: new THREE.OctahedronGeometry(0.072, 0),
+    sparkMote: new THREE.OctahedronGeometry(0.056, 0),
     hitProxy: new THREE.SphereGeometry(0.78, 12, 10),
     pulseRing: new THREE.RingGeometry(0.48, 0.59, 36),
     selectionRing: new THREE.RingGeometry(0.58, 0.65, 40),
@@ -271,12 +302,15 @@ export function disposeSharedStarGeometries(geos: SharedStarGeometries): void {
     pack.edges.dispose();
   });
   geos.innerGem.dispose();
+  geos.flowerPetal.dispose();
+  geos.flowerPetalEdges.dispose();
   geos.flowerCore.dispose();
   geos.moonStarlet.dispose();
   geos.cometTailCone.dispose();
   geos.cometPlume.dispose();
   geos.cometPlumeEdges.dispose();
   geos.planetRing.dispose();
+  geos.planetInnerRing.dispose();
   geos.planetMoonlet.dispose();
   geos.sparkMote.dispose();
   geos.hitProxy.dispose();
@@ -324,6 +358,7 @@ export class StarNode {
   private useDesiredPosition = false;
   private isHovered = false;
   private isSelected = false;
+  private isDragging = false;
   private isVisited = false;
   private isFinaleActive = false;
   private isPendingLink = false;
@@ -345,26 +380,33 @@ export class StarNode {
     this.currentShape = shape;
     this.phaseOffset = index * 1.37;
 
-    // Translucent crystal material shared across all 3D forms
+    _tintA.set(glow.coreHex);
+    _tintB.set(glow.hex);
+    _tintA.lerp(_tintB, 0.56);
+
+    // Sculpted pearlescent crystal PBR material (iridescent clearcoat + readable facets)
     this.bodyMat = new THREE.MeshPhysicalMaterial({
-      color: glow.coreHex,
+      color: _tintA.clone(),
       emissive: glow.hex,
-      emissiveIntensity: 0.48,
+      emissiveIntensity: 0.24,
       transparent: true,
-      opacity: 0.85,
-      metalness: 0.35,
-      roughness: 0.14,
+      opacity: 0.88,
+      metalness: 0.3,
+      roughness: 0.12,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      ior: 1.62,
-      reflectivity: 0.95,
+      clearcoatRoughness: 0.06,
+      ior: 1.65,
+      reflectivity: 0.96,
+      iridescence: 0.45,
+      iridescenceIOR: 1.45,
+      envMapIntensity: 1.35,
     });
 
-    // Luminous crystal edges highlight
+    // Crisp luminous crystal edge highlights
     this.edgeMat = new THREE.LineBasicMaterial({
       color: glow.coreHex,
       transparent: true,
-      opacity: 0.56,
+      opacity: 0.54,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -373,43 +415,46 @@ export class StarNode {
     this.gemMat = new THREE.MeshStandardMaterial({
       color: glow.coreHex,
       emissive: glow.hex,
-      emissiveIntensity: 1.25,
-      metalness: 0.2,
-      roughness: 0.12,
+      emissiveIntensity: 0.96,
+      metalness: 0.24,
+      roughness: 0.14,
+      envMapIntensity: 1.2,
     });
 
     // Metallic filigree accent for rings / companion starlets
     this.accentMat = new THREE.MeshStandardMaterial({
       color: '#fde68a',
       emissive: glow.haloHex,
-      emissiveIntensity: 0.36,
-      metalness: 0.84,
-      roughness: 0.2,
+      emissiveIntensity: 0.32,
+      metalness: 0.88,
+      roughness: 0.18,
+      envMapIntensity: 1.3,
     });
 
-    // Translucent comet plasma tail
+    // Translucent volumetric comet plasma tail
     this.tailMat = new THREE.MeshPhysicalMaterial({
       color: glow.hex,
       emissive: glow.hex,
-      emissiveIntensity: 0.82,
+      emissiveIntensity: 0.48,
       transparent: true,
-      opacity: 0.62,
-      metalness: 0.15,
-      roughness: 0.22,
-      clearcoat: 0.7,
+      opacity: 0.64,
+      metalness: 0.18,
+      roughness: 0.18,
+      clearcoat: 0.85,
+      iridescence: 0.35,
       depthWrite: false,
     });
 
     this.crystalGroup.add(this.bodyPivot);
     this.rebuildShapeGeometry(shape);
 
-    // Subtle orbiting micro-particles around every 3D object
+    // Orbiting micro-particles around every 3D object
     this.sparkleMat = new THREE.PointsMaterial({
       map: glowTex,
       color: glow.coreHex,
-      size: 0.14,
+      size: 0.125,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.6,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true,
@@ -419,30 +464,30 @@ export class StarNode {
 
     this.group.add(this.crystalGroup);
 
-    // Soft volumetric halo
+    // Soft outer halo (controlled opacity so silhouette & facets stay sharp)
     this.haloMat = new THREE.SpriteMaterial({
       map: glowTex,
       color: glow.hex,
       transparent: true,
-      opacity: 0.62,
+      opacity: 0.38,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     this.haloSprite = new THREE.Sprite(this.haloMat);
-    this.haloSprite.scale.set(1.85, 1.85, 1);
+    this.haloSprite.scale.set(1.75, 1.75, 1);
     this.group.add(this.haloSprite);
 
-    // Crisp diffraction flare
+    // Subtle diffraction flare
     this.flareMat = new THREE.SpriteMaterial({
       map: flareTex,
       color: glow.coreHex,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.28,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     this.flareSprite = new THREE.Sprite(this.flareMat);
-    this.flareSprite.scale.set(1.35, 1.35, 1);
+    this.flareSprite.scale.set(1.25, 1.25, 1);
     this.group.add(this.flareSprite);
 
     // Expanding selection pulse ring
@@ -471,7 +516,7 @@ export class StarNode {
     this.selectionRingMesh.visible = false;
     this.group.add(this.selectionRingMesh);
 
-    // Steady link-source indicator ring (when picking 1st star in "Создать связи")
+    // Steady link-source indicator ring
     this.linkRingMat = new THREE.MeshBasicMaterial({
       color: '#fde68a',
       transparent: true,
@@ -496,7 +541,7 @@ export class StarNode {
     this.bodyPivot.clear();
 
     if (shape === 'comet') {
-      // Crystal nucleus positioned toward top-right + swept luminous tail trailing bottom-left
+      // Crystal nucleus positioned top-right + volumetric crossed plumes trailing bottom-left
       const headPack = this.geos.shapes.comet;
       const headMesh = new THREE.Mesh(headPack.body, this.bodyMat);
       headMesh.position.set(0.18, 0.16, 0);
@@ -512,22 +557,24 @@ export class StarNode {
       this.bodyPivot.add(coreGem);
 
       // Tapered 3D cone core tail pointing away from nucleus
+      const tailAxis = new THREE.Vector3(-0.72, -0.69, 0).normalize();
       const coneTail = new THREE.Mesh(this.geos.cometTailCone, this.tailMat);
-      coneTail.position.set(-0.08, -0.08, 0);
-      coneTail.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        new THREE.Vector3(-0.72, -0.69, 0).normalize(),
-      );
+      coneTail.position.set(-0.1, -0.1, 0);
+      coneTail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tailAxis);
       this.bodyPivot.add(coneTail);
 
-      // Swept crystalline twin-plume tail
-      const plumeMesh = new THREE.Mesh(this.geos.cometPlume, this.tailMat);
-      plumeMesh.position.z = -0.02;
-      this.bodyPivot.add(plumeMesh);
+      // Primary plume + crossed orthogonal 3D plume so tail reads sculpted across all 360 degrees
+      const plume1 = new THREE.Mesh(this.geos.cometPlume, this.tailMat);
+      this.bodyPivot.add(plume1);
+      const plumeEdges1 = new THREE.LineSegments(this.geos.cometPlumeEdges, this.edgeMat);
+      this.bodyPivot.add(plumeEdges1);
 
-      const plumeEdges = new THREE.LineSegments(this.geos.cometPlumeEdges, this.edgeMat);
-      plumeEdges.position.z = -0.02;
-      this.bodyPivot.add(plumeEdges);
+      const crossedGroup = new THREE.Group();
+      crossedGroup.quaternion.setFromAxisAngle(tailAxis, Math.PI * 0.48);
+      const plume2 = new THREE.Mesh(this.geos.cometPlume, this.tailMat);
+      const plumeEdges2 = new THREE.LineSegments(this.geos.cometPlumeEdges, this.edgeMat);
+      crossedGroup.add(plume2, plumeEdges2);
+      this.bodyPivot.add(crossedGroup);
       return;
     }
 
@@ -543,19 +590,54 @@ export class StarNode {
       coreGem.scale.setScalar(0.95);
       this.bodyPivot.add(coreGem);
 
-      // Sleek flattened Saturn ring + orbiting moonlet
-      const ringMesh = new THREE.Mesh(this.geos.planetRing, this.accentMat);
-      ringMesh.scale.set(1, 1, 0.28);
-      ringMesh.rotation.set(Math.PI * 0.36, -Math.PI * 0.14, 0.12);
-      this.bodyPivot.add(ringMesh);
+      // Primary crystal Saturn ring + inner metallic filigree ring + orbiting moonlet
+      const ringGroup = new THREE.Group();
+      ringGroup.rotation.set(Math.PI * 0.36, -Math.PI * 0.14, 0.12);
+
+      const outerRing = new THREE.Mesh(this.geos.planetRing, this.bodyMat);
+      outerRing.scale.set(1, 1, 0.28);
+      ringGroup.add(outerRing);
+
+      const innerRing = new THREE.Mesh(this.geos.planetInnerRing, this.accentMat);
+      innerRing.scale.set(1, 1, 0.36);
+      ringGroup.add(innerRing);
+
+      this.bodyPivot.add(ringGroup);
 
       const moonlet = new THREE.Mesh(this.geos.planetMoonlet, this.gemMat);
-      moonlet.position.set(-0.38, 0.24, 0.18);
+      moonlet.position.set(-0.4, 0.25, 0.18);
       this.bodyPivot.add(moonlet);
       return;
     }
 
-    // Standard sculpted crystal shapes: star, heart, flower, moon, spark
+    if (shape === 'flower') {
+      const pack = this.geos.shapes.flower;
+      const calyxMesh = new THREE.Mesh(pack.body, this.bodyMat);
+      this.bodyPivot.add(calyxMesh);
+
+      const calyxEdges = new THREE.LineSegments(pack.edges, this.edgeMat);
+      this.bodyPivot.add(calyxEdges);
+
+      // 6 sculpted alternating-tilt 3D crystal petals so side & back angles hold botanical volume
+      for (let i = 0; i < 6; i++) {
+        const petalHolder = new THREE.Group();
+        petalHolder.rotation.z = (i / 6) * Math.PI * 2;
+        petalHolder.rotation.x = i % 2 === 0 ? 0.18 : -0.14;
+        const petalMesh = new THREE.Mesh(this.geos.flowerPetal, this.bodyMat);
+        const petalEdges = new THREE.LineSegments(
+          this.geos.flowerPetalEdges,
+          this.edgeMat,
+        );
+        petalHolder.add(petalMesh, petalEdges);
+        this.bodyPivot.add(petalHolder);
+      }
+
+      const flowerCenter = new THREE.Mesh(this.geos.flowerCore, this.gemMat);
+      this.bodyPivot.add(flowerCenter);
+      return;
+    }
+
+    // Standard sculpted crystal shapes: star, heart, moon, spark
     const pack = this.geos.shapes[shape] ?? this.geos.shapes.star;
     const bodyMesh = new THREE.Mesh(pack.body, this.bodyMat);
     this.bodyPivot.add(bodyMesh);
@@ -563,32 +645,26 @@ export class StarNode {
     const edgeLines = new THREE.LineSegments(pack.edges, this.edgeMat);
     this.bodyPivot.add(edgeLines);
 
-    if (shape === 'flower') {
-      const flowerCenter = new THREE.Mesh(this.geos.flowerCore, this.gemMat);
-      flowerCenter.position.z = 0.04;
-      this.bodyPivot.add(flowerCenter);
-    } else if (shape === 'moon') {
-      // Glowing companion starlet inside the crescent hollow
+    if (shape === 'moon') {
       const starlet = new THREE.Mesh(this.geos.moonStarlet, this.accentMat);
-      starlet.position.set(0.24, 0.05, 0.03);
+      starlet.position.set(0.24, 0.06, 0.04);
       this.bodyPivot.add(starlet);
     } else if (shape === 'spark') {
       const coreGem = new THREE.Mesh(this.geos.innerGem, this.gemMat);
       coreGem.scale.setScalar(0.76);
       this.bodyPivot.add(coreGem);
 
-      // Pair of diagonal crystalline glints flanking the 4-pointed spark
       const moteTopRight = new THREE.Mesh(this.geos.sparkMote, this.accentMat);
-      moteTopRight.position.set(0.28, 0.28, 0.06);
+      moteTopRight.position.set(0.29, 0.29, 0.08);
       this.bodyPivot.add(moteTopRight);
 
       const moteBottomLeft = new THREE.Mesh(this.geos.sparkMote, this.accentMat);
-      moteBottomLeft.position.set(-0.28, -0.28, -0.06);
+      moteBottomLeft.position.set(-0.29, -0.29, -0.08);
       moteBottomLeft.scale.setScalar(0.78);
       this.bodyPivot.add(moteBottomLeft);
     } else {
       const innerGem = new THREE.Mesh(this.geos.innerGem, this.gemMat);
-      innerGem.position.set(0, shape === 'heart' ? 0.04 : 0, 0.02);
+      innerGem.position.set(0, shape === 'heart' ? 0.04 : 0, 0);
       this.bodyPivot.add(innerGem);
     }
   }
@@ -602,7 +678,11 @@ export class StarNode {
   }
 
   public setGlowColor(glow: GlowColorConfig): void {
-    this.bodyMat.color.set(glow.coreHex);
+    _tintA.set(glow.coreHex);
+    _tintB.set(glow.hex);
+    _tintA.lerp(_tintB, 0.56);
+
+    this.bodyMat.color.copy(_tintA);
     this.bodyMat.emissive.set(glow.hex);
     this.edgeMat.color.set(glow.coreHex);
     this.gemMat.color.set(glow.coreHex);
@@ -620,6 +700,7 @@ export class StarNode {
   public setInteractionState(opts: {
     hovered?: boolean;
     selected?: boolean;
+    dragging?: boolean;
     visited?: boolean;
     finale?: boolean;
     pendingLink?: boolean;
@@ -631,6 +712,7 @@ export class StarNode {
       opts.selected === true && !this.isSelected && !opts.storyHero && !opts.finale;
     if (opts.hovered !== undefined) this.isHovered = opts.hovered;
     if (opts.selected !== undefined) this.isSelected = opts.selected;
+    if (opts.dragging !== undefined) this.isDragging = opts.dragging;
     if (opts.visited !== undefined) this.isVisited = opts.visited;
     if (opts.finale !== undefined) this.isFinaleActive = opts.finale;
     if (opts.pendingLink !== undefined) this.isPendingLink = opts.pendingLink;
@@ -688,23 +770,25 @@ export class StarNode {
       }
     }
 
-    const twinkle = reducedMotion
+    const shimmer = reducedMotion
       ? 1
-      : 0.92 + 0.08 * Math.sin(elapsed * 2.0 + this.phaseOffset);
+      : 0.9 + 0.1 * Math.sin(elapsed * 2.1 + this.phaseOffset);
 
     const roleScale = this.isStoryHero
       ? this.storyHeroScale
       : this.isStoryBackground
         ? 0.78
-        : this.isPendingLink
-          ? 1.28
-          : this.isSelected
-            ? 1.22
-            : this.isHovered
-              ? 1.14
-              : this.isFinaleActive
-                ? 1.18
-                : 1.0;
+        : this.isDragging
+          ? 1.26
+          : this.isPendingLink
+            ? 1.28
+            : this.isSelected
+              ? 1.22
+              : this.isHovered
+                ? 1.14
+                : this.isFinaleActive
+                  ? 1.16
+                  : 1.0;
 
     const baseTargetScale = roleScale * this.targetReveal;
 
@@ -713,73 +797,75 @@ export class StarNode {
     this.group.scale.setScalar(Math.max(0.001, this.currentScale));
     this.group.visible = this.targetReveal > 0.002 || this.currentScale > 0.015;
 
-    // Gentle idle floating & smooth rotation preserving readability of silhouette
-    if (!reducedMotion) {
+    // Smooth 360° idle spin & shimmer across ALL 7 shapes; stabilizes smoothly under user drag or reduced motion
+    if (reducedMotion) {
+      this.crystalGroup.position.y = 0;
+      this.bodyPivot.rotation.set(0, 0, 0);
+    } else if (this.isDragging) {
+      const stabilize = 1 - Math.exp(-10 * dt);
+      this.crystalGroup.position.y = THREE.MathUtils.lerp(this.crystalGroup.position.y, 0, stabilize);
+      this.bodyPivot.rotation.x = THREE.MathUtils.lerp(this.bodyPivot.rotation.x, 0, stabilize);
+      this.bodyPivot.rotation.z = THREE.MathUtils.lerp(this.bodyPivot.rotation.z, 0, stabilize);
+    } else {
       this.crystalGroup.position.y = Math.sin(elapsed * 1.35 + this.phaseOffset) * 0.055;
-      if (this.isStoryHero) {
-        this.bodyPivot.rotation.y += dt * 0.46;
-        this.bodyPivot.rotation.x = Math.cos(elapsed * 0.55 + this.phaseOffset) * 0.12;
-        this.bodyPivot.rotation.z =
-          this.currentShape === 'spark'
-            ? Math.sin(elapsed * 0.85 + this.phaseOffset) * 0.14
-            : 0;
-      } else if (this.isFinaleActive) {
-        this.bodyPivot.rotation.y += dt * 0.24;
-        this.bodyPivot.rotation.x = Math.cos(elapsed * 0.5 + this.phaseOffset) * 0.1;
-        this.bodyPivot.rotation.z =
-          this.currentShape === 'spark'
-            ? Math.sin(elapsed * 0.75 + this.phaseOffset) * 0.1
-            : 0;
-      } else if (this.currentShape === 'spark') {
-        this.bodyPivot.rotation.y += dt * 0.58;
-        this.bodyPivot.rotation.z = Math.sin(elapsed * 0.85 + this.phaseOffset) * 0.16;
-        this.bodyPivot.rotation.x = Math.cos(elapsed * 0.65 + this.phaseOffset) * 0.12;
-      } else {
-        const swayRange = this.currentShape === 'planet' ? 0.55 : 0.42;
-        this.bodyPivot.rotation.y = Math.sin(elapsed * 0.65 + this.phaseOffset) * swayRange;
-        this.bodyPivot.rotation.x = Math.cos(elapsed * 0.5 + this.phaseOffset) * 0.1;
-        this.bodyPivot.rotation.z = 0;
-      }
-      this.sparkleCloud.rotation.z = elapsed * 0.25 + this.phaseOffset;
-      this.sparkleCloud.rotation.y = elapsed * 0.18;
+      const baseSpin = this.isStoryHero
+        ? 0.45
+        : this.isHovered
+          ? 0.14
+          : this.isFinaleActive
+            ? 0.28
+            : this.currentShape === 'spark'
+              ? 0.46
+              : 0.3;
+
+      this.bodyPivot.rotation.y += dt * baseSpin;
+      this.bodyPivot.rotation.x = Math.cos(elapsed * 0.55 + this.phaseOffset) * 0.14;
+      this.bodyPivot.rotation.z =
+        this.currentShape === 'spark'
+          ? Math.sin(elapsed * 0.8 + this.phaseOffset) * 0.12
+          : Math.sin(elapsed * 0.45 + this.phaseOffset) * 0.04;
+
+      this.sparkleCloud.rotation.z = elapsed * 0.26 + this.phaseOffset;
+      this.sparkleCloud.rotation.y = elapsed * 0.2;
       this.flareMat.rotation = elapsed * 0.22 + this.phaseOffset;
     }
 
-    // Controlled luminous crystal & halo balance (previously opened background stars stay softer)
+    // Balanced pearlescent crystal & halo luminosity (preserves 3D facets without glow blowout)
     const boost = this.isStoryHero
-      ? 1.48
+      ? 1.35
       : this.isStoryBackground
-        ? 0.64
-        : this.isPendingLink
-          ? 1.5
+        ? 0.65
+        : this.isDragging || this.isPendingLink
+          ? 1.38
           : this.isSelected
-            ? 1.4
+            ? 1.28
             : this.isFinaleActive
-              ? 1.38
+              ? 1.22
               : this.isHovered
-                ? 1.22
+                ? 1.18
                 : this.isVisited
-                  ? 1.08
+                  ? 1.06
                   : 1.0;
 
-    this.bodyMat.emissiveIntensity = 0.48 * boost * twinkle;
-    this.gemMat.emissiveIntensity = 1.15 * boost * twinkle;
-    this.edgeMat.opacity = Math.min(0.92, 0.52 * boost * twinkle);
-    this.haloMat.opacity = Math.min(0.86, 0.5 * boost * twinkle);
-    this.flareMat.opacity = Math.min(0.78, 0.36 * boost * twinkle);
+    this.bodyMat.emissiveIntensity = 0.24 * boost * shimmer;
+    this.bodyMat.iridescence = reducedMotion ? 0.35 : 0.38 + 0.16 * Math.sin(elapsed * 1.6 + this.phaseOffset);
+    this.gemMat.emissiveIntensity = 0.96 * boost * shimmer;
+    this.edgeMat.opacity = Math.min(0.86, 0.48 * boost * shimmer);
+    this.haloMat.opacity = Math.min(0.58, 0.36 * boost * shimmer);
+    this.flareMat.opacity = Math.min(0.48, 0.24 * boost * shimmer);
 
     const haloSize =
       (this.isStoryHero
-        ? 2.45
+        ? 2.25
         : this.isStoryBackground
-          ? 1.25
-          : this.isSelected || this.isPendingLink
-            ? 2.25
+          ? 1.2
+          : this.isSelected || this.isPendingLink || this.isDragging
+            ? 2.05
             : this.isFinaleActive
-              ? 2.15
+              ? 1.98
               : this.isHovered
-                ? 2.0
-                : 1.78) * twinkle;
+                ? 1.88
+                : 1.68) * shimmer;
     this.haloSprite.scale.set(haloSize, haloSize, 1);
 
     // Steady active-selection ring in editor mode

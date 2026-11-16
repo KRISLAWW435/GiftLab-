@@ -1,0 +1,1252 @@
+import { useRef, useState } from 'react';
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  CopyCheck,
+  Frame,
+  Image as ImageIcon,
+  ImagePlus,
+  LayoutTemplate,
+  Maximize,
+  Minimize,
+  Monitor,
+  Palette,
+  RotateCcw,
+  Smartphone,
+  Sparkles,
+  Type,
+} from 'lucide-react';
+import { BUILTIN_ILLUSTRATIONS, BuiltinIllustration } from '../assets/illustrations';
+import type { EditableCardTarget, EditableTextField } from '../preview/previewProtocol';
+import {
+  CARD_DECOR_MOTIFS,
+  DARK_CARD_TEXT_COLORS,
+  DEFAULT_CARD_LAYOUT,
+  DEFAULT_STAR_IMAGE_SETTINGS,
+  GLOW_COLORS,
+  LIGHT_PAPER_TEXT_COLORS,
+  MESSAGE_FONTS,
+  MESSAGE_FONT_CATEGORIES,
+  OCCASION_PRESETS,
+  buildProjectCardDevicePatch,
+  buildProjectFinalDecorDevicePatch,
+  buildProjectFinalTextDevicePatch,
+  buildStarDecorDevicePatch,
+  buildStarIllustrationDevicePatch,
+  buildStarTextDevicePatch,
+  getDefaultDeviceDecorLayout,
+  getDefaultDeviceIllustrationLayout,
+  getDefaultDeviceTextLayout,
+  resetDeviceLayoutInProject,
+  resolveCardColors,
+  resolveEffectiveCardLayout,
+  resolveEffectiveFinalDecor,
+  resolveEffectiveFinalTextStyle,
+  resolveEffectiveIllustrationLayout,
+  resolveEffectiveStarDecor,
+  resolveEffectiveStarTextStyle,
+  resolveStarGlowHex,
+  resolveStarImageSettings,
+} from '../scene/paletteConfig';
+import { saveImageBlob } from '../services/database';
+import { processUploadedImage } from '../services/imageProcessor';
+import type {
+  CardDecorMotif,
+  CardPaddingPreset,
+  CardVerticalAlign,
+  CardWidthPreset,
+  ConstellationProject,
+  ConstellationStar,
+  DeviceCardLayout,
+  MessageTextAccent,
+  MessageTextAlign,
+  MessageTextShadow,
+  MessageTextWeight,
+  OccasionId,
+  RecipientPhase,
+  StarDecorSettings,
+  StarIllustrationLayout,
+  StarIllustrationRef,
+  StarImageFitMode,
+  StarImageSettings,
+  StarTextStyle,
+} from '../types/project';
+import { CardDecorView } from './CardDecorView';
+import { CardLibraryPanel } from './CardLibraryPanel';
+import type { PreviewDeviceId } from './LivePreviewStage';
+import { StarIllustrationView } from './StarIllustrationView';
+
+export type CardEditorTab = 'theme' | 'text' | 'illustration' | 'decor' | 'card';
+
+interface CardEditorPanelProps {
+  project: ConstellationProject;
+  device: PreviewDeviceId;
+  cardPhase: RecipientPhase;
+  cardStarIndex: number;
+  activeTab: CardEditorTab;
+  focusedField?: EditableTextField | null;
+  onChangeDevice: (device: PreviewDeviceId) => void;
+  onChangeTab: (tab: CardEditorTab, target?: EditableCardTarget) => void;
+  onSelectCardTargetView: (phase: 'constellation' | 'starStory', starIndex?: number) => void;
+  onPatchProject: (patch: Partial<ConstellationProject>) => void;
+  onPatchStar: (starId: string, patch: Partial<ConstellationStar>) => void;
+  onResetDeviceLayout: (nextProject: ConstellationProject) => void;
+}
+
+export function CardEditorPanel({
+  project,
+  device,
+  cardPhase,
+  cardStarIndex,
+  activeTab,
+  focusedField = null,
+  onChangeDevice,
+  onChangeTab,
+  onSelectCardTargetView,
+  onPatchProject,
+  onPatchStar,
+  onResetDeviceLayout,
+}: CardEditorPanelProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [appliedAllNotice, setAppliedAllNotice] = useState(false);
+  const [resetLayoutNotice, setResetLayoutNotice] = useState(false);
+
+  const isFinaleCard = cardPhase !== 'starStory';
+  const safeStarIndex = Math.max(
+    0,
+    Math.min(Math.max(0, project.stars.length - 1), cardStarIndex),
+  );
+  const activeStar = project.stars[safeStarIndex] ?? project.stars[0];
+
+  const activeGlow = isFinaleCard
+    ? GLOW_COLORS[project.globalGlowColor]
+    : activeStar
+      ? GLOW_COLORS[resolveStarGlowHex(activeStar, project.globalGlowColor)]
+      : GLOW_COLORS[project.globalGlowColor];
+
+  const activeTextStyle = isFinaleCard
+    ? resolveEffectiveFinalTextStyle(project, device)
+    : resolveEffectiveStarTextStyle(activeStar, device);
+
+  const activeIlluLayout = resolveEffectiveIllustrationLayout(activeStar, device);
+  const activeImgSettings = resolveStarImageSettings(activeStar);
+  const activeDecor = isFinaleCard
+    ? resolveEffectiveFinalDecor(project, device)
+    : resolveEffectiveStarDecor(activeStar, device);
+  const activeCardLayout = resolveEffectiveCardLayout(project, device);
+
+  const resolvedCardColors = resolveCardColors(project);
+  const orderedTextColors = resolvedCardColors.isLightPaper
+    ? [...LIGHT_PAPER_TEXT_COLORS, ...DARK_CARD_TEXT_COLORS]
+    : [...DARK_CARD_TEXT_COLORS, ...LIGHT_PAPER_TEXT_COLORS];
+
+  const updateActiveTextStyle = (patch: Partial<StarTextStyle>) => {
+    if (isFinaleCard) {
+      onPatchProject(buildProjectFinalTextDevicePatch(project, device, patch));
+    } else if (activeStar) {
+      onPatchStar(activeStar.id, buildStarTextDevicePatch(activeStar, device, patch));
+    }
+  };
+
+  const resetActiveTextLayout = () => {
+    updateActiveTextStyle(getDefaultDeviceTextLayout(device));
+  };
+
+  const applyActiveTextStyleToAllStars = () => {
+    const devText = getDefaultDeviceTextLayout(device);
+    const activeDevText = {
+      fontSize: activeTextStyle.fontSize,
+      textAlign: activeTextStyle.textAlign,
+      lineHeight: activeTextStyle.lineHeight,
+      offsetX: activeTextStyle.offsetX,
+      offsetY: activeTextStyle.offsetY,
+      widthPct: activeTextStyle.widthPct,
+    };
+    onPatchProject({
+      stars: project.stars.map((s) => ({
+        ...s,
+        textStyle: {
+          ...activeTextStyle,
+          ...devText,
+        },
+        deviceLayouts: {
+          ...s.deviceLayouts,
+          [device]: {
+            ...s.deviceLayouts?.[device],
+            text: activeDevText,
+          },
+        },
+      })),
+    });
+    setAppliedAllNotice(true);
+    window.setTimeout(() => setAppliedAllNotice(false), 1500);
+  };
+
+  const updateActiveIllustrationLayout = (patch: Partial<StarIllustrationLayout>) => {
+    if (!activeStar) return;
+    onPatchStar(activeStar.id, buildStarIllustrationDevicePatch(activeStar, device, patch));
+  };
+
+  const updateActiveImageSettings = (patch: Partial<StarImageSettings>) => {
+    if (!activeStar) return;
+    onPatchStar(activeStar.id, {
+      imageSettings: resolveStarImageSettings({
+        imageSettings: { ...activeImgSettings, ...patch },
+      }),
+    });
+  };
+
+  const resetActiveIllustration = () => {
+    if (!activeStar) return;
+    onPatchStar(activeStar.id, {
+      ...buildStarIllustrationDevicePatch(
+        activeStar,
+        device,
+        getDefaultDeviceIllustrationLayout(device),
+      ),
+      imageSettings: { ...DEFAULT_STAR_IMAGE_SETTINGS },
+    });
+  };
+
+  const handleUploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeStar) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const processed = await processUploadedImage(file);
+      const imageId = `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      await saveImageBlob(imageId, project.id, processed.blob);
+      const nextIll: StarIllustrationRef = { type: 'custom', id: imageId };
+      onPatchStar(activeStar.id, {
+        illustration: nextIll,
+        imageSettings: { ...DEFAULT_STAR_IMAGE_SETTINGS },
+      });
+      if (isFinaleCard) {
+        onSelectCardTargetView('starStory', safeStarIndex);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Не удалось загрузить фото.');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const updateActiveDecor = (patch: Partial<StarDecorSettings>) => {
+    if (isFinaleCard) {
+      onPatchProject(buildProjectFinalDecorDevicePatch(project, device, patch));
+    } else if (activeStar) {
+      onPatchStar(activeStar.id, buildStarDecorDevicePatch(activeStar, device, patch));
+    }
+  };
+
+  const resetActiveDecor = () => {
+    updateActiveDecor(getDefaultDeviceDecorLayout(device));
+  };
+
+  const updateActiveCardLayout = (patch: Partial<DeviceCardLayout>) => {
+    onPatchProject(buildProjectCardDevicePatch(project, device, patch));
+  };
+
+  const resetActiveCardLayout = () => {
+    onPatchProject(buildProjectCardDevicePatch(project, device, DEFAULT_CARD_LAYOUT[device]));
+  };
+
+  const handleResetDeviceLayout = () => {
+    onResetDeviceLayout(resetDeviceLayoutInProject(project, device));
+    setResetLayoutNotice(true);
+    window.setTimeout(() => setResetLayoutNotice(false), 1600);
+  };
+
+  return (
+    <div className="space-y-3.5">
+      {/* Device & Card View Header */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-1 p-0.5 rounded-xl bg-gl-input border border-white/10">
+            <button
+              type="button"
+              data-testid="card-panel-device-phone"
+              data-selected={device === 'phone'}
+              onClick={() => onChangeDevice('phone')}
+              className="gl-tab !min-h-[30px] !px-2 text-[11px] inline-flex items-center gap-1"
+            >
+              <Smartphone className="w-3 h-3 shrink-0" />
+              <span>Телефон</span>
+            </button>
+            <button
+              type="button"
+              data-testid="card-panel-device-desktop"
+              data-selected={device === 'desktop'}
+              onClick={() => onChangeDevice('desktop')}
+              className="gl-tab !min-h-[30px] !px-2 text-[11px] inline-flex items-center gap-1"
+            >
+              <Monitor className="w-3 h-3 shrink-0" />
+              <span>Компьютер</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            data-testid="reset-device-layout-btn"
+            onClick={handleResetDeviceLayout}
+            title={`Сбросить расположение только для «${device === 'phone' ? 'Телефон' : 'Компьютер'}»`}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-[11px] font-medium text-gl-text-secondary hover:text-gl-text cursor-pointer shrink-0"
+          >
+            <RotateCcw className="w-3 h-3 text-gl-accent-light" />
+            <span>{resetLayoutNotice ? 'Сброшено!' : 'Сброс'}</span>
+          </button>
+        </div>
+
+        {/* Target card switcher inside panel too for quick access on mobile/desktop */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+          <button
+            type="button"
+            data-testid="card-view-finale-pill"
+            data-selected={isFinaleCard}
+            onClick={() => onSelectCardTargetView('constellation')}
+            className="gl-choice px-2.5 py-1 text-[11px] font-semibold shrink-0 inline-flex items-center gap-1"
+          >
+            <Sparkles className="w-3 h-3 text-amber-300" />
+            <span>Финал</span>
+          </button>
+          {project.stars.map((s, idx) => {
+            const active = !isFinaleCard && safeStarIndex === idx;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                data-testid={`card-view-star-${idx}`}
+                data-selected={active}
+                onClick={() => onSelectCardTargetView('starStory', idx)}
+                title={s.title || `Звезда ${idx + 1}`}
+                className="gl-choice px-2 py-1 text-[11px] font-semibold shrink-0 tabular-nums"
+              >
+                ★ {idx + 1}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 5 Clean Card Editing Tabs */}
+        <div className="grid grid-cols-5 gap-1">
+          {(
+            [
+              { id: 'theme', label: 'Темы', icon: LayoutTemplate, target: 'card' as EditableCardTarget },
+              { id: 'text', label: 'Текст', icon: Type, target: 'text' as EditableCardTarget },
+              { id: 'illustration', label: 'Фото', icon: ImageIcon, target: 'illustration' as EditableCardTarget },
+              { id: 'decor', label: 'Декор', icon: Palette, target: 'decor' as EditableCardTarget },
+              { id: 'card', label: 'Макет', icon: Frame, target: 'card' as EditableCardTarget },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const selected = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                data-testid={`card-tab-${tab.id}`}
+                data-selected={selected}
+                onClick={() => {
+                  onChangeTab(tab.id, tab.target);
+                  if (tab.id === 'illustration' && isFinaleCard) {
+                    onSelectCardTargetView('starStory', safeStarIndex);
+                  }
+                }}
+                className="gl-tab !min-h-[38px] !px-1 !py-1 flex flex-col items-center justify-center gap-0.5 text-[10px]"
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate max-w-full">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* TAB 1: Темы и цвета открытки */}
+      {activeTab === 'theme' && (
+        <CardLibraryPanel
+          project={project}
+          onChange={onPatchProject}
+          compact
+        />
+      )}
+
+      {/* TAB 2: Тексты и оформление */}
+      {activeTab === 'text' && (
+        <div className="space-y-3.5">
+          <div className="rounded-xl border border-gl-accent/25 bg-gl-accent/10 px-3 py-2 text-[11px] text-gl-text-secondary leading-snug">
+            Нажми на любой текст прямо на открытке слева, чтобы исправить его, или настрой ниже.
+          </div>
+
+          {isFinaleCard ? (
+            <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block space-y-1">
+                  <span className="text-[11px] text-gl-text-muted block">Кому</span>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    value={project.recipientName}
+                    data-testid="card-input-recipientName"
+                    onChange={(e) => onPatchProject({ recipientName: e.target.value })}
+                    placeholder="Имя получателя"
+                    className={`gl-input text-xs ${
+                      focusedField === 'recipientName' ? 'ring-2 ring-gl-accent-light' : ''
+                    }`}
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] text-gl-text-muted block">От кого</span>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    value={project.senderName ?? ''}
+                    data-testid="card-input-senderName"
+                    onChange={(e) => onPatchProject({ senderName: e.target.value })}
+                    placeholder="Твоё имя"
+                    className={`gl-input text-xs ${
+                      focusedField === 'senderName' ? 'ring-2 ring-gl-accent-light' : ''
+                    }`}
+                  />
+                </label>
+              </div>
+
+              <label className="block space-y-1">
+                <span className="text-[11px] text-gl-text-muted block">Заголовок открытки</span>
+                <input
+                  type="text"
+                  maxLength={50}
+                  value={project.title}
+                  data-testid="card-input-title"
+                  onChange={(e) => onPatchProject({ title: e.target.value })}
+                  placeholder="Название подарка"
+                  className={`gl-input text-xs ${
+                    focusedField === 'title' ? 'ring-2 ring-gl-accent-light' : ''
+                  }`}
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-gl-text-muted">Финальное письмо</span>
+                  <span className="text-gl-text-muted tabular-nums">
+                    {project.finalMessage.length}/800
+                  </span>
+                </div>
+                <textarea
+                  rows={4}
+                  maxLength={800}
+                  value={project.finalMessage}
+                  data-testid="card-input-finalMessage"
+                  onChange={(e) => onPatchProject({ finalMessage: e.target.value })}
+                  placeholder="Тёплые слова, которые появятся в конце..."
+                  className={`gl-textarea resize-y text-xs leading-relaxed ${
+                    focusedField === 'finalMessage' ? 'ring-2 ring-gl-accent-light' : ''
+                  }`}
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block space-y-1">
+                  <span className="text-[11px] text-gl-text-muted block">Повод</span>
+                  <select
+                    value={project.occasion}
+                    onChange={(e) => {
+                      const occId = e.target.value as OccasionId;
+                      const found = OCCASION_PRESETS.find((p) => p.id === occId);
+                      onPatchProject({
+                        occasion: occId,
+                        occasionLabel: found?.label ?? 'Свой повод',
+                      });
+                    }}
+                    className="gl-select text-xs"
+                  >
+                    {OCCASION_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] text-gl-text-muted block">Подпись внизу</span>
+                  <input
+                    type="text"
+                    maxLength={36}
+                    value={project.occasionLabel}
+                    data-testid="card-input-occasionLabel"
+                    onChange={(e) => onPatchProject({ occasionLabel: e.target.value })}
+                    className={`gl-input text-xs ${
+                      focusedField === 'occasionLabel' ? 'ring-2 ring-gl-accent-light' : ''
+                    }`}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : activeStar ? (
+            <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+              <div className="flex items-center justify-between gap-2 text-xs font-semibold text-gl-text">
+                <span>Карточка звезды {safeStarIndex + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => onSelectCardTargetView('constellation')}
+                  className="text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                >
+                  К финалу
+                </button>
+              </div>
+
+              <label className="block space-y-1">
+                <span className="text-[11px] text-gl-text-muted block">Заголовок звезды</span>
+                <input
+                  type="text"
+                  maxLength={30}
+                  value={activeStar.title}
+                  data-testid="card-input-starTitle"
+                  onChange={(e) => onPatchStar(activeStar.id, { title: e.target.value })}
+                  className={`gl-input text-xs ${
+                    focusedField === 'starTitle' ? 'ring-2 ring-gl-accent-light' : ''
+                  }`}
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-[11px] text-gl-text-muted block">Послание</span>
+                <textarea
+                  rows={3}
+                  maxLength={180}
+                  value={activeStar.message}
+                  data-testid="card-input-starMessage"
+                  onChange={(e) => onPatchStar(activeStar.id, { message: e.target.value })}
+                  className={`gl-textarea resize-none text-xs leading-relaxed ${
+                    focusedField === 'starMessage' ? 'ring-2 ring-gl-accent-light' : ''
+                  }`}
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-[11px] text-gl-text-muted block">Подпись (От кого)</span>
+                <input
+                  type="text"
+                  maxLength={40}
+                  value={project.senderName ?? ''}
+                  onChange={(e) => onPatchProject({ senderName: e.target.value })}
+                  placeholder="Твоё имя"
+                  className="gl-input text-xs"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {/* Font, Alignment, Size, Color, Width */}
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-gl-text-secondary">
+                Шрифт и стиль текста
+              </span>
+              <div className="flex items-center gap-2">
+                {!isFinaleCard && (
+                  <button
+                    type="button"
+                    onClick={applyActiveTextStyleToAllStars}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-200 hover:text-amber-100 cursor-pointer"
+                  >
+                    <CopyCheck className="w-3 h-3" />
+                    {appliedAllNotice ? 'Готово!' : 'Ко всем'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={resetActiveTextLayout}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Сброс
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              {MESSAGE_FONTS.map((font) => {
+                const cat = MESSAGE_FONT_CATEGORIES.find((c) => c.id === font.category);
+                const active = activeTextStyle.fontId === font.id;
+                return (
+                  <button
+                    key={font.id}
+                    type="button"
+                    data-testid={`card-font-${font.id}`}
+                    data-selected={active}
+                    onClick={() => updateActiveTextStyle({ fontId: font.id })}
+                    className="gl-choice w-full text-left px-2.5 py-1.5"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-gl-accent-light">
+                        {cat?.name}
+                      </span>
+                      <span className="text-[11px] text-gl-text-muted">· {font.name}</span>
+                    </div>
+                    <p
+                      className="text-sm text-gl-text truncate"
+                      style={{ fontFamily: font.cssFamily }}
+                    >
+                      {font.sample}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <span className="text-[11px] text-gl-text-muted block">Начертание</span>
+                <div className="grid grid-cols-2 gap-1">
+                  {(
+                    [
+                      { id: 'normal', label: 'Обычный' },
+                      { id: 'semibold', label: 'Жирный' },
+                    ] as Array<{ id: MessageTextWeight; label: string }>
+                  ).map((w) => (
+                    <button
+                      key={w.id}
+                      type="button"
+                      data-selected={activeTextStyle.fontWeight === w.id}
+                      onClick={() => updateActiveTextStyle({ fontWeight: w.id })}
+                      className={`gl-choice py-1.5 px-1 text-[11px] ${
+                        w.id === 'semibold' ? 'font-semibold' : 'font-normal'
+                      }`}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[11px] text-gl-text-muted block">Выравнивание</span>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: 'left', label: 'Слева', icon: AlignLeft },
+                      { id: 'center', label: 'По центру', icon: AlignCenter },
+                      { id: 'right', label: 'Справа', icon: AlignRight },
+                    ] as Array<{
+                      id: MessageTextAlign;
+                      label: string;
+                      icon: typeof AlignLeft;
+                    }>
+                  ).map((al) => {
+                    const Icon = al.icon;
+                    return (
+                      <button
+                        key={al.id}
+                        type="button"
+                        title={al.label}
+                        aria-label={al.label}
+                        data-testid={`card-text-align-${al.id}`}
+                        data-selected={activeTextStyle.textAlign === al.id}
+                        onClick={() => updateActiveTextStyle({ textAlign: al.id })}
+                        className="gl-choice py-1.5 flex items-center justify-center"
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gl-text-secondary font-medium">Размер букв</span>
+                <span className="text-gl-text-muted">Мельче — Крупнее</span>
+              </div>
+              <input
+                type="range"
+                min={14}
+                max={24}
+                step={1}
+                value={activeTextStyle.fontSize}
+                aria-label="Размер текста на открытке"
+                onChange={(e) => updateActiveTextStyle({ fontSize: Number(e.target.value) })}
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gl-text-secondary font-medium">Интервал строк</span>
+                <span className="text-gl-text-muted">Плотнее — Свободнее</span>
+              </div>
+              <input
+                type="range"
+                min={1.2}
+                max={2.0}
+                step={0.05}
+                value={activeTextStyle.lineHeight}
+                aria-label="Межстрочный интервал на открытке"
+                onChange={(e) => updateActiveTextStyle({ lineHeight: Number(e.target.value) })}
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gl-text-secondary font-medium">Ширина текстового блока</span>
+                <span className="text-gl-text-muted">Узко — Широко</span>
+              </div>
+              <input
+                type="range"
+                min={56}
+                max={100}
+                step={2}
+                value={activeTextStyle.widthPct}
+                aria-label="Ширина текстового блока на открытке"
+                onChange={(e) => updateActiveTextStyle({ widthPct: Number(e.target.value) })}
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-gl-text-muted">Положение блока</span>
+              <button
+                type="button"
+                onClick={() => updateActiveTextStyle({ offsetX: 0, offsetY: 0 })}
+                className="gl-choice px-2.5 py-1 text-[11px] font-medium"
+              >
+                Вернуть в центр
+              </button>
+            </div>
+
+            <div className="space-y-1.5 pt-1 border-t border-white/10">
+              <span className="text-[11px] text-gl-text-muted block">Цвет текста</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {orderedTextColors.map((c) => {
+                  const active = activeTextStyle.color.toUpperCase() === c.hex.toUpperCase();
+                  return (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      title={c.name}
+                      aria-label={c.name}
+                      data-selected={active}
+                      onClick={() => updateActiveTextStyle({ color: c.hex })}
+                      className={`w-7 h-7 rounded-lg border transition-transform cursor-pointer ${
+                        active
+                          ? 'border-gl-accent-light scale-110 ring-2 ring-gl-accent/45'
+                          : 'border-white/25 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: c.hex }}
+                    />
+                  );
+                })}
+                <label className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2 h-7 text-[11px] text-gl-text-secondary cursor-pointer hover:border-white/30">
+                  <input
+                    type="color"
+                    value={activeTextStyle.color}
+                    aria-label="Свой цвет текста на открытке"
+                    onChange={(e) =>
+                      updateActiveTextStyle({ color: e.target.value.toUpperCase() })
+                    }
+                    className="w-4 h-4 bg-transparent border-0 p-0 cursor-pointer"
+                  />
+                  <span>Свой</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] text-gl-text-muted block">Тень текста</span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'soft', label: 'Мягкая' },
+                    { id: 'glow', label: 'Сияние' },
+                    { id: 'none', label: 'Нет' },
+                  ] as Array<{ id: MessageTextShadow; label: string }>
+                ).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    data-selected={activeTextStyle.shadow === s.id}
+                    onClick={() => updateActiveTextStyle({ shadow: s.id })}
+                    className="gl-choice py-1.5 text-[11px] font-medium"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: Иллюстрация и загрузка фото на открытку */}
+      {activeTab === 'illustration' && activeStar && (
+        <div className="space-y-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-gl-text-muted leading-snug">
+              Выбери картинку или фото для звезды {safeStarIndex + 1} — двигай её прямо на открытке!
+            </span>
+            <button
+              type="button"
+              onClick={resetActiveIllustration}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Сброс
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {BUILTIN_ILLUSTRATIONS.map((item) => {
+              const active =
+                activeStar.illustration.type === 'builtin' &&
+                activeStar.illustration.id === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`card-illu-${item.id}`}
+                  data-selected={active}
+                  title={item.meaning}
+                  onClick={() => {
+                    onPatchStar(activeStar.id, {
+                      illustration: { type: 'builtin', id: item.id },
+                    });
+                    if (isFinaleCard) onSelectCardTargetView('starStory', safeStarIndex);
+                  }}
+                  className="gl-choice min-h-[76px] p-2 flex flex-col items-center justify-center gap-1"
+                >
+                  <div className="w-9 h-9 flex items-center justify-center">
+                    <BuiltinIllustration id={item.id} className="w-full h-full object-contain" />
+                  </div>
+                  <span className="text-[10px] font-medium text-gl-text text-center leading-tight line-clamp-2">
+                    {item.name}
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              data-testid="card-illu-upload-btn"
+              data-selected={activeStar.illustration.type === 'custom'}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="gl-choice min-h-[76px] p-2 flex flex-col items-center justify-center gap-1"
+            >
+              {activeStar.illustration.type === 'custom' ? (
+                <div className="w-9 h-9 rounded-lg overflow-hidden bg-white/[0.04]">
+                  <StarIllustrationView
+                    illustration={activeStar.illustration}
+                    imageSettings={activeImgSettings}
+                    alt={activeStar.title || 'Своё фото'}
+                    className="w-full h-full"
+                  />
+                </div>
+              ) : (
+                <div className="w-9 h-9 rounded-lg bg-white/[0.05] border border-dashed border-white/25 flex items-center justify-center text-gl-accent-light">
+                  <ImagePlus className="w-4 h-4" />
+                </div>
+              )}
+              <span className="text-[10px] font-medium text-gl-text text-center leading-tight">
+                {uploading ? 'Сжатие...' : activeStar.illustration.type === 'custom' ? 'Своё фото' : 'Загрузить'}
+              </span>
+            </button>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleUploadPhoto}
+            className="hidden"
+          />
+
+          {uploadError && <p className="text-xs text-rose-300">{uploadError}</p>}
+
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gl-text-secondary font-medium">Размер картинки</span>
+                <span className="text-gl-text-muted">Меньше — Больше</span>
+              </div>
+              <input
+                type="range"
+                min={0.65}
+                max={1.45}
+                step={0.05}
+                value={activeIlluLayout.scale}
+                aria-label="Размер иллюстрации на открытке"
+                onChange={(e) =>
+                  updateActiveIllustrationLayout({ scale: Number(e.target.value) })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <div className="space-y-1.5">
+              <span className="text-[11px] text-gl-text-muted block">
+                Положение по горизонтали
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { label: 'Слева', value: -100 },
+                    { label: 'По центру', value: 0 },
+                    { label: 'Справа', value: 100 },
+                  ] as const
+                ).map((pos) => (
+                  <button
+                    key={pos.label}
+                    type="button"
+                    data-selected={Math.abs(activeIlluLayout.offsetX - pos.value) < 25}
+                    onClick={() => updateActiveIllustrationLayout({ offsetX: pos.value })}
+                    className="gl-choice py-1.5 text-[11px] font-medium"
+                  >
+                    {pos.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-[11px] text-gl-text-muted block">
+                Положение по высоте
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { label: 'Выше', value: -55 },
+                    { label: 'Середина', value: 0 },
+                    { label: 'Ниже', value: 55 },
+                  ] as const
+                ).map((pos) => (
+                  <button
+                    key={pos.label}
+                    type="button"
+                    data-selected={Math.abs(activeIlluLayout.offsetY - pos.value) < 25}
+                    onClick={() => updateActiveIllustrationLayout({ offsetY: pos.value })}
+                    className="gl-choice py-1.5 text-[11px] font-medium"
+                  >
+                    {pos.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <span className="text-[11px] font-medium text-gl-text-secondary block">
+              Как показать внутри рамки
+            </span>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { id: 'cover', label: 'Заполнить', icon: Maximize },
+                  { id: 'contain', label: 'Вписать', icon: Minimize },
+                ] as Array<{ id: StarImageFitMode; label: string; icon: typeof Maximize }>
+              ).map((fitMode) => {
+                const Icon = fitMode.icon;
+                return (
+                  <button
+                    key={fitMode.id}
+                    type="button"
+                    data-selected={activeImgSettings.fit === fitMode.id}
+                    onClick={() => updateActiveImageSettings({ fit: fitMode.id })}
+                    className="gl-choice py-1.5 text-[11px] font-medium inline-flex items-center justify-center gap-1"
+                  >
+                    <Icon className="w-3 h-3" />
+                    {fitMode.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <label className="block space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gl-text-muted">Приблизить фото</span>
+                <span className="text-gl-text-muted">Дальше — Ближе</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={2.5}
+                step={0.05}
+                value={activeImgSettings.scale}
+                aria-label="Приближение картинки внутри рамки"
+                onChange={(e) =>
+                  updateActiveImageSettings({ scale: Number(e.target.value) })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: Декор и украшения открытки */}
+      {activeTab === 'decor' && (
+        <div className="space-y-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-gl-text-muted">
+              Украшения на открытке
+            </span>
+            <button
+              type="button"
+              onClick={resetActiveDecor}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Сброс
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="text-[11px] text-gl-text-muted block">Оформление текста</span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {(
+                [
+                  { id: 'none', label: 'Нет' },
+                  { id: 'line', label: 'Линия' },
+                  { id: 'frame', label: 'Рамка' },
+                  { id: 'quote', label: 'Черта' },
+                ] as Array<{ id: MessageTextAccent; label: string }>
+              ).map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  data-selected={activeTextStyle.accent === a.id}
+                  onClick={() => updateActiveTextStyle({ accent: a.id })}
+                  className="gl-choice py-1.5 px-1 text-[11px] font-medium"
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="text-[11px] text-gl-text-muted block">Узор на открытке</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {CARD_DECOR_MOTIFS.map((item) => {
+                const active = activeDecor.motif === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-testid={`card-decor-motif-${item.id}`}
+                    data-selected={active}
+                    onClick={() =>
+                      updateActiveDecor({ motif: item.id as CardDecorMotif })
+                    }
+                    className="gl-choice p-2 flex flex-col items-center gap-1"
+                  >
+                    <div className="w-9 h-9 flex items-center justify-center">
+                      {item.id === 'none' ? (
+                        <span className="text-xs text-gl-text-muted">—</span>
+                      ) : (
+                        <CardDecorView
+                          motif={item.id}
+                          glowHex={activeGlow.hex}
+                          coreHex={activeGlow.coreHex}
+                          className="w-9 h-9"
+                        />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-medium">{item.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {activeDecor.motif !== 'none' && (
+            <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+              <span className="text-[11px] text-gl-text-secondary font-medium block">
+                Куда поставить узор (или перетащи на открытке)
+              </span>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {(
+                  [
+                    { label: 'Верх-лево', xPct: 14, yPct: 14 },
+                    { label: 'Верх-право', xPct: 84, yPct: 16 },
+                    { label: 'Низ-лево', xPct: 14, yPct: 80 },
+                    { label: 'Низ-право', xPct: 84, yPct: 78 },
+                  ] as const
+                ).map((presetPos) => (
+                  <button
+                    key={presetPos.label}
+                    type="button"
+                    onClick={() =>
+                      updateActiveDecor({
+                        xPct: presetPos.xPct,
+                        yPct: presetPos.yPct,
+                      })
+                    }
+                    className="gl-choice py-1.5 text-[11px] font-medium"
+                  >
+                    {presetPos.label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="block space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-gl-text-muted">Размер узора</span>
+                  <span className="text-gl-text-muted">Меньше — Больше</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.7}
+                  max={1.45}
+                  step={0.05}
+                  value={activeDecor.scale}
+                  aria-label="Размер декоративного элемента"
+                  onChange={(e) =>
+                    updateActiveDecor({ scale: Number(e.target.value) })
+                  }
+                  className="w-full accent-gl-accent cursor-pointer"
+                />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 5: Макет и отступы открытки */}
+      {activeTab === 'card' && (
+        <div className="space-y-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-gl-text-muted">
+              Настройки только для режима «{device === 'phone' ? 'Телефон' : 'Компьютер'}»
+            </span>
+            <button
+              type="button"
+              onClick={resetActiveCardLayout}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Сброс
+            </button>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <span className="text-[11px] font-medium text-gl-text-secondary block">
+              Отступы внутри открытки
+            </span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { id: 'compact', label: 'Компактно' },
+                  { id: 'normal', label: 'Обычно' },
+                  { id: 'spacious', label: 'Просторно' },
+                ] as Array<{ id: CardPaddingPreset; label: string }>
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  data-testid={`card-padding-${opt.id}`}
+                  data-selected={activeCardLayout.padding === opt.id}
+                  onClick={() => updateActiveCardLayout({ padding: opt.id })}
+                  className="gl-choice py-2 text-[11px] font-medium"
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <span className="text-[11px] font-medium text-gl-text-secondary block">
+              Ширина открытки
+            </span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { id: 'compact', label: 'Узкая' },
+                  { id: 'standard', label: 'Обычная' },
+                  { id: 'wide', label: 'Широкая' },
+                ] as Array<{ id: CardWidthPreset; label: string }>
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  data-testid={`card-width-${opt.id}`}
+                  data-selected={activeCardLayout.width === opt.id}
+                  onClick={() => updateActiveCardLayout({ width: opt.id })}
+                  className="gl-choice py-2 text-[11px] font-medium"
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <span className="text-[11px] font-medium text-gl-text-secondary block">
+              Композиция по высоте
+            </span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { id: 'top', label: 'Сверху' },
+                  { id: 'center', label: 'По центру' },
+                  { id: 'spread', label: 'Свободнее' },
+                ] as Array<{ id: CardVerticalAlign; label: string }>
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  data-testid={`card-align-${opt.id}`}
+                  data-selected={activeCardLayout.verticalAlign === opt.id}
+                  onClick={() => updateActiveCardLayout({ verticalAlign: opt.id })}
+                  className="gl-choice py-2 text-[11px] font-medium"
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="block space-y-1 pt-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gl-text-muted">Положение открытки</span>
+                <span className="text-gl-text-muted">Выше — Ниже</span>
+              </div>
+              <input
+                type="range"
+                min={-50}
+                max={50}
+                step={5}
+                value={activeCardLayout.offsetY}
+                aria-label="Вертикальное положение открытки"
+                onChange={(e) =>
+                  updateActiveCardLayout({ offsetY: Number(e.target.value) })
+                }
+                className="w-full accent-gl-accent cursor-pointer"
+              />
+            </label>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => updateActiveCardLayout({ offsetY: 0 })}
+                className="gl-choice px-2.5 py-1 text-[11px] font-medium"
+              >
+                Вернуть в центр
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

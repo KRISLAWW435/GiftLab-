@@ -6,6 +6,7 @@ import {
 import type {
   ConstellationStar,
   CosmicPaletteId,
+  DeviceConstellationLayout,
   EditorInteractionMode,
   GlowColorId,
   RecipientPhase,
@@ -41,6 +42,7 @@ interface Constellation3DProps {
   finaleActive?: boolean;
   lowPerformance?: boolean;
   reducedMotion?: boolean;
+  constellationLayout?: DeviceConstellationLayout;
   force2DFallback?: boolean;
   playIntroOnMount?: boolean;
   startSealed?: boolean;
@@ -74,6 +76,7 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       finaleActive = false,
       lowPerformance = false,
       reducedMotion = false,
+      constellationLayout,
       force2DFallback = false,
       playIntroOnMount = false,
       startSealed = false,
@@ -137,6 +140,7 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
       finaleActive,
       lowPerformance,
       reducedMotion,
+      constellationLayout,
     };
 
     const initialStateRef = useRef(sceneState);
@@ -213,6 +217,7 @@ export const Constellation3D = forwardRef<Constellation3DHandle, Constellation3D
           unlockedCount={unlockedCount}
           finaleActive={finaleActive}
           reducedMotion={reducedMotion}
+          constellationLayout={constellationLayout}
           onSelectStar={onSelectStar}
           onSelectConnection={onSelectConnection}
           onMoveStar={onMoveStar}

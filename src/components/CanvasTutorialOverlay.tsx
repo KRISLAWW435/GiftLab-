@@ -90,9 +90,9 @@ const TOUCH_CONTROLS = [
   },
   {
     id: 'select',
-    keyLabel: 'Вкладка «Звёзды»',
+    keyLabel: 'Этап «Мои звёзды»',
     title: 'Выбор и настройка',
-    desc: 'Переключайтесь между сценой, списком звёзд и настройками на нижней панели.',
+    desc: 'Переключайтесь между сценой и этапами мастерской на панели.',
     icon: Sparkles,
   },
 ] as const;
@@ -122,7 +122,7 @@ export function CanvasTutorialOverlay({
 
   if (step === 'practice') {
     return (
-      <div className="pointer-events-none fixed lg:absolute inset-x-3 top-16 lg:top-3 lg:inset-x-auto lg:left-3 z-30 flex justify-start">
+      <div className="pointer-events-none fixed md:absolute inset-x-3 top-28 md:top-3 md:inset-x-auto md:left-3 z-30 flex justify-start">
         <div
           role="status"
           aria-live="polite"

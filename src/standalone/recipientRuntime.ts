@@ -4,22 +4,33 @@ import {
   GLOW_COLORS,
   computeTextBlockMarginLeftPct,
   isDefaultStarTextStyle,
+  resolveCardColors,
+  resolveCardTheme,
+  resolveEffectiveCardLayout,
+  resolveEffectiveConstellationLayout,
+  resolveEffectiveFinalDecor,
+  resolveEffectiveFinalTextStyle,
+  resolveEffectiveIllustrationLayout,
+  resolveEffectiveStarDecor,
+  resolveEffectiveStarTextStyle,
   resolveMessageFont,
-  resolveStarDecor,
   resolveStarGlowHex,
-  resolveStarIllustrationLayout,
   resolveStarImageSettings,
   resolveStarShape,
-  resolveStarTextStyle,
   resolveTextShadowCss,
+  resolveViewportDeviceMode,
   sanitizeConnections,
 } from '../scene/paletteConfig';
 import type {
   CardDecorMotif,
+  CardThemeCustomColors,
+  CardThemeId,
   ConstellationStar,
   CosmicPaletteId,
+  DeviceLayoutKey,
   GlowColorId,
   MessageTextAlign,
+  ProjectDeviceLayouts,
   RecipientPhase,
   StarConnection,
   StarDecorSettings,
@@ -38,6 +49,9 @@ interface StandalonePayload {
   occasionLabel: string;
   paletteId: CosmicPaletteId;
   globalGlowColor: GlowColorId;
+  cardTheme?: CardThemeId;
+  cardColors?: CardThemeCustomColors;
+  deviceLayouts?: ProjectDeviceLayouts;
   stars: StandaloneStar[];
   connections?: StarConnection[];
   finalMessage: string;
@@ -129,6 +143,35 @@ function createCardDecorSvg(
     mk('path', { d: 'M86 86C86 86 73 78 73 69C73 64.8 76.2 61.6 80.2 61.6C82.8 61.6 84.9 63 86 65C87.1 63 89.2 61.6 91.8 61.6C95.8 61.6 99 64.8 99 69C99 78 86 86 86 86Z', stroke: coreHex, 'stroke-width': '1.8', fill: coreHex, 'fill-opacity': '0.22' });
     mk('circle', { cx: '88', cy: '36', r: '2.2', fill: coreHex, 'fill-opacity': '0.85' });
     mk('circle', { cx: '28', cy: '82', r: '2.5', fill: glowHex, 'fill-opacity': '0.8' });
+  } else if (motif === 'soft_flowers') {
+    mk('path', { d: 'M22 96C34 74 52 54 78 36', stroke: glowHex, 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-opacity': '0.65' });
+    mk('path', { d: 'M44 74C32 68 26 57 32 48C38 44 48 53 48 66', fill: glowHex, 'fill-opacity': '0.16', stroke: glowHex, 'stroke-width': '1.4' });
+    mk('path', { d: 'M62 54C74 58 86 54 88 45C84 38 72 41 64 49', fill: glowHex, 'fill-opacity': '0.16', stroke: glowHex, 'stroke-width': '1.4' });
+    for (let deg = 0; deg < 360; deg += 60) {
+      mk('ellipse', { cx: '78', cy: '24', rx: '6', ry: '11', transform: `rotate(${deg} 78 36)`, fill: coreHex, 'fill-opacity': '0.28', stroke: glowHex, 'stroke-width': '1.5' });
+    }
+    mk('circle', { cx: '78', cy: '36', r: '5', fill: glowHex, 'fill-opacity': '0.85' });
+    for (let deg = 0; deg < 360; deg += 72) {
+      mk('ellipse', { cx: '36', cy: '78', rx: '4', ry: '7.2', transform: `rotate(${deg} 36 86)`, fill: coreHex, 'fill-opacity': '0.26', stroke: glowHex, 'stroke-width': '1.2' });
+    }
+    mk('circle', { cx: '36', cy: '86', r: '3.4', fill: glowHex, 'fill-opacity': '0.8' });
+  } else if (motif === 'petals') {
+    mk('path', { d: 'M34 26C48 22 56 32 52 44C46 52 34 50 28 40C24 33 27 28 34 26Z', fill: glowHex, 'fill-opacity': '0.22', stroke: glowHex, 'stroke-width': '1.6' });
+    mk('path', { d: 'M78 24C90 28 92 40 84 48C76 52 66 46 66 36C66 28 71 22 78 24Z', fill: coreHex, 'fill-opacity': '0.3', stroke: glowHex, 'stroke-width': '1.5' });
+    mk('path', { d: 'M54 58C68 54 78 64 74 78C67 86 53 84 46 74C42 66 46 60 54 58Z', fill: glowHex, 'fill-opacity': '0.26', stroke: glowHex, 'stroke-width': '1.7' });
+    mk('path', { d: 'M24 78C32 74 39 79 37 87C33 93 24 92 20 86C18 82 20 79 24 78Z', fill: coreHex, 'fill-opacity': '0.28', stroke: glowHex, 'stroke-width': '1.4' });
+    mk('path', { d: 'M88 76C98 76 102 85 96 92C90 97 81 93 80 85C79 79 83 76 88 76Z', fill: glowHex, 'fill-opacity': '0.2', stroke: glowHex, 'stroke-width': '1.4' });
+    mk('circle', { cx: '62', cy: '42', r: '2', fill: glowHex, 'fill-opacity': '0.7' });
+    mk('circle', { cx: '88', cy: '60', r: '1.8', fill: glowHex, 'fill-opacity': '0.65' });
+  } else if (motif === 'magic_rays') {
+    mk('circle', { cx: '60', cy: '60', r: '26', stroke: glowHex, 'stroke-width': '1.2', 'stroke-dasharray': '3 5', 'stroke-opacity': '0.6' });
+    mk('line', { x1: '60', y1: '10', x2: '60', y2: '110', stroke: coreHex, 'stroke-width': '1.4', 'stroke-opacity': '0.65' });
+    mk('line', { x1: '10', y1: '60', x2: '110', y2: '60', stroke: coreHex, 'stroke-width': '1.4', 'stroke-opacity': '0.65' });
+    mk('line', { x1: '25', y1: '25', x2: '95', y2: '95', stroke: glowHex, 'stroke-width': '1.2', 'stroke-opacity': '0.55' });
+    mk('line', { x1: '95', y1: '25', x2: '25', y2: '95', stroke: glowHex, 'stroke-width': '1.2', 'stroke-opacity': '0.55' });
+    mk('path', { d: 'M60 34L65 55L86 60L65 65L60 86L55 65L34 60L55 55L60 34Z', fill: coreHex, 'fill-opacity': '0.9', stroke: glowHex, 'stroke-width': '1.4' });
+    mk('circle', { cx: '92', cy: '28', r: '2.2', fill: coreHex, 'fill-opacity': '0.85' });
+    mk('circle', { cx: '28', cy: '92', r: '2.2', fill: glowHex, 'fill-opacity': '0.8' });
   } else if (motif === 'corners') {
     mk('path', { d: 'M16 42V22C16 18.7 18.7 16 22 16H42', stroke: glowHex, 'stroke-width': '2', 'stroke-linecap': 'round' });
     mk('path', { d: 'M104 78V98C104 101.3 101.3 104 98 104H78', stroke: glowHex, 'stroke-width': '2', 'stroke-linecap': 'round' });
@@ -173,6 +216,9 @@ function bootGiftLabRecipient(): void {
 
   const palette = COSMIC_PALETTES[payload.paletteId] ?? COSMIC_PALETTES.lavender;
   const globalGlow = GLOW_COLORS[payload.globalGlowColor] ?? GLOW_COLORS.gold;
+  const cardTheme = resolveCardTheme(payload.cardTheme);
+  const cardColors = resolveCardColors(payload);
+  const hasExplicitCardTheme = Boolean(payload.cardTheme || payload.cardColors);
   const normalizedStars: StandaloneStar[] = payload.stars.map((s) => ({
     ...s,
     shape: resolveStarShape(s),
@@ -187,6 +233,7 @@ function bootGiftLabRecipient(): void {
   let activeIndex = 0;
   let unlockedCount = 0;
   let finaleReached = false;
+  let letterOpen = true;
   let reducedMotion =
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   let engine: ConstellationEngine | null = null;
@@ -311,6 +358,26 @@ function bootGiftLabRecipient(): void {
   const storyLeft = el('div', 'gl-story-left');
   const storyRight = el('div', 'gl-story-right');
   const storyMotionWrap = el('div', 'gl-story-motion-wrap');
+  if (hasExplicitCardTheme) {
+    storyMotionWrap.classList.add('gl-story-paper');
+    if (cardColors.isLightPaper) storyMotionWrap.classList.add('gl-paper-light');
+    storyMotionWrap.style.background = cardColors.isLightPaper
+      ? `linear-gradient(155deg, ${cardColors.surfaceBg}F5 0%, ${cardColors.surfaceBgAlt}F2 100%)`
+      : `linear-gradient(155deg, ${cardColors.surfaceBg}CC 0%, ${cardColors.surfaceBgAlt}C4 100%)`;
+    storyMotionWrap.style.borderColor = `${cardColors.borderColor}70`;
+    if (cardTheme.paperPattern === 'paper' || cardTheme.paperPattern === 'botanical') {
+      const innerBorder = el('div', 'gl-letter-frame-inner');
+      innerBorder.style.borderColor = `${cardColors.accentColor}45`;
+      if (cardTheme.paperPattern === 'botanical') innerBorder.style.borderStyle = 'dashed';
+      storyMotionWrap.appendChild(innerBorder);
+    } else if (cardTheme.paperPattern === 'stars') {
+      const starsPat = el('div', 'gl-letter-pattern');
+      starsPat.style.opacity = '0.4';
+      starsPat.style.backgroundImage = `radial-gradient(${cardColors.accentColor}66 1px, transparent 1px)`;
+      starsPat.style.backgroundSize = '26px 26px';
+      storyMotionWrap.appendChild(starsPat);
+    }
+  }
   const storyContent = el('article', 'gl-story-content');
 
   const storyCardDecor = el('div', 'gl-card-decor gl-hidden');
@@ -351,7 +418,7 @@ function bootGiftLabRecipient(): void {
     storyBlock,
     bottomInnerSpacer,
   );
-  storyMotionWrap.appendChild(storyContent);
+  storyMotionWrap.append(storyCardDecor, storyContent);
 
   // Stably mounted secondary arrows + unobtrusive swipe hint
   const storyNav = el('div', 'gl-story-nav');
@@ -371,34 +438,120 @@ function bootGiftLabRecipient(): void {
   nextArrowBtn.setAttribute('aria-label', 'Следующая звезда');
 
   storyNav.append(prevArrowBtn, swipeHint, nextArrowBtn);
-  storyRight.append(storyCardDecor, storyMotionWrap, storyNav);
+  storyRight.append(storyMotionWrap, storyNav);
   storyGrid.append(storyLeft, storyRight);
   storyUi.append(storyScrim, storyTop, storyGrid);
   stage.appendChild(storyUi);
 
-  // PHASE 5: Final Rotating Constellation Top Greeting & Dock
-  const finaleScrim = el('div', 'gl-finale-scrim gl-hidden');
-  const finaleTop = el('header', 'gl-finale-top gl-hidden');
+  // PHASE 5: Final Rotating Constellation Emerging Paper Letter & Dock
+  const letterBackdrop = el('div', 'gl-letter-backdrop gl-hidden');
+  const letterCard = el('article', 'gl-letter-card');
+  letterCard.setAttribute('role', 'dialog');
+  letterCard.setAttribute('aria-label', 'Финальное поздравительное письмо');
+  letterCard.style.background = `linear-gradient(155deg, ${cardColors.surfaceBg} 0%, ${cardColors.surfaceBgAlt} 100%)`;
+  letterCard.style.borderColor = `${cardColors.borderColor}88`;
+  letterCard.style.boxShadow = cardColors.isLightPaper
+    ? `0 24px 64px rgba(4,7,20,0.55), 0 0 0 1px ${cardColors.accentColor}26`
+    : `0 24px 70px rgba(3,5,16,0.78), 0 0 42px ${cardColors.accentColor}24`;
+
+  if (cardTheme.paperPattern === 'paper') {
+    const tex = el('div', 'gl-letter-pattern');
+    tex.style.opacity = '0.45';
+    tex.style.backgroundImage =
+      'repeating-linear-gradient(0deg, rgba(140,108,80,0.03) 0px, rgba(140,108,80,0.03) 1px, transparent 1px, transparent 26px)';
+    const frame = el('div', 'gl-letter-frame-inner');
+    frame.style.borderColor = `${cardColors.accentColor}40`;
+    letterCard.append(tex, frame);
+  } else if (cardTheme.paperPattern === 'stars') {
+    const stars = el('div', 'gl-letter-pattern');
+    stars.style.opacity = '0.45';
+    stars.style.backgroundImage = `radial-gradient(${cardColors.accentColor}66 1px, transparent 1px)`;
+    stars.style.backgroundSize = '26px 26px';
+    const frame = el('div', 'gl-letter-frame-inner');
+    frame.style.borderColor = `${cardColors.accentColor}45`;
+    letterCard.append(stars, frame);
+  } else if (cardTheme.paperPattern === 'botanical') {
+    const glowPat = el('div', 'gl-letter-pattern');
+    glowPat.style.opacity = '0.5';
+    glowPat.style.background = `radial-gradient(circle at 12% 10%, ${cardColors.accentColor}20, transparent 42%), radial-gradient(circle at 88% 92%, ${cardColors.accentColor}20, transparent 42%)`;
+    const frame = el('div', 'gl-letter-frame-inner');
+    frame.style.borderStyle = 'dashed';
+    frame.style.borderColor = `${cardColors.accentColor}50`;
+    letterCard.append(glowPat, frame);
+  } else if (cardTheme.paperPattern === 'aurora') {
+    const glowPat = el('div', 'gl-letter-pattern');
+    glowPat.style.opacity = '0.6';
+    glowPat.style.background = `radial-gradient(circle at 18% 12%, ${cardColors.accentColor}30, transparent 48%), radial-gradient(circle at 84% 88%, ${globalGlow.hex}24, transparent 50%)`;
+    letterCard.append(glowPat);
+  }
+
   const finaleDecorEl = el('div', 'gl-card-decor gl-hidden');
-  const finaleBox = el('div', 'gl-finale-box');
-  const finaleKicker = el(
+  const letterHead = el('div', 'gl-letter-head');
+  const letterKicker = el(
     'p',
-    'gl-finale-kicker',
+    'gl-letter-kicker',
     payload.recipientName ? `Для ${payload.recipientName} · ${payload.title}` : payload.title,
   );
+  letterKicker.style.color = cardColors.badgeColor;
+
+  const letterCloseBtn = el('button', 'gl-letter-close', '×');
+  letterCloseBtn.type = 'button';
+  letterCloseBtn.setAttribute('aria-label', 'Скрыть письмо');
+  letterCloseBtn.title = 'Скрыть письмо';
+  letterCloseBtn.style.color = cardColors.badgeColor;
+  letterCloseBtn.style.borderColor = `${cardColors.borderColor}66`;
+  letterCloseBtn.style.backgroundColor = cardColors.isLightPaper
+    ? 'rgba(255,255,255,0.65)'
+    : 'rgba(255,255,255,0.08)';
+  letterHead.append(letterKicker, letterCloseBtn);
+
+  const letterDivider = el('div', 'gl-letter-divider');
+  letterDivider.style.background = `linear-gradient(90deg, transparent, ${cardColors.accentColor}, transparent)`;
+
+  const letterBody = el('div', 'gl-letter-body');
+  const letterInner = el('div', 'gl-letter-inner');
   const finaleAccentLine = el('div', 'gl-story-accent-line gl-hidden');
-  const finaleHeading = el('h1', 'gl-finale-heading', payload.finalMessage);
-  const finaleSignEl = el('p', 'gl-finale-sign', signatureText);
-  if (!signatureText) finaleSignEl.classList.add('gl-hidden');
-  finaleBox.append(finaleKicker, finaleAccentLine, finaleHeading, finaleSignEl);
-  finaleTop.append(finaleDecorEl, finaleBox);
-  stage.append(finaleScrim, finaleTop);
+  const letterMsg = el(
+    'p',
+    'gl-letter-msg',
+    payload.finalMessage ||
+      'Пусть это созвездие всегда напоминает о самом светлом и добром!',
+  );
+  letterMsg.setAttribute('data-selectable-text', 'true');
+  const letterSign = el('p', 'gl-letter-sign', signatureText ? `— ${signatureText}` : '');
+  letterSign.setAttribute('data-selectable-text', 'true');
+  if (!signatureText) letterSign.classList.add('gl-hidden');
+  letterInner.append(finaleAccentLine, letterMsg, letterSign);
+  letterBody.appendChild(letterInner);
+
+  const letterFoot = el('div', 'gl-letter-foot');
+  const letterOccasion = el('span', '', payload.occasionLabel);
+  letterOccasion.style.color = cardColors.badgeColor;
+  letterOccasion.style.opacity = '0.75';
+  const letterHideLink = el('button', 'gl-letter-hide-link', 'Скрыть письмо');
+  letterHideLink.type = 'button';
+  letterHideLink.style.color = cardColors.badgeColor;
+  letterFoot.append(letterOccasion, letterHideLink);
+
+  letterCard.append(finaleDecorEl, letterHead, letterDivider, letterBody, letterFoot);
+  letterBackdrop.appendChild(letterCard);
+  stage.appendChild(letterBackdrop);
+
+  function getActiveDevice(): DeviceLayoutKey {
+    return resolveViewportDeviceMode(window.innerWidth, window.innerHeight);
+  }
 
   function applyFinaleTextFormatting(): void {
-    const fDecor = resolveStarDecor(payload.finalDecor);
+    const activeDevice = getActiveDevice();
+    const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth < 540;
+    const isCompactLandscape = !isPortrait && window.innerHeight < 520;
+    const cardLayout = resolveEffectiveCardLayout(payload, activeDevice);
+    const fDecor = resolveEffectiveFinalDecor(payload, activeDevice);
+    const decorGlowHex = cardColors.isLightPaper ? cardColors.accentColor : globalGlow.hex;
+    const decorCoreHex = cardColors.isLightPaper ? cardColors.badgeColor : globalGlow.coreHex;
     finaleDecorEl.innerHTML = '';
     if (fDecor.motif !== 'none') {
-      const svg = createCardDecorSvg(fDecor.motif, globalGlow.hex, globalGlow.coreHex);
+      const svg = createCardDecorSvg(fDecor.motif, decorGlowHex, decorCoreHex);
       if (svg) finaleDecorEl.appendChild(svg);
       finaleDecorEl.classList.remove('gl-hidden');
       finaleDecorEl.style.left = `${fDecor.xPct}%`;
@@ -408,38 +561,83 @@ function bootGiftLabRecipient(): void {
       finaleDecorEl.classList.add('gl-hidden');
     }
 
-    if (!payload.finalTextStyle) return;
-    const style = resolveStarTextStyle(payload.finalTextStyle);
-    if (isDefaultStarTextStyle(style)) return;
+    letterBackdrop.style.alignItems =
+      cardLayout.verticalAlign === 'top' ? 'flex-start' : 'center';
+    letterCard.style.maxWidth = isCompactLandscape
+      ? 'min(92vw, 576px)'
+      : activeDevice === 'phone'
+        ? cardLayout.width === 'compact'
+          ? 'min(86vw, 330px)'
+          : cardLayout.width === 'wide'
+            ? 'min(96vw, 440px)'
+            : 'min(92vw, 390px)'
+        : cardLayout.width === 'compact'
+          ? 'min(92vw, 440px)'
+          : cardLayout.width === 'wide'
+            ? 'min(92vw, 680px)'
+            : 'min(92vw, 540px)';
+    const cardShiftY = Math.round(cardLayout.offsetY * 1.4);
+    letterCard.style.translate = cardShiftY !== 0 ? `0 ${cardShiftY}px` : '';
 
+    if (cardLayout.padding === 'compact') {
+      letterHead.style.padding = '12px 18px 6px';
+      letterBody.style.padding = isCompactLandscape ? '10px 16px' : '12px 18px';
+      letterFoot.style.padding = '4px 18px 10px';
+    } else if (cardLayout.padding === 'spacious') {
+      letterHead.style.padding = isPortrait ? '18px 22px 10px' : '22px 32px 12px';
+      letterBody.style.padding = isPortrait ? '20px 24px' : '26px 36px';
+      letterFoot.style.padding = isPortrait ? '8px 22px 16px' : '10px 32px 20px';
+    } else {
+      letterHead.style.padding = '';
+      letterBody.style.padding = '';
+      letterFoot.style.padding = '';
+    }
+
+    const style = resolveEffectiveFinalTextStyle(payload, activeDevice);
+    const isDefault = !payload.finalTextStyle || isDefaultStarTextStyle(style);
     const fontMeta = resolveMessageFont(style.fontId);
-    const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth < 540;
     const align: Exclude<MessageTextAlign, 'auto'> =
       style.textAlign !== 'auto' ? style.textAlign : 'center';
-    const shadowCss = resolveTextShadowCss(style.shadow, globalGlow.hex);
+    const textColor =
+      payload.finalTextStyle && !isDefault
+        ? style.color
+        : payload.cardColors?.textColor ??
+          (payload.cardTheme ? cardColors.textColor : style.color);
+    const shadowMode =
+      cardColors.isLightPaper && style.shadow !== 'glow' ? 'none' : style.shadow;
+    const shadowCss = resolveTextShadowCss(shadowMode, globalGlow.hex);
 
-    finaleBox.classList.remove(
+    letterInner.classList.remove(
       'gl-story-block-frame',
+      'gl-story-block-frame-light',
       'gl-story-block-quote-left',
       'gl-story-block-quote-right',
     );
-    finaleBox.style.textAlign = align;
-    finaleBox.style.fontFamily = fontMeta.cssFamily;
-    finaleBox.style.borderColor = '';
+    letterInner.style.width = `${style.widthPct}%`;
+    letterInner.style.marginLeft = `${computeTextBlockMarginLeftPct(style.widthPct, style.offsetX)}%`;
+    const textShiftY = Math.round(style.offsetY * 0.25);
+    letterInner.style.translate = textShiftY !== 0 ? `0 ${textShiftY}px` : '';
+    letterInner.style.textAlign = align;
+    letterInner.style.fontFamily = fontMeta.cssFamily;
+    letterInner.style.borderColor = '';
+    letterInner.style.padding = '';
+    letterInner.style.borderRadius = '';
+    letterInner.style.border = '';
 
     if (style.accent === 'frame') {
-      finaleBox.classList.add('gl-story-block-frame');
-      finaleBox.style.borderColor = `${globalGlow.hex}44`;
+      letterInner.style.border = `1px solid ${cardColors.accentColor}55`;
+      letterInner.style.borderRadius = '16px';
+      letterInner.style.padding = '14px 18px';
     } else if (style.accent === 'quote') {
-      finaleBox.classList.add(
+      letterInner.classList.add(
         align === 'right' ? 'gl-story-block-quote-right' : 'gl-story-block-quote-left',
       );
-      finaleBox.style.borderColor = globalGlow.hex;
+      letterInner.style.borderColor = cardColors.accentColor || globalGlow.hex;
     }
 
     if (style.accent === 'line') {
       finaleAccentLine.classList.remove('gl-hidden');
-      finaleAccentLine.style.background = `linear-gradient(90deg, ${globalGlow.hex}, ${globalGlow.coreHex})`;
+      finaleAccentLine.style.background = `linear-gradient(90deg, ${cardColors.accentColor}, ${cardColors.badgeColor})`;
       finaleAccentLine.style.marginLeft = align === 'left' ? '0' : 'auto';
       finaleAccentLine.style.marginRight = align === 'center' ? 'auto' : '0';
     } else {
@@ -447,19 +645,20 @@ function bootGiftLabRecipient(): void {
     }
 
     const finalePx = Math.min(
-      isPortrait ? 24 : 34,
-      Math.max(16, Math.round((style.fontSize + fontMeta.opticalSizeBoost) * 1.28)),
+      isCompactLandscape ? 19 : isPortrait ? 22 : 27,
+      Math.max(15, Math.round((style.fontSize + fontMeta.opticalSizeBoost) * 1.15)),
     );
-    finaleHeading.style.fontFamily = fontMeta.cssFamily;
-    finaleHeading.style.fontWeight = style.fontWeight === 'semibold' ? '600' : '400';
-    finaleHeading.style.fontSize = `${finalePx}px`;
-    finaleHeading.style.lineHeight = String(Math.min(1.65, style.lineHeight));
-    finaleHeading.style.color = style.color;
-    finaleHeading.style.textShadow = shadowCss;
+    letterMsg.style.fontFamily = fontMeta.cssFamily;
+    letterMsg.style.fontWeight = style.fontWeight === 'semibold' ? '600' : '400';
+    letterMsg.style.fontSize = `${finalePx}px`;
+    letterMsg.style.lineHeight = String(Math.min(1.85, style.lineHeight));
+    letterMsg.style.color = textColor;
+    letterMsg.style.textShadow = shadowCss;
 
     if (signatureText) {
-      finaleSignEl.style.color = style.color;
-      finaleSignEl.style.opacity = '0.78';
+      letterSign.style.fontFamily = fontMeta.cssFamily;
+      letterSign.style.color = textColor;
+      letterSign.style.textShadow = shadowCss;
     }
   }
   applyFinaleTextFormatting();
@@ -479,6 +678,21 @@ function bootGiftLabRecipient(): void {
     starPillsWrap.appendChild(pill);
   });
 
+  const dockLetterBtn = el('button', 'gl-btn gl-btn-amber', 'Скрыть письмо');
+  dockLetterBtn.type = 'button';
+
+  function setLetterOpen(open: boolean): void {
+    letterOpen = open;
+    letterBackdrop.classList.toggle('gl-hidden', phase !== 'constellation' || !letterOpen);
+    dockLetterBtn.textContent = letterOpen ? 'Скрыть письмо' : 'Открыть письмо';
+    dockLetterBtn.classList.toggle('gl-btn-amber', letterOpen);
+    dockLetterBtn.classList.toggle('gl-btn-accent', !letterOpen);
+  }
+
+  letterCloseBtn.addEventListener('click', () => setLetterOpen(false));
+  letterHideLink.addEventListener('click', () => setLetterOpen(false));
+  dockLetterBtn.addEventListener('click', () => setLetterOpen(!letterOpen));
+
   const resetBtn = el('button', 'gl-btn gl-btn-ghost', 'Сброс');
   resetBtn.type = 'button';
   const dockMotionBtn = el(
@@ -487,7 +701,7 @@ function bootGiftLabRecipient(): void {
     reducedMotion ? 'Вращение: выкл' : 'Меньше движения',
   );
   dockMotionBtn.type = 'button';
-  dock.append(starPillsWrap, resetBtn, dockMotionBtn);
+  dock.append(starPillsWrap, dockLetterBtn, resetBtn, dockMotionBtn);
 
   // Audio player
   let audioEl: HTMLAudioElement | null = null;
@@ -584,14 +798,53 @@ function bootGiftLabRecipient(): void {
   function applyStoryTextFormatting(): void {
     const star = normalizedStars[activeIndex] ?? normalizedStars[0];
     if (!star) return;
+    const activeDevice = getActiveDevice();
+    const cardLayout = resolveEffectiveCardLayout(payload, activeDevice);
     const glow = GLOW_COLORS[resolveStarGlowHex(star, payload.globalGlowColor)];
-    const style = resolveStarTextStyle(star);
+    const style = resolveEffectiveStarTextStyle(star, activeDevice);
     const fontMeta = resolveMessageFont(style.fontId);
 
     const w = window.innerWidth;
     const h = window.innerHeight;
     const isPortrait = h > w || w < 540;
     const isCompactLandscape = !isPortrait && h < 520;
+
+    storyMotionWrap.style.maxWidth = isPortrait
+      ? cardLayout.width === 'compact'
+        ? '330px'
+        : cardLayout.width === 'wide'
+          ? '100%'
+          : '374px'
+      : cardLayout.width === 'compact'
+        ? '448px'
+        : cardLayout.width === 'wide'
+          ? '672px'
+          : '576px';
+    const storyShiftY = Math.round(cardLayout.offsetY * 0.7);
+    storyMotionWrap.style.translate = storyShiftY !== 0 ? `0 ${storyShiftY}px` : '';
+    if (hasExplicitCardTheme) {
+      storyMotionWrap.style.padding =
+        cardLayout.padding === 'compact'
+          ? isPortrait
+            ? '8px 12px'
+            : '12px 16px'
+          : cardLayout.padding === 'spacious'
+            ? isPortrait
+              ? '16px 20px'
+              : '24px 32px'
+            : isPortrait
+              ? '12px 16px'
+              : '16px 24px';
+    } else {
+      storyMotionWrap.style.padding =
+        cardLayout.padding === 'compact'
+          ? '2px'
+          : cardLayout.padding === 'spacious'
+            ? isPortrait
+              ? '8px 12px'
+              : '12px 20px'
+            : '0';
+    }
 
     const effectiveAlign: Exclude<MessageTextAlign, 'auto'> =
       style.textAlign === 'auto' ? (isPortrait ? 'center' : 'left') : style.textAlign;
@@ -604,7 +857,7 @@ function bootGiftLabRecipient(): void {
     );
     const marginLeftPct = computeTextBlockMarginLeftPct(style.widthPct, style.offsetX);
 
-    const illuLayout = resolveStarIllustrationLayout(star, isPortrait ? 0 : -100);
+    const illuLayout = resolveEffectiveIllustrationLayout(star, activeDevice);
     const illuLeftGrow = Number(((illuLayout.offsetX + 100) / 200).toFixed(3));
     const illuRightGrow = Number((1 - illuLeftGrow).toFixed(3));
     illuLeftSpacer.style.flexGrow = String(illuLeftGrow);
@@ -637,31 +890,48 @@ function bootGiftLabRecipient(): void {
     const illuYShift = illuLayout.offsetY / 100;
     const textYShift = style.offsetY / 100;
     const spacerBase = isPortrait || isCompactLandscape ? 0.35 : 0.9;
+    const rawTopOuterGrow = Math.max(
+      0,
+      Math.min(
+        2.0,
+        spacerBase * (1 + illuYShift * 0.85) - Math.max(0, -textYShift) * 0.45,
+      ),
+    );
+    const rawTopInnerGrow = Math.max(
+      0.06,
+      Math.min(
+        2.2,
+        0.14 + Math.max(0, textYShift) * 1.4 + Math.max(0, -illuYShift) * 0.7,
+      ),
+    );
+    const rawBottomInnerGrow = Math.max(
+      0,
+      Math.min(
+        2.4,
+        spacerBase + Math.max(0, -textYShift) * 1.35 - Math.max(0, textYShift) * 0.65,
+      ),
+    );
+
     const topOuterGrow = Number(
-      Math.max(
-        0,
-        Math.min(
-          2.0,
-          spacerBase * (1 + illuYShift * 0.85) - Math.max(0, -textYShift) * 0.45,
-        ),
+      (cardLayout.verticalAlign === 'top'
+        ? rawTopOuterGrow * 0.2
+        : cardLayout.verticalAlign === 'spread'
+          ? rawTopOuterGrow * 0.4
+          : rawTopOuterGrow
       ).toFixed(3),
     );
     const topInnerGrow = Number(
-      Math.max(
-        0.06,
-        Math.min(
-          2.2,
-          0.14 + Math.max(0, textYShift) * 1.4 + Math.max(0, -illuYShift) * 0.7,
-        ),
+      (cardLayout.verticalAlign === 'spread'
+        ? rawTopInnerGrow + 0.75
+        : rawTopInnerGrow
       ).toFixed(3),
     );
     const bottomInnerGrow = Number(
-      Math.max(
-        0,
-        Math.min(
-          2.4,
-          spacerBase + Math.max(0, -textYShift) * 1.35 - Math.max(0, textYShift) * 0.65,
-        ),
+      (cardLayout.verticalAlign === 'top'
+        ? rawBottomInnerGrow + 1.15
+        : cardLayout.verticalAlign === 'spread'
+          ? rawBottomInnerGrow * 0.4
+          : rawBottomInnerGrow
       ).toFixed(3),
     );
 
@@ -669,10 +939,12 @@ function bootGiftLabRecipient(): void {
     topInnerSpacer.style.flexGrow = String(topInnerGrow);
     bottomInnerSpacer.style.flexGrow = String(bottomInnerGrow);
 
-    const starDecor = resolveStarDecor(star);
+    const starDecor = resolveEffectiveStarDecor(star, activeDevice);
     storyCardDecor.innerHTML = '';
     if (starDecor.motif !== 'none') {
-      const decorSvg = createCardDecorSvg(starDecor.motif, glow.hex, glow.coreHex);
+      const dGlowHex = cardColors.isLightPaper ? cardColors.accentColor : glow.hex;
+      const dCoreHex = cardColors.isLightPaper ? cardColors.badgeColor : glow.coreHex;
+      const decorSvg = createCardDecorSvg(starDecor.motif, dGlowHex, dCoreHex);
       if (decorSvg) storyCardDecor.appendChild(decorSvg);
       storyCardDecor.classList.remove('gl-hidden');
       storyCardDecor.style.left = `${starDecor.xPct}%`;
@@ -682,7 +954,11 @@ function bootGiftLabRecipient(): void {
       storyCardDecor.classList.add('gl-hidden');
     }
 
-    const shadowCss = resolveTextShadowCss(style.shadow, glow.hex);
+    const effectiveTextColor =
+      star.textStyle || !cardColors.isLightPaper ? style.color : cardColors.textColor;
+    const effectiveShadowMode =
+      cardColors.isLightPaper && style.shadow !== 'glow' ? 'none' : style.shadow;
+    const shadowCss = resolveTextShadowCss(effectiveShadowMode, glow.hex);
 
     storyBlock.style.width = `${style.widthPct}%`;
     storyBlock.style.marginLeft = `${marginLeftPct}%`;
@@ -691,24 +967,28 @@ function bootGiftLabRecipient(): void {
     storyBlock.style.borderColor = '';
     storyBlock.classList.remove(
       'gl-story-block-frame',
+      'gl-story-block-frame-light',
       'gl-story-block-quote-left',
       'gl-story-block-quote-right',
     );
     if (style.accent === 'frame') {
       storyBlock.classList.add('gl-story-block-frame');
-      storyBlock.style.borderColor = `${glow.hex}44`;
+      if (cardColors.isLightPaper) storyBlock.classList.add('gl-story-block-frame-light');
+      storyBlock.style.borderColor = `${cardColors.isLightPaper ? cardColors.accentColor : glow.hex}44`;
     } else if (style.accent === 'quote') {
       storyBlock.classList.add(
         effectiveAlign === 'right'
           ? 'gl-story-block-quote-right'
           : 'gl-story-block-quote-left',
       );
-      storyBlock.style.borderColor = glow.hex;
+      storyBlock.style.borderColor = cardColors.isLightPaper ? cardColors.accentColor : glow.hex;
     }
 
     if (style.accent === 'line') {
       storyAccentLine.classList.remove('gl-hidden');
-      storyAccentLine.style.background = `linear-gradient(90deg, ${glow.hex}, ${glow.coreHex})`;
+      storyAccentLine.style.background = cardColors.isLightPaper
+        ? `linear-gradient(90deg, ${cardColors.accentColor}, ${cardColors.badgeColor})`
+        : `linear-gradient(90deg, ${glow.hex}, ${glow.coreHex})`;
       storyAccentLine.style.marginLeft = effectiveAlign === 'left' ? '0' : 'auto';
       storyAccentLine.style.marginRight = effectiveAlign === 'center' ? 'auto' : '0';
     } else {
@@ -721,18 +1001,18 @@ function bootGiftLabRecipient(): void {
     storyTitle.style.lineHeight = String(
       Math.min(1.4, Math.max(1.12, Number((style.lineHeight * 0.78).toFixed(2)))),
     );
-    storyTitle.style.color = style.color;
+    storyTitle.style.color = effectiveTextColor;
     storyTitle.style.textShadow = shadowCss;
 
     storyMsg.style.fontFamily = fontMeta.cssFamily;
     storyMsg.style.fontSize = `${bodyPx}px`;
     storyMsg.style.fontWeight = style.fontWeight === 'semibold' ? '600' : '400';
     storyMsg.style.lineHeight = String(style.lineHeight);
-    storyMsg.style.color = style.color;
+    storyMsg.style.color = effectiveTextColor;
     storyMsg.style.textShadow = shadowCss;
 
     if (signatureText) {
-      storySign.style.color = style.color;
+      storySign.style.color = effectiveTextColor;
       storySign.style.opacity = '0.78';
       storySign.style.textShadow = shadowCss;
     }
@@ -784,7 +1064,7 @@ function bootGiftLabRecipient(): void {
     illuImg.alt = star.title;
 
     storyOrd.textContent = `Звезда ${activeIndex + 1} из ${total}`;
-    storyOrd.style.color = glow.coreHex;
+    storyOrd.style.color = cardColors.isLightPaper ? cardColors.badgeColor : glow.coreHex;
     storyTitle.textContent = star.title || `Звезда ${activeIndex + 1}`;
     storyMsg.textContent = star.message || 'Здесь хранится особое тёплое пожелание.';
     applyStoryTextFormatting();
@@ -813,6 +1093,7 @@ function bootGiftLabRecipient(): void {
     const activeStar = normalizedStars[activeIndex];
     const activeId =
       phase === 'starStory' || phase === 'birthing' ? activeStar?.id ?? null : null;
+    const activeDevice = getActiveDevice();
 
     engine?.updateState({
       paletteId: payload.paletteId,
@@ -827,6 +1108,7 @@ function bootGiftLabRecipient(): void {
       recipientPhase: phase,
       unlockedCount,
       finaleActive: phase === 'finalReveal' || phase === 'constellation' || finaleReached,
+      constellationLayout: resolveEffectiveConstellationLayout(payload, activeDevice),
       lowPerformance: window.innerWidth < 768,
       reducedMotion,
     });
@@ -838,8 +1120,11 @@ function bootGiftLabRecipient(): void {
     sealed2DOverlay.classList.toggle('gl-hidden', !(next === 'sealed' && using2DFallback));
     transUi.classList.toggle('gl-hidden', next !== 'birthing' && next !== 'finalReveal');
     storyUi.classList.toggle('gl-hidden', next !== 'starStory');
-    finaleScrim.classList.toggle('gl-hidden', next !== 'constellation');
-    finaleTop.classList.toggle('gl-hidden', next !== 'constellation');
+    if (next === 'constellation') {
+      setLetterOpen(true);
+    } else {
+      letterBackdrop.classList.add('gl-hidden');
+    }
     dock.classList.toggle('gl-hidden', next !== 'constellation');
 
     if (next === 'starStory') {
@@ -1196,12 +1481,24 @@ function bootGiftLabRecipient(): void {
 
   // 2D fallback renderer if WebGL2 is unavailable
   let fallbackSvg: SVGSVGElement | null = null;
+  const fallbackLines: Array<{
+    from: StandaloneStar;
+    to: StandaloneStar;
+    line: SVGLineElement;
+  }> = [];
   const fallbackButtons = new Map<string, { btn: HTMLButtonElement; label: HTMLSpanElement; iconWrap: HTMLSpanElement }>();
 
-  function toPct(x: number, y: number): { left: number; top: number } {
+  function toPct(
+    x: number,
+    y: number,
+    constLayout?: { offsetX: number; offsetY: number; scale: number },
+  ): { left: number; top: number } {
+    const scale = constLayout?.scale ?? 1;
+    const shiftX = ((constLayout?.offsetX ?? 0) / 100) * 18;
+    const shiftY = ((constLayout?.offsetY ?? 0) / 100) * 18;
     return {
-      left: Math.max(10, Math.min(90, 50 + (x / 5.2) * 40)),
-      top: Math.max(14, Math.min(86, 50 - (y / 3.4) * 38)),
+      left: Math.max(10, Math.min(90, 50 + ((x * scale) / 5.2) * 40 + shiftX)),
+      top: Math.max(14, Math.min(86, 50 - ((y * scale) / 3.4) * 38 + shiftY)),
     };
   }
 
@@ -1221,12 +1518,14 @@ function bootGiftLabRecipient(): void {
     fallbackSvg = svg;
 
     const starMap = new Map(normalizedStars.map((s) => [s.id, s]));
+    const constLayout = resolveEffectiveConstellationLayout(payload, getActiveDevice());
+    fallbackLines.length = 0;
     for (const conn of resolvedConnections) {
       const fromStar = starMap.get(conn.from);
       const toStar = starMap.get(conn.to);
       if (!fromStar || !toStar) continue;
-      const p1 = toPct(fromStar.position.x, fromStar.position.y);
-      const p2 = toPct(toStar.position.x, toStar.position.y);
+      const p1 = toPct(fromStar.position.x, fromStar.position.y, constLayout);
+      const p2 = toPct(toStar.position.x, toStar.position.y, constLayout);
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', String(p1.left));
       line.setAttribute('y1', String(p1.top));
@@ -1236,11 +1535,12 @@ function bootGiftLabRecipient(): void {
       line.setAttribute('stroke-width', '0.45');
       line.setAttribute('stroke-opacity', '0.78');
       svg.appendChild(line);
+      fallbackLines.push({ from: fromStar, to: toStar, line });
     }
     canvasHost.appendChild(svg);
 
     normalizedStars.forEach((star, idx) => {
-      const p = toPct(star.position.x, star.position.y);
+      const p = toPct(star.position.x, star.position.y, constLayout);
       const glow = GLOW_COLORS[resolveStarGlowHex(star, payload.globalGlowColor)];
       const btn = el('button', 'gl-2d-star');
       btn.type = 'button';
@@ -1266,8 +1566,17 @@ function bootGiftLabRecipient(): void {
     if (!using2DFallback) return;
     const isStory = phase === 'starStory';
     const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth < 540;
+    const constLayout = resolveEffectiveConstellationLayout(payload, getActiveDevice());
     if (fallbackSvg) {
       fallbackSvg.style.display = phase === 'constellation' || phase === 'finalReveal' ? 'block' : 'none';
+      for (const item of fallbackLines) {
+        const p1 = toPct(item.from.position.x, item.from.position.y, constLayout);
+        const p2 = toPct(item.to.position.x, item.to.position.y, constLayout);
+        item.line.setAttribute('x1', String(p1.left));
+        item.line.setAttribute('y1', String(p1.top));
+        item.line.setAttribute('x2', String(p2.left));
+        item.line.setAttribute('y2', String(p2.top));
+      }
     }
 
     normalizedStars.forEach((star, idx) => {
@@ -1283,7 +1592,7 @@ function bootGiftLabRecipient(): void {
         ? isPortrait
           ? { left: 50, top: 20 }
           : { left: 22, top: 50 }
-        : toPct(star.position.x, star.position.y);
+        : toPct(star.position.x, star.position.y, constLayout);
 
       slot.btn.style.left = `${p.left}%`;
       slot.btn.style.top = `${p.top}%`;
@@ -1296,6 +1605,7 @@ function bootGiftLabRecipient(): void {
   const handleViewportUpdate = () => {
     if (phase === 'starStory') applyStoryTextFormatting();
     applyFinaleTextFormatting();
+    updateEngine();
     if (using2DFallback) refresh2DFallback();
   };
   window.addEventListener('resize', handleViewportUpdate);
@@ -1314,6 +1624,7 @@ function bootGiftLabRecipient(): void {
       recipientPhase: 'sealed',
       unlockedCount: 0,
       finaleActive: false,
+      constellationLayout: resolveEffectiveConstellationLayout(payload, getActiveDevice()),
       lowPerformance: window.innerWidth < 768,
       reducedMotion,
     },

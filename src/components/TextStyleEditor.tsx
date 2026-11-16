@@ -10,18 +10,22 @@ import {
 } from 'lucide-react';
 import {
   COSMIC_PALETTES,
+  DARK_CARD_TEXT_COLORS,
   DEFAULT_STAR_TEXT_STYLE,
   GLOW_COLORS,
+  LIGHT_PAPER_TEXT_COLORS,
   MESSAGE_FONTS,
   MESSAGE_FONT_CATEGORIES,
-  MESSAGE_TEXT_COLORS,
   computeTextBlockMarginLeftPct,
   isDefaultStarTextStyle,
+  resolveCardColors,
   resolveMessageFont,
   resolveStarTextStyle,
   resolveTextShadowCss,
 } from '../scene/paletteConfig';
 import type {
+  CardThemeCustomColors,
+  CardThemeId,
   CosmicPaletteId,
   GlowColorId,
   MessageTextAccent,
@@ -35,6 +39,8 @@ interface TextStyleEditorProps {
   value?: StarTextStyle;
   paletteId: CosmicPaletteId;
   glowColorId: GlowColorId;
+  cardTheme?: CardThemeId;
+  cardColors?: CardThemeCustomColors;
   previewTitle: string;
   previewMessage: string;
   showLayoutControls?: boolean;
@@ -46,6 +52,8 @@ export function TextStyleEditor({
   value,
   paletteId,
   glowColorId,
+  cardTheme,
+  cardColors,
   previewTitle,
   previewMessage,
   showLayoutControls = true,
@@ -71,6 +79,10 @@ export function TextStyleEditor({
   const fontMeta = resolveMessageFont(style.fontId);
   const palette = COSMIC_PALETTES[paletteId];
   const glow = GLOW_COLORS[glowColorId];
+  const resolvedCard = resolveCardColors({ cardTheme, cardColors });
+  const orderedColors = resolvedCard.isLightPaper
+    ? [...LIGHT_PAPER_TEXT_COLORS, ...DARK_CARD_TEXT_COLORS]
+    : [...DARK_CARD_TEXT_COLORS, ...LIGHT_PAPER_TEXT_COLORS];
 
   const updateStyle = (patch: Partial<StarTextStyle>) => {
     const next = resolveStarTextStyle({ ...style, ...patch });
@@ -291,8 +303,12 @@ export function TextStyleEditor({
         <label className="block space-y-1">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-gl-text-secondary font-medium">Размер текста</span>
-            <span className="text-gl-accent-light font-semibold tabular-nums">
-              {style.fontSize} px
+            <span className="text-gl-text-muted">
+              {style.fontSize <= 15
+                ? 'Мельче'
+                : style.fontSize >= 21
+                  ? 'Крупнее'
+                  : 'Обычный'}
             </span>
           </div>
           <input
@@ -309,9 +325,13 @@ export function TextStyleEditor({
 
         <label className="block space-y-1">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-gl-text-secondary font-medium">Межстрочный интервал</span>
-            <span className="text-gl-accent-light font-semibold tabular-nums">
-              {style.lineHeight.toFixed(2)}
+            <span className="text-gl-text-secondary font-medium">Расстояние между строками</span>
+            <span className="text-gl-text-muted">
+              {style.lineHeight <= 1.35
+                ? 'Плотнее'
+                : style.lineHeight >= 1.75
+                  ? 'Свободнее'
+                  : 'Обычное'}
             </span>
           </div>
           <input
@@ -320,7 +340,7 @@ export function TextStyleEditor({
             max={2.0}
             step={0.05}
             value={style.lineHeight}
-            aria-label="Межстрочный интервал"
+            aria-label="Расстояние между строками"
             onChange={(e) => updateStyle({ lineHeight: Number(e.target.value) })}
             className="w-full accent-gl-accent cursor-pointer"
           />
@@ -331,10 +351,9 @@ export function TextStyleEditor({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-gl-text-muted">Цвет текста</span>
-          <span className="text-gl-text-secondary tabular-nums">{style.color}</span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {MESSAGE_TEXT_COLORS.map((c) => {
+          {orderedColors.map((c) => {
             const active = style.color.toUpperCase() === c.hex.toUpperCase();
             return (
               <button
@@ -425,25 +444,41 @@ export function TextStyleEditor({
         <div className="space-y-2 pt-1">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-gl-text-secondary font-medium">
-              Положение и размер блока
+              Расположение текста
             </span>
-            <span className="text-gl-text-muted tabular-nums">
-              {style.widthPct}% ширины
-            </span>
+            {(style.offsetX !== 0 || style.offsetY !== 0 || style.widthPct !== DEFAULT_STAR_TEXT_STYLE.widthPct) && (
+              <button
+                type="button"
+                onClick={() =>
+                  updateStyle({
+                    offsetX: 0,
+                    offsetY: 0,
+                    widthPct: DEFAULT_STAR_TEXT_STYLE.widthPct,
+                  })
+                }
+                className="text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+              >
+                По центру
+              </button>
+            )}
           </div>
 
           <div
             className="relative rounded-xl border border-white/15 overflow-hidden p-2 select-none"
             style={{ background: palette.cssGradient }}
           >
-            {/* Safe illustration marker at top so user knows text won't overlap illustration */}
             <div className="flex items-center justify-between text-[10px] text-white/55 mb-1.5 px-1">
-              <span>Иллюстрация и звезда защищены</span>
-              <span>Допустимая область</span>
+              <span>Потяни текст или ручку справа</span>
             </div>
 
             <div
               ref={stageRef}
+              style={{
+                background: cardTheme
+                  ? `linear-gradient(155deg, ${resolvedCard.surfaceBg} 0%, ${resolvedCard.surfaceBgAlt} 100%)`
+                  : undefined,
+                borderColor: cardTheme ? `${resolvedCard.borderColor}66` : undefined,
+              }}
               className="relative h-40 w-full rounded-lg border border-dashed border-white/20 bg-black/20 p-2 flex flex-col overflow-hidden"
             >
               <div style={{ flexGrow: topGrow, flexBasis: 0 }} />
@@ -453,7 +488,7 @@ export function TextStyleEditor({
                 onPointerMove={moveStagePointer}
                 onPointerUp={endStagePointer}
                 onPointerCancel={endStagePointer}
-                title="Перетащите блок в нужную позицию"
+                title="Перетащи блок в нужное место"
                 style={{
                   width: `${style.widthPct}%`,
                   marginLeft: `${marginLeftPct}%`,
@@ -462,17 +497,30 @@ export function TextStyleEditor({
                   textAlign: effectiveAlign,
                   lineHeight: style.lineHeight,
                   color: style.color,
-                  textShadow: resolveTextShadowCss(style.shadow, glow.hex),
+                  textShadow: resolveTextShadowCss(
+                    resolvedCard.isLightPaper && style.shadow !== 'glow' ? 'none' : style.shadow,
+                    glow.hex,
+                  ),
                   borderColor:
                     style.accent === 'frame'
-                      ? `${glow.hex}45`
+                      ? `${resolvedCard.accentColor}66`
                       : style.accent === 'quote'
-                        ? glow.hex
+                        ? resolvedCard.accentColor
+                        : resolvedCard.isLightPaper
+                          ? `${resolvedCard.borderColor}66`
+                          : undefined,
+                  backgroundColor:
+                    style.accent === 'frame'
+                      ? resolvedCard.isLightPaper
+                        ? 'rgba(255,255,255,0.65)'
+                        : 'rgba(9,14,36,0.55)'
+                      : resolvedCard.isLightPaper
+                        ? 'rgba(255,255,255,0.28)'
                         : undefined,
                 }}
                 className={`relative shrink-0 cursor-grab active:cursor-grabbing touch-none transition-[border,background-color] ${
                   style.accent === 'frame'
-                    ? 'rounded-lg border bg-[#090e24]/55 px-2.5 py-2'
+                    ? 'rounded-lg border px-2.5 py-2'
                     : style.accent === 'quote'
                       ? effectiveAlign === 'right'
                         ? 'border-r-2 pr-2.5 py-1'
@@ -516,7 +564,7 @@ export function TextStyleEditor({
                   onPointerMove={moveStagePointer}
                   onPointerUp={endStagePointer}
                   onPointerCancel={endStagePointer}
-                  title="Потяните, чтобы изменить ширину блока"
+                  title="Потяни, чтобы изменить ширину текста"
                   aria-label="Изменить ширину текстового блока"
                   className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-7 rounded-full bg-gl-accent border border-white/60 cursor-ew-resize touch-none shadow"
                 />
@@ -526,77 +574,24 @@ export function TextStyleEditor({
             </div>
           </div>
 
-          <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-2.5">
-            <label className="block space-y-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-gl-text-muted">Ширина блока</span>
-                <span className="text-gl-text-secondary tabular-nums">
-                  {style.widthPct}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={56}
-                max={100}
-                step={2}
-                value={style.widthPct}
-                aria-label="Ширина текстового блока"
-                onChange={(e) => updateStyle({ widthPct: Number(e.target.value) })}
-                className="w-full accent-gl-accent cursor-pointer"
-              />
-            </label>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <label className="block space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-gl-text-muted">Сдвиг X</span>
-                  <span className="text-gl-text-secondary tabular-nums">
-                    {style.offsetX}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={-100}
-                  max={100}
-                  step={5}
-                  value={style.offsetX}
-                  aria-label="Позиция текста по горизонтали"
-                  onChange={(e) => {
-                    const nextX = Number(e.target.value);
-                    updateStyle({
-                      offsetX: nextX,
-                      widthPct: style.widthPct > 90 && nextX !== 0 ? 84 : style.widthPct,
-                    });
-                  }}
-                  className="w-full accent-gl-accent cursor-pointer"
-                />
-              </label>
-
-              <label className="block space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-gl-text-muted">Сдвиг Y</span>
-                  <span className="text-gl-text-secondary tabular-nums">
-                    {style.offsetY}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={-100}
-                  max={100}
-                  step={5}
-                  value={style.offsetY}
-                  aria-label="Позиция текста по вертикали"
-                  onChange={(e) => updateStyle({ offsetY: Number(e.target.value) })}
-                  className="w-full accent-gl-accent cursor-pointer"
-                />
-              </label>
+          <div className="space-y-1.5 rounded-xl border border-white/10 bg-white/[0.025] p-2.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-gl-text-muted">Ширина текста</span>
+              <span className="text-gl-text-secondary">
+                {style.widthPct <= 70 ? 'Узко' : style.widthPct >= 92 ? 'Широко' : 'Средне'}
+              </span>
             </div>
+            <input
+              type="range"
+              min={56}
+              max={100}
+              step={2}
+              value={style.widthPct}
+              aria-label="Ширина текстового блока"
+              onChange={(e) => updateStyle({ widthPct: Number(e.target.value) })}
+              className="w-full accent-gl-accent cursor-pointer"
+            />
           </div>
-
-          <p className="text-[11px] text-gl-text-muted leading-snug">
-            Перетаскивайте блок внутри рамки или тяните фиолетовую ручку справа. По умолчанию:{' '}
-            {DEFAULT_STAR_TEXT_STYLE.widthPct}% ширины.
-          </p>
         </div>
       )}
     </div>

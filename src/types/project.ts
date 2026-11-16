@@ -45,7 +45,29 @@ export interface StarIllustrationLayout {
   scale: number;
 }
 
-export type CardDecorMotif = 'none' | 'sparkles' | 'orbital' | 'hearts' | 'corners';
+export type CardDecorMotif =
+  | 'none'
+  | 'sparkles'
+  | 'orbital'
+  | 'hearts'
+  | 'corners'
+  | 'soft_flowers'
+  | 'petals'
+  | 'magic_rays';
+
+export type CardThemeId =
+  | 'gentle_letter'
+  | 'cosmic_card'
+  | 'floral'
+  | 'magical'
+  | 'minimalist';
+
+export interface CardThemeCustomColors {
+  surfaceBg?: string;
+  accentColor?: string;
+  textColor?: string;
+  badgeColor?: string;
+}
 
 export interface StarDecorSettings {
   motif: CardDecorMotif;
@@ -88,6 +110,77 @@ export interface StarTextStyle {
   widthPct: number;
 }
 
+export type DeviceLayoutKey = 'phone' | 'desktop';
+
+export type CardPaddingPreset = 'compact' | 'normal' | 'spacious';
+
+export type CardVerticalAlign = 'top' | 'center' | 'spread';
+
+export type CardWidthPreset = 'compact' | 'standard' | 'wide';
+
+export interface DeviceTextLayout {
+  /** Message body font size in px (14..24) */
+  fontSize: number;
+  textAlign: MessageTextAlign | 'auto';
+  /** Line height multiplier (1.2..2.0) */
+  lineHeight: number;
+  /** Bounded horizontal offset (-100..100) */
+  offsetX: number;
+  /** Bounded vertical offset (-100..100) */
+  offsetY: number;
+  /** Text block width percentage within safe stage (56..100) */
+  widthPct: number;
+}
+
+export interface DeviceDecorLayout {
+  /** Horizontal position percentage inside card area (6..94) */
+  xPct: number;
+  /** Vertical position percentage inside card area (6..88) */
+  yPct: number;
+  /** Scale multiplier (0.7..1.45) */
+  scale: number;
+}
+
+export interface DeviceConstellationLayout {
+  /** Horizontal shift (-100..100) */
+  offsetX: number;
+  /** Vertical shift (-100..100) */
+  offsetY: number;
+  /** Constellation scale multiplier (0.55..1.45) */
+  scale: number;
+}
+
+export interface DeviceCardLayout {
+  padding: CardPaddingPreset;
+  verticalAlign: CardVerticalAlign;
+  width: CardWidthPreset;
+  /** Bounded vertical offset for card / finale letter (-60..60) */
+  offsetY: number;
+}
+
+export interface StarDeviceLayoutEntry {
+  text?: Partial<DeviceTextLayout>;
+  illustration?: Partial<StarIllustrationLayout>;
+  decor?: Partial<DeviceDecorLayout>;
+}
+
+export interface StarDeviceLayouts {
+  phone?: StarDeviceLayoutEntry;
+  desktop?: StarDeviceLayoutEntry;
+}
+
+export interface ProjectDeviceLayoutEntry {
+  constellation?: Partial<DeviceConstellationLayout>;
+  card?: Partial<DeviceCardLayout>;
+  finalText?: Partial<DeviceTextLayout>;
+  finalDecor?: Partial<DeviceDecorLayout>;
+}
+
+export interface ProjectDeviceLayouts {
+  phone?: ProjectDeviceLayoutEntry;
+  desktop?: ProjectDeviceLayoutEntry;
+}
+
 export interface StarIllustrationRef {
   type: 'builtin' | 'custom';
   /** BuiltinIllustrationId when type === 'builtin', or imageId in IndexedDB when type === 'custom' */
@@ -102,12 +195,14 @@ export interface ConstellationStar {
   illustration: StarIllustrationRef;
   /** Optional non-destructive image presentation & crop settings */
   imageSettings?: StarImageSettings;
-  /** Optional card illustration placement and scale settings */
+  /** Optional legacy/fallback card illustration placement and scale settings */
   illustrationLayout?: StarIllustrationLayout;
-  /** Optional typography and bounded block placement settings */
+  /** Optional typography and visual style settings */
   textStyle?: StarTextStyle;
   /** Optional decorative card motif and placement */
   decor?: StarDecorSettings;
+  /** Independent presentation layouts per viewport device (phone / desktop) */
+  deviceLayouts?: StarDeviceLayouts;
   /** 3D crystal form; migrated to 'star' when absent in legacy projects */
   shape: StarShapeId;
   /** If 'inherit' or undefined, uses project.globalGlowColor */
@@ -131,11 +226,15 @@ export interface ConstellationProject {
   paletteId: CosmicPaletteId;
   globalGlowColor: GlowColorId;
   composition?: CompositionPresetId;
+  cardTheme?: CardThemeId;
+  cardColors?: CardThemeCustomColors;
   stars: ConstellationStar[];
   connections: StarConnection[];
   finalMessage: string;
   finalTextStyle?: StarTextStyle;
   finalDecor?: StarDecorSettings;
+  /** Independent presentation layouts per viewport device (phone / desktop) */
+  deviceLayouts?: ProjectDeviceLayouts;
   musicTrackId: MusicTrackId;
   createdAt: number;
   updatedAt: number;

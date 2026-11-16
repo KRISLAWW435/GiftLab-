@@ -4,6 +4,8 @@ import {
   ChevronLeft,
   ChevronRight,
   FastForward,
+  MailOpen,
+  Pencil,
   RotateCcw,
   Sparkles,
   Volume2,
@@ -12,40 +14,57 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import type {
   EditableCardTarget,
+  EditableTextField,
   PreviewJumpTarget,
 } from '../preview/previewProtocol';
 import {
   COSMIC_PALETTES,
   GLOW_COLORS,
   MUSIC_TRACKS,
+  buildProjectCardDevicePatch,
+  buildProjectConstellationDevicePatch,
+  buildProjectFinalDecorDevicePatch,
+  buildProjectFinalTextDevicePatch,
+  buildStarDecorDevicePatch,
+  buildStarIllustrationDevicePatch,
+  buildStarTextDevicePatch,
   computeTextBlockMarginLeftPct,
-  isDefaultStarTextStyle,
+  resolveCardColors,
+  resolveCardTheme,
+  resolveEffectiveCardLayout,
+  resolveEffectiveConstellationLayout,
+  resolveEffectiveFinalDecor,
+  resolveEffectiveFinalTextStyle,
+  resolveEffectiveIllustrationLayout,
+  resolveEffectiveStarDecor,
+  resolveEffectiveStarTextStyle,
   resolveMessageFont,
-  resolveStarDecor,
   resolveStarGlowHex,
-  resolveStarIllustrationLayout,
-  resolveStarTextStyle,
   resolveTextShadowCss,
+  resolveViewportDeviceMode,
 } from '../scene/paletteConfig';
 import { getMusicTrackBlob } from '../services/musicEngine';
 import type {
   ConstellationProject,
   ConstellationStar,
+  DeviceLayoutKey,
   MessageTextAlign,
   RecipientPhase,
 } from '../types/project';
 import { CardDecorView } from './CardDecorView';
 import { Constellation3D, type Constellation3DHandle } from './Constellation3D';
+import { FinalLetterCard, type FinalLetterDragKind } from './FinalLetterCard';
 import { StarIllustrationView } from './StarIllustrationView';
 
 interface RecipientViewProps {
   project: ConstellationProject;
+  deviceMode?: DeviceLayoutKey;
   onExitPreview?: () => void;
   editMode?: boolean;
   selectedTarget?: EditableCardTarget | null;
   jumpTo?: PreviewJumpTarget | null;
   onPhaseStateChange?: (phase: RecipientPhase, activeIndex: number) => void;
-  onSelectTarget?: (target: EditableCardTarget | null) => void;
+  onSelectTarget?: (target: EditableCardTarget | null, field?: EditableTextField) => void;
   onPatchStar?: (starId: string, patch: Partial<ConstellationStar>) => void;
   onPatchProject?: (patch: Partial<ConstellationProject>) => void;
 }
@@ -126,6 +145,7 @@ function hasActiveTextSelection(): boolean {
 
 export function RecipientView({
   project,
+  deviceMode,
   onExitPreview,
   editMode = false,
   selectedTarget = null,
@@ -139,13 +159,17 @@ export function RecipientView({
   const storyStageRef = useRef<HTMLDivElement | null>(null);
   const storyRightRef = useRef<HTMLDivElement | null>(null);
   const finaleHeaderRef = useRef<HTMLElement | null>(null);
+  const storyInlineInputRef = useRef<HTMLInputElement | null>(null);
+  const storyInlineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [phase, setPhase] = useState<RecipientPhase>('sealed');
   const [activeIndex, setActiveIndex] = useState(0);
   const [unlockedCount, setUnlockedCount] = useState(0);
   const [finaleReached, setFinaleReached] = useState(false);
+  const [letterOpen, setLetterOpen] = useState(true);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [dragOffsetX, setDragOffsetX] = useState(0);
+  const [activeInlineField, setActiveInlineField] = useState<EditableTextField | null>(null);
 
   const [reducedMotion, setReducedMotion] = useState(() =>
     typeof window !== 'undefined'
@@ -169,8 +193,8 @@ export function RecipientView({
       | 'illu-scale'
       | 'decor-move'
       | 'decor-scale'
-      | 'final-decor-move'
-      | 'final-decor-scale';
+      | 'constellation-move'
+      | FinalLetterDragKind;
     pointerId: number;
     startX: number;
     startY: number;
@@ -180,6 +204,8 @@ export function RecipientView({
     originY: number;
     originValue: number;
     starId?: string;
+    hasMoved: boolean;
+    pendingInlineField?: EditableTextField;
   } | null>(null);
 
   // Synchronous state snapshot & lock refs to prevent stale closures and double transitions
@@ -292,6 +318,7 @@ export function RecipientView({
       stateRef.current.phase = 'constellation';
       setUnlockedCount(total);
       setFinaleReached(true);
+      setLetterOpen(true);
       setPhase('constellation');
       return;
     }
@@ -311,6 +338,46 @@ export function RecipientView({
     setActiveIndex(targetIdx);
     setPhase('starStory');
   }, [jumpTo, project.stars.length, releaseTransitionLock]);
+
+  useEffect(() => {
+    if (
+      editMode &&
+      !jumpTo &&
+      (stateRef.current.phase === 'sealed' || stateRef.current.phase === 'birthing')
+    ) {
+      releaseTransitionLock();
+      sceneRef.current?.skipBirthSequence();
+      const total = Math.max(1, project.stars.length);
+      const nextUnlocked = Math.min(total, Math.max(1, stateRef.current.unlockedCount));
+      stateRef.current.unlockedCount = nextUnlocked;
+      stateRef.current.activeIndex = 0;
+      stateRef.current.phase = 'starStory';
+      setUnlockedCount(nextUnlocked);
+      setActiveIndex(0);
+      setPhase('starStory');
+    }
+  }, [editMode, jumpTo, phase, project.stars.length, releaseTransitionLock]);
+
+  useEffect(() => {
+    setActiveInlineField(null);
+  }, [editMode, phase, activeIndex]);
+
+  useEffect(() => {
+    if (!editMode || phase !== 'starStory' || !activeInlineField) return;
+    if (activeInlineField === 'starMessage') {
+      const el = storyInlineTextareaRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    } else if (activeInlineField === 'starTitle' || activeInlineField === 'senderName') {
+      const el = storyInlineInputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }
+  }, [editMode, phase, activeInlineField]);
 
   useEffect(() => {
     if (project.musicTrackId === 'none') return;
@@ -427,6 +494,7 @@ export function RecipientView({
       stateRef.current.finaleReached = true;
       stateRef.current.phase = 'constellation';
       setFinaleReached(true);
+      setLetterOpen(true);
       setPhase('constellation');
       acquireTransitionLock(100);
       return;
@@ -444,6 +512,7 @@ export function RecipientView({
     stateRef.current.finaleReached = true;
     stateRef.current.phase = 'constellation';
     setFinaleReached(true);
+    setLetterOpen(true);
     setPhase('constellation');
   };
 
@@ -452,6 +521,7 @@ export function RecipientView({
     stateRef.current.finaleReached = true;
     stateRef.current.phase = 'constellation';
     setFinaleReached(true);
+    setLetterOpen(true);
     setPhase('constellation');
   };
 
@@ -475,6 +545,7 @@ export function RecipientView({
         if (!snap.finaleReached || snap.phase === 'constellation') return;
         acquireTransitionLock(lockDuration);
         stateRef.current.phase = 'constellation';
+        setLetterOpen(true);
         setPhase('constellation');
         return;
       }
@@ -679,8 +750,12 @@ export function RecipientView({
   const isLastStar = activeIndex >= totalStars - 1;
   const isPortrait = viewport.height > viewport.width || viewport.width < 540;
   const isCompactLandscape = !isPortrait && viewport.height < 520;
+  const activeDevice: DeviceLayoutKey =
+    deviceMode ?? resolveViewportDeviceMode(viewport.width, viewport.height);
 
-  const starTextStyle = resolveStarTextStyle(activeStar ?? undefined);
+  const constellationLayout = resolveEffectiveConstellationLayout(project, activeDevice);
+  const cardLayout = resolveEffectiveCardLayout(project, activeDevice);
+  const starTextStyle = resolveEffectiveStarTextStyle(activeStar ?? undefined, activeDevice);
   const starFontMeta = resolveMessageFont(starTextStyle.fontId);
   const effectiveAlign: Exclude<MessageTextAlign, 'auto'> =
     starTextStyle.textAlign === 'auto'
@@ -700,10 +775,7 @@ export function RecipientView({
     starTextStyle.offsetX,
   );
 
-  const illuLayout = resolveStarIllustrationLayout(
-    activeStar ?? undefined,
-    isPortrait ? 0 : -100,
-  );
+  const illuLayout = resolveEffectiveIllustrationLayout(activeStar ?? undefined, activeDevice);
   const illuLeftGrow = Number(((illuLayout.offsetX + 100) / 200).toFixed(3));
   const illuRightGrow = Number((1 - illuLeftGrow).toFixed(3));
   const clampedIlluScale = Math.min(isPortrait ? 1.28 : 1.45, illuLayout.scale);
@@ -721,51 +793,100 @@ export function RecipientView({
   const illuYShift = illuLayout.offsetY / 100;
   const textYShift = starTextStyle.offsetY / 100;
   const spacerBase = isPortrait || isCompactLandscape ? 0.35 : 0.9;
+  const rawTopOuterGrow = Math.max(
+    0,
+    Math.min(
+      2.0,
+      spacerBase * (1 + illuYShift * 0.85) - Math.max(0, -textYShift) * 0.45,
+    ),
+  );
+  const rawTopInnerGrow = Math.max(
+    0.06,
+    Math.min(
+      2.2,
+      0.14 + Math.max(0, textYShift) * 1.4 + Math.max(0, -illuYShift) * 0.7,
+    ),
+  );
+  const rawBottomInnerGrow = Math.max(
+    0,
+    Math.min(2.4, spacerBase + Math.max(0, -textYShift) * 1.35 - Math.max(0, textYShift) * 0.65),
+  );
+
   const topOuterGrow = Number(
-    Math.max(
-      0,
-      Math.min(
-        2.0,
-        spacerBase * (1 + illuYShift * 0.85) - Math.max(0, -textYShift) * 0.45,
-      ),
+    (cardLayout.verticalAlign === 'top'
+      ? rawTopOuterGrow * 0.2
+      : cardLayout.verticalAlign === 'spread'
+        ? rawTopOuterGrow * 0.4
+        : rawTopOuterGrow
     ).toFixed(3),
   );
   const topInnerGrow = Number(
-    Math.max(
-      0.06,
-      Math.min(
-        2.2,
-        0.14 + Math.max(0, textYShift) * 1.4 + Math.max(0, -illuYShift) * 0.7,
-      ),
+    (cardLayout.verticalAlign === 'spread'
+      ? rawTopInnerGrow + 0.75
+      : rawTopInnerGrow
     ).toFixed(3),
   );
   const bottomInnerGrow = Number(
-    Math.max(
-      0,
-      Math.min(2.4, spacerBase + Math.max(0, -textYShift) * 1.35 - Math.max(0, textYShift) * 0.65),
+    (cardLayout.verticalAlign === 'top'
+      ? rawBottomInnerGrow + 1.15
+      : cardLayout.verticalAlign === 'spread'
+        ? rawBottomInnerGrow * 0.4
+        : rawBottomInnerGrow
     ).toFixed(3),
   );
 
-  const starDecor = resolveStarDecor(activeStar ?? undefined);
+  const cardTheme = resolveCardTheme(project.cardTheme);
+  const cardColors = resolveCardColors(project);
+  const hasExplicitCardTheme = Boolean(project.cardTheme || project.cardColors);
+
+  const storyWidthClass = isPortrait
+    ? cardLayout.width === 'compact'
+      ? 'max-w-[330px]'
+      : cardLayout.width === 'wide'
+        ? 'max-w-full'
+        : 'max-w-[374px]'
+    : cardLayout.width === 'compact'
+      ? 'max-w-md'
+      : cardLayout.width === 'wide'
+        ? 'max-w-2xl'
+        : 'max-w-xl';
+
+  const storyCardPaddingClass = hasExplicitCardTheme
+    ? cardLayout.padding === 'compact'
+      ? 'px-3 py-2 sm:px-4 sm:py-3'
+      : cardLayout.padding === 'spacious'
+        ? 'px-5 py-4 sm:px-8 sm:py-6'
+        : 'px-4 py-3 sm:px-6 sm:py-4'
+    : cardLayout.padding === 'compact'
+      ? 'px-0.5 py-0.5'
+      : cardLayout.padding === 'spacious'
+        ? 'px-3 sm:px-5 py-2 sm:py-3'
+        : '';
+
+  const storyCardOffsetY = Math.round(cardLayout.offsetY * 0.7);
+
+  const starDecor = resolveEffectiveStarDecor(activeStar ?? undefined, activeDevice);
+  const effectiveStarTextColor =
+    activeStar?.textStyle || !cardColors.isLightPaper
+      ? starTextStyle.color
+      : cardColors.textColor;
+  const effectiveStarShadowMode =
+    cardColors.isLightPaper && starTextStyle.shadow !== 'glow'
+      ? 'none'
+      : starTextStyle.shadow;
   const resolvedTextShadow = resolveTextShadowCss(
-    starTextStyle.shadow,
+    effectiveStarShadowMode,
     activeStarGlow.hex,
   );
+  const storyDecorGlowHex = cardColors.isLightPaper
+    ? cardColors.accentColor
+    : activeStarGlow.hex;
+  const storyDecorCoreHex = cardColors.isLightPaper
+    ? cardColors.badgeColor
+    : activeStarGlow.coreHex;
 
-  const finalTextStyle = project.finalTextStyle
-    ? resolveStarTextStyle(project.finalTextStyle)
-    : null;
-  const hasCustomFinalStyle = Boolean(
-    finalTextStyle && !isDefaultStarTextStyle(finalTextStyle),
-  );
-  const finalFontMeta = finalTextStyle
-    ? resolveMessageFont(finalTextStyle.fontId)
-    : null;
-  const finalEffectiveAlign: Exclude<MessageTextAlign, 'auto'> =
-    finalTextStyle && finalTextStyle.textAlign !== 'auto'
-      ? finalTextStyle.textAlign
-      : 'center';
-  const finalDecor = resolveStarDecor(project.finalDecor);
+  const finalTextStyle = resolveEffectiveFinalTextStyle(project, activeDevice);
+  const finalDecor = resolveEffectiveFinalDecor(project, activeDevice);
 
   // Interactive visual card design pointer handlers (only active in PreviewWorkspace editMode)
   const beginCanvasEdit = (
@@ -777,8 +898,8 @@ export function RecipientView({
       | 'illu-scale'
       | 'decor-move'
       | 'decor-scale'
-      | 'final-decor-move'
-      | 'final-decor-scale',
+      | 'constellation-move'
+      | FinalLetterDragKind,
     e: React.PointerEvent<HTMLElement>,
   ) => {
     if (!editMode) return;
@@ -793,20 +914,25 @@ export function RecipientView({
       'illu-scale': 'illustration',
       'decor-move': 'decor',
       'decor-scale': 'decor',
+      'constellation-move': 'constellation',
+      'final-text-move': 'text',
+      'final-text-resize-right': 'text',
+      'final-text-resize-left': 'text',
+      'final-card-move': 'card',
       'final-decor-move': 'decor',
       'final-decor-scale': 'decor',
     } as const;
     onSelectTarget?.(targetMap[kind]);
 
     const stageRect =
-      kind.startsWith('final-')
-        ? finaleHeaderRef.current?.getBoundingClientRect()
-        : kind.startsWith('decor-')
-          ? storyRightRef.current?.getBoundingClientRect()
+      kind === 'constellation-move'
+        ? undefined
+        : kind.startsWith('final-')
+          ? finaleHeaderRef.current?.getBoundingClientRect()
           : storyStageRef.current?.getBoundingClientRect();
 
-    const containerW = Math.max(160, stageRect?.width ?? 420);
-    const containerH = Math.max(140, stageRect?.height ?? 420);
+    const containerW = Math.max(160, stageRect?.width ?? viewport.width);
+    const containerH = Math.max(140, stageRect?.height ?? viewport.height);
 
     let originX = 0;
     let originY = 0;
@@ -824,11 +950,33 @@ export function RecipientView({
       originX = starDecor.xPct;
       originY = starDecor.yPct;
       originValue = starDecor.scale;
+    } else if (kind === 'constellation-move') {
+      originX = constellationLayout.offsetX;
+      originY = constellationLayout.offsetY;
+      originValue = constellationLayout.scale;
+    } else if (
+      kind === 'final-text-move' ||
+      kind === 'final-text-resize-right' ||
+      kind === 'final-text-resize-left'
+    ) {
+      originX = finalTextStyle.offsetX;
+      originY = finalTextStyle.offsetY;
+      originValue = finalTextStyle.widthPct;
+    } else if (kind === 'final-card-move') {
+      originX = 0;
+      originY = cardLayout.offsetY;
+      originValue = cardLayout.offsetY;
     } else {
       originX = finalDecor.xPct;
       originY = finalDecor.yPct;
       originValue = finalDecor.scale;
     }
+
+    const inlineTargetEl = (e.target as HTMLElement | null)?.closest(
+      '[data-inline-field]',
+    ) as HTMLElement | null;
+    const pendingInlineField = (inlineTargetEl?.getAttribute('data-inline-field') ??
+      undefined) as EditableTextField | undefined;
 
     e.currentTarget.setPointerCapture(e.pointerId);
     canvasEditDragRef.current = {
@@ -842,6 +990,8 @@ export function RecipientView({
       originY,
       originValue,
       starId: activeStar?.id,
+      hasMoved: false,
+      pendingInlineField,
     };
   };
 
@@ -853,25 +1003,89 @@ export function RecipientView({
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
 
+    if (!drag.hasMoved) {
+      if (Math.hypot(dx, dy) < 5) {
+        return;
+      }
+      drag.hasMoved = true;
+      setActiveInlineField(null);
+    }
+
+    if (drag.kind === 'constellation-move') {
+      const dxNorm = Math.round((dx / Math.max(140, drag.containerW * 0.42)) * 100);
+      const dyNorm = Math.round((-dy / Math.max(140, drag.containerH * 0.42)) * 100);
+      onPatchProject?.(
+        buildProjectConstellationDevicePatch(project, activeDevice, {
+          offsetX: Math.max(-100, Math.min(100, drag.originX + dxNorm)),
+          offsetY: Math.max(-100, Math.min(100, drag.originY + dyNorm)),
+        }),
+      );
+      return;
+    }
+
+    if (drag.kind === 'final-card-move') {
+      const nextY = Math.max(-60, Math.min(60, Math.round(drag.originY + dy / 1.4)));
+      onPatchProject?.(
+        buildProjectCardDevicePatch(project, activeDevice, { offsetY: nextY }),
+      );
+      return;
+    }
+
+    if (drag.kind === 'final-text-move') {
+      let nextWidth = drag.originValue;
+      if (Math.abs(dx) > 6 && nextWidth > 90) {
+        nextWidth = 84;
+      }
+      const dxNorm = Math.round((dx / Math.max(60, drag.containerW * 0.35)) * 100);
+      const dyNorm = Math.round((dy / Math.max(50, drag.containerH * 0.25)) * 100);
+      onPatchProject?.(
+        buildProjectFinalTextDevicePatch(project, activeDevice, {
+          widthPct: nextWidth,
+          offsetX: Math.max(-100, Math.min(100, drag.originX + dxNorm)),
+          offsetY: Math.max(-100, Math.min(100, drag.originY + dyNorm)),
+        }),
+      );
+      return;
+    }
+
+    if (drag.kind === 'final-text-resize-right' || drag.kind === 'final-text-resize-left') {
+      const signedDx = drag.kind === 'final-text-resize-right' ? dx : -dx;
+      const dWidthPct = Math.round((signedDx / drag.containerW) * 100);
+      const nextWidth = Math.max(56, Math.min(100, drag.originValue + dWidthPct));
+      onPatchProject?.(
+        buildProjectFinalTextDevicePatch(project, activeDevice, {
+          widthPct: nextWidth,
+        }),
+      );
+      return;
+    }
+
     if (drag.kind === 'final-decor-move' || drag.kind === 'final-decor-scale') {
       if (drag.kind === 'final-decor-move') {
         const nextX = Math.max(6, Math.min(94, Math.round(drag.originX + (dx / drag.containerW) * 100)));
         const nextY = Math.max(6, Math.min(88, Math.round(drag.originY + (dy / drag.containerH) * 100)));
-        onPatchProject?.({
-          finalDecor: resolveStarDecor({ ...finalDecor, xPct: nextX, yPct: nextY }),
-        });
+        onPatchProject?.(
+          buildProjectFinalDecorDevicePatch(project, activeDevice, {
+            xPct: nextX,
+            yPct: nextY,
+          }),
+        );
       } else {
         const delta = (dx + dy) / 140;
         const nextScale = Math.max(0.7, Math.min(1.45, Number((drag.originValue + delta).toFixed(2))));
-        onPatchProject?.({
-          finalDecor: resolveStarDecor({ ...finalDecor, scale: nextScale }),
-        });
+        onPatchProject?.(
+          buildProjectFinalDecorDevicePatch(project, activeDevice, {
+            scale: nextScale,
+          }),
+        );
       }
       return;
     }
 
     const starId = drag.starId;
     if (!starId) return;
+    const targetStar = project.stars.find((s) => s.id === starId) ?? activeStar;
+    if (!targetStar) return;
 
     if (drag.kind === 'text-move') {
       let nextWidth = drag.originValue;
@@ -880,62 +1094,62 @@ export function RecipientView({
       }
       const dxNorm = Math.round((dx / Math.max(60, drag.containerW * 0.35)) * 100);
       const dyNorm = Math.round((dy / Math.max(60, drag.containerH * 0.32)) * 100);
-      onPatchStar?.(starId, {
-        textStyle: resolveStarTextStyle({
-          ...starTextStyle,
+      onPatchStar?.(
+        starId,
+        buildStarTextDevicePatch(targetStar, activeDevice, {
           widthPct: nextWidth,
           offsetX: Math.max(-100, Math.min(100, drag.originX + dxNorm)),
           offsetY: Math.max(-100, Math.min(100, drag.originY + dyNorm)),
         }),
-      });
+      );
     } else if (drag.kind === 'text-resize-right' || drag.kind === 'text-resize-left') {
       const signedDx = drag.kind === 'text-resize-right' ? dx : -dx;
       const dWidthPct = Math.round((signedDx / drag.containerW) * 100);
       const nextWidth = Math.max(56, Math.min(100, drag.originValue + dWidthPct));
-      onPatchStar?.(starId, {
-        textStyle: resolveStarTextStyle({
-          ...starTextStyle,
+      onPatchStar?.(
+        starId,
+        buildStarTextDevicePatch(targetStar, activeDevice, {
           widthPct: nextWidth,
         }),
-      });
+      );
     } else if (drag.kind === 'illu-move') {
       const dxNorm = Math.round((dx / Math.max(60, drag.containerW * 0.42)) * 100);
       const dyNorm = Math.round((dy / Math.max(60, drag.containerH * 0.34)) * 100);
-      onPatchStar?.(starId, {
-        illustrationLayout: resolveStarIllustrationLayout({
-          ...illuLayout,
+      onPatchStar?.(
+        starId,
+        buildStarIllustrationDevicePatch(targetStar, activeDevice, {
           offsetX: Math.max(-100, Math.min(100, drag.originX + dxNorm)),
           offsetY: Math.max(-100, Math.min(100, drag.originY + dyNorm)),
         }),
-      });
+      );
     } else if (drag.kind === 'illu-scale') {
       const delta = (dx + dy) / 140;
       const nextScale = Math.max(0.65, Math.min(1.45, Number((drag.originValue + delta).toFixed(2))));
-      onPatchStar?.(starId, {
-        illustrationLayout: resolveStarIllustrationLayout({
-          ...illuLayout,
+      onPatchStar?.(
+        starId,
+        buildStarIllustrationDevicePatch(targetStar, activeDevice, {
           scale: nextScale,
         }),
-      });
+      );
     } else if (drag.kind === 'decor-move') {
       const nextX = Math.max(6, Math.min(94, Math.round(drag.originX + (dx / drag.containerW) * 100)));
       const nextY = Math.max(6, Math.min(88, Math.round(drag.originY + (dy / drag.containerH) * 100)));
-      onPatchStar?.(starId, {
-        decor: resolveStarDecor({
-          ...starDecor,
+      onPatchStar?.(
+        starId,
+        buildStarDecorDevicePatch(targetStar, activeDevice, {
           xPct: nextX,
           yPct: nextY,
         }),
-      });
+      );
     } else if (drag.kind === 'decor-scale') {
       const delta = (dx + dy) / 140;
       const nextScale = Math.max(0.7, Math.min(1.45, Number((drag.originValue + delta).toFixed(2))));
-      onPatchStar?.(starId, {
-        decor: resolveStarDecor({
-          ...starDecor,
+      onPatchStar?.(
+        starId,
+        buildStarDecorDevicePatch(targetStar, activeDevice, {
           scale: nextScale,
         }),
-      });
+      );
     }
   };
 
@@ -950,10 +1164,22 @@ export function RecipientView({
     } catch {
       // ignore
     }
+
+    if (!drag.hasMoved && drag.pendingInlineField) {
+      setActiveInlineField(drag.pendingInlineField);
+      onSelectTarget?.('text', drag.pendingInlineField);
+    }
   };
 
   return (
-    <div className="relative w-screen gl-h-screen overflow-hidden bg-gl-bg text-gl-text">
+    <div
+      data-testid="recipient-view-root"
+      data-active-device={activeDevice}
+      data-constellation-offset-x={constellationLayout.offsetX}
+      data-constellation-offset-y={constellationLayout.offsetY}
+      data-constellation-scale={constellationLayout.scale}
+      className="relative w-screen gl-h-screen overflow-hidden bg-gl-bg text-gl-text"
+    >
       {/* Unified 3D Cosmic Scene (single persistent WebGL context) */}
       <Constellation3D
         ref={sceneRef}
@@ -969,6 +1195,7 @@ export function RecipientView({
         finaleActive={phase === 'finalReveal' || phase === 'constellation' || finaleReached}
         lowPerformance={viewport.width < 768}
         reducedMotion={reducedMotion}
+        constellationLayout={constellationLayout}
         force2DFallback={force2D}
         startSealed={true}
         onOpenEnvelope={handleOpenEnvelope}
@@ -1295,85 +1522,136 @@ export function RecipientView({
               style={{ touchAction: editMode ? 'none' : 'pan-y' }}
               className={`relative pointer-events-auto min-h-0 flex flex-col overflow-y-auto overflow-x-hidden ${
                 isPortrait
-                  ? 'flex-1 px-5 pb-4 pt-1 justify-between items-center text-center'
+                  ? 'flex-1 px-4 pb-3.5 pt-1 justify-between items-center text-center'
                   : isCompactLandscape
                     ? 'px-5 pr-6 pb-3 pt-1 justify-between items-start text-left'
-                    : 'px-6 sm:px-10 lg:pr-14 lg:pl-4 pb-6 pt-2 justify-between items-start text-left'
+                    : 'px-6 sm:px-10 lg:pr-12 lg:pl-4 pb-5 pt-2 justify-between items-start text-left'
               }`}
             >
-              {/* Optional Card Decorative Ornament (positioned freely in safe card area) */}
-              {starDecor.motif !== 'none' && (
-                <div
-                  data-testid="story-card-decor"
-                  data-selected={editMode && selectedTarget === 'decor'}
-                  onPointerDown={editMode ? (e) => beginCanvasEdit('decor-move', e) : undefined}
-                  onPointerMove={editMode ? moveCanvasEdit : undefined}
-                  onPointerUp={editMode ? endCanvasEdit : undefined}
-                  onPointerCancel={editMode ? endCanvasEdit : undefined}
-                  onClick={
-                    editMode
-                      ? (e) => {
-                          e.stopPropagation();
-                          onSelectTarget?.('decor');
-                        }
-                      : undefined
-                  }
-                  style={{
-                    left: `${starDecor.xPct}%`,
-                    top: `${starDecor.yPct}%`,
-                    transform: `translate(-50%, -50%) scale(${starDecor.scale})`,
-                  }}
-                  className={`absolute ${
-                    editMode
-                      ? `z-30 cursor-grab active:cursor-grabbing touch-none rounded-2xl p-1 transition-[box-shadow,background-color] ${
-                          selectedTarget === 'decor'
-                            ? 'ring-2 ring-amber-300 bg-amber-500/10'
-                            : 'ring-1 ring-dashed ring-white/30 hover:ring-amber-300/75'
-                        }`
-                      : 'z-0 pointer-events-none opacity-75'
-                  }`}
-                >
-                  <CardDecorView
-                    motif={starDecor.motif}
-                    glowHex={activeStarGlow.hex}
-                    coreHex={activeStarGlow.coreHex}
-                    className={isPortrait ? 'w-20 h-20' : 'w-24 h-24 sm:w-28 sm:h-28'}
-                  />
-                  {editMode && selectedTarget === 'decor' && (
-                    <button
-                      type="button"
-                      data-testid="decor-scale-handle"
-                      aria-label="Изменить размер декора"
-                      onPointerDown={(e) => beginCanvasEdit('decor-scale', e)}
-                      onPointerMove={moveCanvasEdit}
-                      onPointerUp={endCanvasEdit}
-                      onPointerCancel={endCanvasEdit}
-                      className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white cursor-nwse-resize touch-none shadow"
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* Animated Story Content inside bounded flex stage */}
+              {/* Animated Story Content inside bounded flex stage (styled by selected CardTheme + device CardLayout) */}
               <div
                 ref={storyStageRef}
+                data-testid="story-card-stage"
+                data-device={activeDevice}
+                data-card-width={cardLayout.width}
+                data-card-padding={cardLayout.padding}
                 onClick={(e) => {
                   if (editMode && e.target === e.currentTarget) {
-                    onSelectTarget?.(null);
+                    onSelectTarget?.('card');
                   }
                 }}
-                className={`relative z-10 flex-1 min-h-0 w-full max-w-xl flex flex-col ${
-                  isPortrait ? 'mx-auto' : ''
-                }`}
                 style={{
                   transform:
-                    dragOffsetX !== 0
-                      ? `translate3d(${dragOffsetX}px, 0, 0)`
+                    dragOffsetX !== 0 || storyCardOffsetY !== 0
+                      ? `translate3d(${dragOffsetX}px, ${storyCardOffsetY}px, 0)`
                       : undefined,
                   transition:
                     dragOffsetX === 0 ? 'transform 220ms ease-out' : undefined,
+                  ...(hasExplicitCardTheme
+                    ? {
+                        background: cardColors.isLightPaper
+                          ? `linear-gradient(155deg, ${cardColors.surfaceBg}F5 0%, ${cardColors.surfaceBgAlt}F2 100%)`
+                          : `linear-gradient(155deg, ${cardColors.surfaceBg}CC 0%, ${cardColors.surfaceBgAlt}C4 100%)`,
+                        borderColor: `${cardColors.borderColor}70`,
+                        boxShadow: cardColors.isLightPaper
+                          ? '0 20px 50px rgba(4, 7, 20, 0.45)'
+                          : `0 18px 46px rgba(4, 7, 20, 0.52), 0 0 32px ${cardColors.accentColor}1E`,
+                      }
+                    : {}),
                 }}
+                className={`relative z-10 flex-1 min-h-0 w-full ${storyWidthClass} flex flex-col overflow-hidden ${
+                  isPortrait ? 'mx-auto' : ''
+                } ${
+                  hasExplicitCardTheme
+                    ? `rounded-[24px] border ${storyCardPaddingClass} ${
+                        cardColors.isLightPaper ? '' : 'backdrop-blur-md'
+                      }`
+                    : storyCardPaddingClass
+                } ${
+                  editMode && selectedTarget === 'card'
+                    ? 'ring-2 ring-amber-400/80 rounded-[24px]'
+                    : ''
+                }`}
               >
+                {/* Theme inner pattern texture inside card sheet */}
+                {hasExplicitCardTheme && cardTheme.paperPattern === 'paper' && (
+                  <div
+                    className="pointer-events-none absolute inset-2 rounded-[18px] border"
+                    style={{ borderColor: `${cardColors.accentColor}38` }}
+                    aria-hidden="true"
+                  />
+                )}
+                {hasExplicitCardTheme && cardTheme.paperPattern === 'botanical' && (
+                  <div
+                    className="pointer-events-none absolute inset-2 rounded-[18px] border border-dashed"
+                    style={{ borderColor: `${cardColors.accentColor}48` }}
+                    aria-hidden="true"
+                  />
+                )}
+                {hasExplicitCardTheme && cardTheme.paperPattern === 'stars' && (
+                  <div
+                    className="pointer-events-none absolute inset-0 opacity-40"
+                    style={{
+                      backgroundImage: `radial-gradient(${cardColors.accentColor}66 1px, transparent 1px)`,
+                      backgroundSize: '26px 26px',
+                    }}
+                    aria-hidden="true"
+                  />
+                )}
+
+                {/* Optional Card Decorative Ornament (positioned freely in safe card area) */}
+                {starDecor.motif !== 'none' && (
+                  <div
+                    data-testid="story-card-decor"
+                    data-selected={editMode && selectedTarget === 'decor'}
+                    onPointerDown={editMode ? (e) => beginCanvasEdit('decor-move', e) : undefined}
+                    onPointerMove={editMode ? moveCanvasEdit : undefined}
+                    onPointerUp={editMode ? endCanvasEdit : undefined}
+                    onPointerCancel={editMode ? endCanvasEdit : undefined}
+                    onClick={
+                      editMode
+                        ? (e) => {
+                            e.stopPropagation();
+                            onSelectTarget?.('decor');
+                          }
+                        : undefined
+                    }
+                    style={{
+                      left: `${starDecor.xPct}%`,
+                      top: `${starDecor.yPct}%`,
+                      transform: `translate(-50%, -50%) scale(${starDecor.scale})`,
+                    }}
+                    className={`absolute ${
+                      editMode
+                        ? `z-30 cursor-grab active:cursor-grabbing touch-none rounded-2xl p-1 transition-[box-shadow,background-color] ${
+                            selectedTarget === 'decor'
+                              ? 'ring-2 ring-amber-400 bg-amber-500/15'
+                              : 'ring-1 ring-dashed ring-current/30 hover:ring-amber-400/75'
+                          }`
+                        : 'z-0 pointer-events-none opacity-75'
+                    }`}
+                  >
+                    <CardDecorView
+                      motif={starDecor.motif}
+                      glowHex={storyDecorGlowHex}
+                      coreHex={storyDecorCoreHex}
+                      className={isPortrait ? 'w-20 h-20' : 'w-24 h-24 sm:w-28 sm:h-28'}
+                    />
+                    {editMode && selectedTarget === 'decor' && (
+                      <button
+                        type="button"
+                        data-testid="decor-scale-handle"
+                        aria-label="Изменить размер декора"
+                        onPointerDown={(e) => beginCanvasEdit('decor-scale', e)}
+                        onPointerMove={moveCanvasEdit}
+                        onPointerUp={endCanvasEdit}
+                        onPointerCancel={endCanvasEdit}
+                        className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white cursor-nwse-resize touch-none shadow"
+                      />
+                    )}
+                  </div>
+                )}
+
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.article
                     key={activeStar.id}
@@ -1392,7 +1670,7 @@ export function RecipientView({
                       duration: reducedMotion ? 0.06 : 0.24,
                       ease: [0.16, 1, 0.3, 1],
                     }}
-                    className="flex-1 min-h-0 w-full flex flex-col"
+                    className="relative z-10 flex-1 min-h-0 w-full flex flex-col overflow-y-auto overscroll-contain"
                   >
                     <div style={{ flexGrow: topOuterGrow, flexBasis: 0 }} />
 
@@ -1443,7 +1721,7 @@ export function RecipientView({
                             illustration={activeStar.illustration}
                             imageSettings={activeStar.imageSettings}
                             alt={activeStar.title || `Звезда ${activeIndex + 1}`}
-                            className="w-full h-full relative object-contain drop-shadow-[0_14px_34px_rgba(0,0,0,0.6)]"
+                            className="w-full h-full relative object-contain drop-shadow-[0_14px_34px_rgba(0,0,0,0.45)]"
                           />
                         </div>
                         {editMode && selectedTarget === 'illustration' && (
@@ -1468,13 +1746,21 @@ export function RecipientView({
                     <div
                       data-testid="story-text-block"
                       data-selected={editMode && selectedTarget === 'text'}
-                      onPointerDown={editMode ? (e) => beginCanvasEdit('text-move', e) : undefined}
+                      onPointerDown={
+                        editMode
+                          ? (e) => {
+                              if ((e.target as HTMLElement).closest('input, textarea')) return;
+                              beginCanvasEdit('text-move', e);
+                            }
+                          : undefined
+                      }
                       onPointerMove={editMode ? moveCanvasEdit : undefined}
                       onPointerUp={editMode ? endCanvasEdit : undefined}
                       onPointerCancel={editMode ? endCanvasEdit : undefined}
                       onClick={
                         editMode
                           ? (e) => {
+                              if ((e.target as HTMLElement).closest('input, textarea')) return;
                               e.stopPropagation();
                               onSelectTarget?.('text');
                             }
@@ -1487,14 +1773,22 @@ export function RecipientView({
                         fontFamily: starFontMeta.cssFamily,
                         borderColor:
                           starTextStyle.accent === 'frame'
-                            ? `${activeStarGlow.hex}44`
+                            ? `${cardColors.isLightPaper ? cardColors.accentColor : activeStarGlow.hex}44`
                             : starTextStyle.accent === 'quote'
-                              ? activeStarGlow.hex
+                              ? cardColors.isLightPaper
+                                ? cardColors.accentColor
+                                : activeStarGlow.hex
                               : undefined,
+                        backgroundColor:
+                          starTextStyle.accent === 'frame'
+                            ? cardColors.isLightPaper
+                              ? 'rgba(255,255,255,0.62)'
+                              : 'rgba(7,11,26,0.62)'
+                            : undefined,
                       }}
                       className={`relative shrink-0 max-w-full space-y-2 ${
                         starTextStyle.accent === 'frame'
-                          ? 'rounded-2xl border bg-[#070B1A]/62 backdrop-blur-md px-4 py-3.5 sm:px-5 sm:py-4 shadow-xl'
+                          ? 'rounded-2xl border backdrop-blur-md px-4 py-3.5 sm:px-5 sm:py-4 shadow-xl'
                           : starTextStyle.accent === 'quote'
                             ? effectiveAlign === 'right'
                               ? 'border-r-2 pr-3.5 py-0.5'
@@ -1505,7 +1799,7 @@ export function RecipientView({
                           ? `cursor-grab active:cursor-grabbing touch-none rounded-xl transition-[box-shadow] ${
                               selectedTarget === 'text'
                                 ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-transparent'
-                                : 'ring-1 ring-dashed ring-white/25 hover:ring-violet-400/75'
+                                : 'ring-1 ring-dashed ring-current/25 hover:ring-violet-400/75'
                             }`
                           : ''
                       }`}
@@ -1539,7 +1833,9 @@ export function RecipientView({
                         <div
                           className="h-0.5 w-16 rounded-full"
                           style={{
-                            background: `linear-gradient(90deg, ${activeStarGlow.hex}, ${activeStarGlow.coreHex})`,
+                            background: cardColors.isLightPaper
+                              ? `linear-gradient(90deg, ${cardColors.accentColor}, ${cardColors.badgeColor})`
+                              : `linear-gradient(90deg, ${activeStarGlow.hex}, ${activeStarGlow.coreHex})`,
                             marginLeft: effectiveAlign === 'left' ? 0 : 'auto',
                             marginRight: effectiveAlign === 'center' ? 'auto' : 0,
                           }}
@@ -1550,65 +1846,190 @@ export function RecipientView({
                       <div className="space-y-1 w-full">
                         <p
                           className="text-xs sm:text-sm font-medium tracking-wide tabular-nums"
-                          style={{ color: activeStarGlow.coreHex }}
+                          style={{
+                            color: cardColors.isLightPaper
+                              ? cardColors.badgeColor
+                              : activeStarGlow.coreHex,
+                          }}
                         >
                           Звезда {activeIndex + 1} из {totalStars}
                         </p>
-                        <h2
-                          data-selectable-text={editMode ? undefined : 'true'}
-                          style={{
-                            fontFamily: starFontMeta.cssFamily,
-                            fontSize: `${effectiveTitlePx}px`,
-                            fontWeight: 600,
-                            lineHeight: Math.min(
-                              1.4,
-                              Math.max(1.12, Number((starTextStyle.lineHeight * 0.78).toFixed(2))),
-                            ),
-                            color: starTextStyle.color,
-                            textShadow: resolvedTextShadow,
-                          }}
-                          className={`leading-tight [text-wrap:balance] break-words [overflow-wrap:anywhere] ${
-                            editMode ? 'select-none' : 'select-text'
-                          }`}
-                        >
-                          {activeStar.title || `Звезда ${activeIndex + 1}`}
-                        </h2>
+                        {editMode && activeInlineField === 'starTitle' ? (
+                          <input
+                            ref={storyInlineInputRef}
+                            type="text"
+                            maxLength={30}
+                            value={activeStar.title}
+                            placeholder={`Звезда ${activeIndex + 1}`}
+                            data-testid="inline-edit-starTitle"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) =>
+                              onPatchStar?.(activeStar.id, { title: e.target.value })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === 'Escape') {
+                                e.preventDefault();
+                                setActiveInlineField(null);
+                              }
+                            }}
+                            onBlur={() => setActiveInlineField(null)}
+                            style={{
+                              fontFamily: starFontMeta.cssFamily,
+                              fontSize: `${effectiveTitlePx}px`,
+                              fontWeight: 600,
+                              lineHeight: Math.min(
+                                1.4,
+                                Math.max(1.12, Number((starTextStyle.lineHeight * 0.78).toFixed(2))),
+                              ),
+                              color: effectiveStarTextColor,
+                              textShadow: resolvedTextShadow,
+                              textAlign: effectiveAlign,
+                              borderColor: `${cardColors.accentColor}88`,
+                            }}
+                            className="w-full rounded-xl border bg-black/20 px-2.5 py-1 outline-none"
+                          />
+                        ) : (
+                          <h2
+                            data-selectable-text={editMode ? undefined : 'true'}
+                            data-inline-field={editMode ? 'starTitle' : undefined}
+                            data-testid="card-text-starTitle"
+                            title={editMode ? 'Нажми, чтобы изменить название звезды' : undefined}
+                            style={{
+                              fontFamily: starFontMeta.cssFamily,
+                              fontSize: `${effectiveTitlePx}px`,
+                              fontWeight: 600,
+                              lineHeight: Math.min(
+                                1.4,
+                                Math.max(1.12, Number((starTextStyle.lineHeight * 0.78).toFixed(2))),
+                              ),
+                              color: effectiveStarTextColor,
+                              textShadow: resolvedTextShadow,
+                            }}
+                            className={`leading-tight [text-wrap:balance] break-words [overflow-wrap:anywhere] ${
+                              editMode
+                                ? 'select-none cursor-text rounded-lg px-1 -mx-1 hover:bg-black/10 transition-colors'
+                                : 'select-text'
+                            }`}
+                          >
+                            {activeStar.title || `Звезда ${activeIndex + 1}`}
+                          </h2>
+                        )}
                       </div>
 
                       {/* Personal Wish Message */}
-                      <p
-                        data-selectable-text={editMode ? undefined : 'true'}
-                        style={{
-                          fontFamily: starFontMeta.cssFamily,
-                          fontSize: `${effectiveBodyPx}px`,
-                          fontWeight: starTextStyle.fontWeight === 'semibold' ? 600 : 400,
-                          lineHeight: starTextStyle.lineHeight,
-                          color: starTextStyle.color,
-                          textShadow: resolvedTextShadow,
-                        }}
-                        className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
-                          editMode ? 'select-none' : 'select-text'
-                        }`}
-                      >
-                        {activeStar.message || 'Здесь хранится особое тёплое пожелание.'}
-                      </p>
-
-                      {/* Signature Attribution */}
-                      {signatureText && (
+                      {editMode && activeInlineField === 'starMessage' ? (
+                        <textarea
+                          ref={storyInlineTextareaRef}
+                          rows={4}
+                          maxLength={180}
+                          value={activeStar.message}
+                          placeholder="Напиши пожелание для этой звезды..."
+                          data-testid="inline-edit-starMessage"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) =>
+                            onPatchStar?.(activeStar.id, { message: e.target.value })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              e.preventDefault();
+                              setActiveInlineField(null);
+                            }
+                          }}
+                          onBlur={() => setActiveInlineField(null)}
+                          style={{
+                            fontFamily: starFontMeta.cssFamily,
+                            fontSize: `${effectiveBodyPx}px`,
+                            fontWeight: starTextStyle.fontWeight === 'semibold' ? 600 : 400,
+                            lineHeight: starTextStyle.lineHeight,
+                            color: effectiveStarTextColor,
+                            textShadow: resolvedTextShadow,
+                            textAlign: effectiveAlign,
+                            borderColor: `${cardColors.accentColor}88`,
+                          }}
+                          className="w-full rounded-xl border bg-black/20 px-2.5 py-1.5 outline-none resize-y"
+                        />
+                      ) : (
                         <p
                           data-selectable-text={editMode ? undefined : 'true'}
+                          data-inline-field={editMode ? 'starMessage' : undefined}
+                          data-testid="card-text-starMessage"
+                          title={editMode ? 'Нажми, чтобы изменить текст звезды' : undefined}
                           style={{
-                            color: starTextStyle.color,
-                            opacity: 0.78,
+                            fontFamily: starFontMeta.cssFamily,
+                            fontSize: `${effectiveBodyPx}px`,
+                            fontWeight: starTextStyle.fontWeight === 'semibold' ? 600 : 400,
+                            lineHeight: starTextStyle.lineHeight,
+                            color: effectiveStarTextColor,
+                            textShadow: resolvedTextShadow,
+                          }}
+                          className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                            editMode
+                              ? 'select-none cursor-text rounded-lg px-1 -mx-1 hover:bg-black/10 transition-colors'
+                              : 'select-text'
+                          }`}
+                        >
+                          {activeStar.message || 'Здесь хранится особое тёплое пожелание.'}
+                        </p>
+                      )}
+
+                      {/* Signature Attribution */}
+                      {editMode && activeInlineField === 'senderName' ? (
+                        <input
+                          ref={storyInlineInputRef}
+                          type="text"
+                          maxLength={40}
+                          value={project.senderName ?? ''}
+                          placeholder="Твоё имя"
+                          data-testid="inline-edit-senderName"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) =>
+                            onPatchProject?.({ senderName: e.target.value })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === 'Escape') {
+                              e.preventDefault();
+                              setActiveInlineField(null);
+                            }
+                          }}
+                          onBlur={() => setActiveInlineField(null)}
+                          style={{
+                            color: effectiveStarTextColor,
+                            textShadow: resolvedTextShadow,
+                            textAlign: effectiveAlign,
+                            borderColor: `${cardColors.accentColor}88`,
+                          }}
+                          className="w-48 max-w-full rounded-lg border bg-black/20 px-2 py-0.5 text-xs sm:text-sm italic outline-none"
+                        />
+                      ) : (signatureText || editMode) ? (
+                        <p
+                          data-selectable-text={editMode ? undefined : 'true'}
+                          data-inline-field={editMode ? 'senderName' : undefined}
+                          data-testid="card-text-senderName"
+                          title={editMode ? 'Нажми, чтобы изменить подпись' : undefined}
+                          style={{
+                            color: effectiveStarTextColor,
+                            opacity: signatureText ? 0.78 : 0.5,
                             textShadow: resolvedTextShadow,
                           }}
                           className={`text-xs sm:text-sm italic tracking-wide ${
-                            editMode ? 'select-none' : 'select-text'
+                            editMode
+                              ? 'select-none cursor-text rounded-lg px-1 -mx-1 hover:bg-black/10 transition-colors inline-flex items-center gap-1'
+                              : 'select-text'
                           }`}
                         >
-                          — {signatureText}
+                          {signatureText ? (
+                            `— ${signatureText}`
+                          ) : (
+                            <>
+                              <Pencil className="w-3 h-3 opacity-70" />
+                              <span>— Добавить подпись</span>
+                            </>
+                          )}
                         </p>
-                      )}
+                      ) : null}
                     </div>
 
                     <div style={{ flexGrow: bottomInnerGrow, flexBasis: 0 }} />
@@ -1727,193 +2148,134 @@ export function RecipientView({
         </div>
       )}
 
-      {/* PHASE 5: Final Rotating 3D Constellation + Non-Occluding Greeting */}
+      {/* PHASE 5: Final Rotating 3D Constellation + Emerging Paper Letter */}
       {phase === 'constellation' && (
         <>
-          <div
-            className="pointer-events-none fixed inset-x-0 top-0 h-52 bg-gradient-to-b from-[#070B1A]/82 via-[#070B1A]/38 to-transparent z-10"
-            aria-hidden="true"
-          />
-
-          <header
-            ref={finaleHeaderRef}
-            className="pointer-events-none fixed top-0 inset-x-0 z-20 px-4 sm:px-8 pt-4 sm:pt-6 gl-safe-top flex items-start justify-between gap-4"
-          >
-            <div className="pointer-events-auto shrink-0">
-              {onExitPreview && (
-                <button
-                  type="button"
-                  onClick={onExitPreview}
-                  className="gl-btn-secondary !bg-gl-panel/85 hover:!bg-gl-card text-gl-text !px-3 !py-2 text-xs"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  В редактор
-                </button>
-              )}
-            </div>
-
-            {finalDecor.motif !== 'none' && (
-              <div
-                data-testid="finale-card-decor"
-                data-selected={editMode && selectedTarget === 'decor'}
-                onPointerDown={editMode ? (e) => beginCanvasEdit('final-decor-move', e) : undefined}
-                onPointerMove={editMode ? moveCanvasEdit : undefined}
-                onPointerUp={editMode ? endCanvasEdit : undefined}
-                onPointerCancel={editMode ? endCanvasEdit : undefined}
-                onClick={
-                  editMode
-                    ? (e) => {
-                        e.stopPropagation();
-                        onSelectTarget?.('decor');
-                      }
-                    : undefined
-                }
-                style={{
-                  left: `${finalDecor.xPct}%`,
-                  top: `${finalDecor.yPct}%`,
-                  transform: `translate(-50%, -50%) scale(${finalDecor.scale})`,
-                }}
-                className={`absolute ${
-                  editMode
-                    ? `pointer-events-auto z-30 cursor-grab active:cursor-grabbing touch-none rounded-2xl p-1 ${
-                        selectedTarget === 'decor'
-                          ? 'ring-2 ring-amber-300 bg-amber-500/10'
-                          : 'ring-1 ring-dashed ring-white/30 hover:ring-amber-300/75'
-                      }`
-                    : 'z-0 pointer-events-none opacity-80'
-                }`}
+          {onExitPreview && (
+            <div className="pointer-events-auto fixed top-4 left-4 sm:top-5 sm:left-6 z-30 gl-safe-top">
+              <button
+                type="button"
+                onClick={onExitPreview}
+                className="gl-btn-secondary !bg-gl-panel/85 hover:!bg-gl-card text-gl-text !px-3 !py-2 text-xs shadow-lg"
               >
-                <CardDecorView
-                  motif={finalDecor.motif}
-                  glowHex={globalGlow.hex}
-                  coreHex={globalGlow.coreHex}
-                  className="w-24 h-24"
-                />
-                {editMode && selectedTarget === 'decor' && (
+                <ArrowLeft className="w-3.5 h-3.5" />
+                В редактор
+              </button>
+            </div>
+          )}
+
+          {/* Direct drag & scale sky surface when editing Constellation layout in editMode */}
+          {editMode && selectedTarget === 'constellation' && (
+            <div
+              data-testid="constellation-layout-overlay"
+              onPointerDown={(e) => beginCanvasEdit('constellation-move', e)}
+              onPointerMove={moveCanvasEdit}
+              onPointerUp={endCanvasEdit}
+              onPointerCancel={endCanvasEdit}
+              onWheel={(e) => {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 0.06 : -0.06;
+                const nextScale = Math.max(
+                  0.55,
+                  Math.min(1.45, Number((constellationLayout.scale + delta).toFixed(2))),
+                );
+                onPatchProject?.(
+                  buildProjectConstellationDevicePatch(project, activeDevice, {
+                    scale: nextScale,
+                  }),
+                );
+              }}
+              className="fixed inset-x-0 top-0 bottom-20 z-20 cursor-grab active:cursor-grabbing touch-none flex flex-col items-center justify-between pt-4 pb-3 px-4"
+            >
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                className="gl-hud px-3.5 py-2 flex items-center gap-2.5 text-xs text-gl-text shadow-xl max-w-[92vw]"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span className="truncate">
+                  Перетаскивай созвездие по небу
+                </span>
+                <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-white/15">
                   <button
                     type="button"
-                    aria-label="Изменить размер финального декора"
-                    onPointerDown={(e) => beginCanvasEdit('final-decor-scale', e)}
-                    onPointerMove={moveCanvasEdit}
-                    onPointerUp={endCanvasEdit}
-                    onPointerCancel={endCanvasEdit}
-                    className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white cursor-nwse-resize touch-none shadow"
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Final Greeting Positioned Above Constellation */}
-            <motion.div
-              data-testid="finale-text-block"
-              onClick={
-                editMode
-                  ? (e) => {
-                      e.stopPropagation();
-                      onSelectTarget?.('text');
-                    }
-                  : undefined
-              }
-              initial={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: reducedMotion ? 0.08 : 0.65, ease: [0.16, 1, 0.3, 1] }}
-              style={
-                hasCustomFinalStyle && finalTextStyle && finalFontMeta
-                  ? {
-                      textAlign: finalEffectiveAlign,
-                      fontFamily: finalFontMeta.cssFamily,
-                      borderColor:
-                        finalTextStyle.accent === 'frame'
-                          ? `${globalGlow.hex}44`
-                          : finalTextStyle.accent === 'quote'
-                            ? globalGlow.hex
-                            : undefined,
-                    }
-                  : undefined
-              }
-              className={`relative z-10 flex-1 max-w-2xl mx-auto text-center space-y-1.5 ${
-                hasCustomFinalStyle && finalTextStyle?.accent === 'frame'
-                  ? 'rounded-2xl border bg-[#070B1A]/60 backdrop-blur-md px-5 py-3.5 shadow-xl'
-                  : hasCustomFinalStyle && finalTextStyle?.accent === 'quote'
-                    ? finalEffectiveAlign === 'right'
-                      ? 'border-r-2 pr-4 py-1'
-                      : 'border-l-2 pl-4 py-1'
-                    : ''
-              } ${
-                editMode
-                  ? `pointer-events-auto cursor-pointer rounded-xl ${
-                      selectedTarget === 'text'
-                        ? 'ring-2 ring-violet-400'
-                        : 'ring-1 ring-dashed ring-white/25 hover:ring-violet-400/75'
-                    }`
-                  : ''
-              }`}
-            >
-              <p className="text-xs sm:text-sm font-medium text-amber-200/90 tracking-wide">
-                {project.recipientName
-                  ? `Для ${project.recipientName} · ${project.title}`
-                  : project.title}
-              </p>
-
-              {hasCustomFinalStyle && finalTextStyle?.accent === 'line' && (
-                <div
-                  className="h-0.5 w-16 rounded-full"
-                  style={{
-                    background: `linear-gradient(90deg, ${globalGlow.hex}, ${globalGlow.coreHex})`,
-                    marginLeft: finalEffectiveAlign === 'left' ? 0 : 'auto',
-                    marginRight: finalEffectiveAlign === 'center' ? 'auto' : 0,
-                  }}
-                />
-              )}
-
-              <h1
-                style={
-                  hasCustomFinalStyle && finalTextStyle && finalFontMeta
-                    ? {
-                        fontFamily: finalFontMeta.cssFamily,
-                        fontWeight: finalTextStyle.fontWeight === 'semibold' ? 600 : 400,
-                        fontSize: `${Math.min(
-                          isPortrait ? 24 : 34,
-                          Math.max(
-                            16,
-                            Math.round(
-                              (finalTextStyle.fontSize + finalFontMeta.opticalSizeBoost) *
-                                1.28,
-                            ),
+                    aria-label="Уменьшить созвездие"
+                    onClick={() =>
+                      onPatchProject?.(
+                        buildProjectConstellationDevicePatch(project, activeDevice, {
+                          scale: Math.max(
+                            0.55,
+                            Number((constellationLayout.scale - 0.08).toFixed(2)),
                           ),
-                        )}px`,
-                        lineHeight: Math.min(1.65, finalTextStyle.lineHeight),
-                        color: finalTextStyle.color,
-                        textShadow: resolveTextShadowCss(
-                          finalTextStyle.shadow,
-                          globalGlow.hex,
-                        ),
-                      }
-                    : undefined
-                }
-                className="font-display text-lg sm:text-2xl lg:text-3xl font-bold text-gl-text leading-snug drop-shadow-[0_2px_16px_rgba(0,0,0,0.85)] [text-wrap:balance] break-words [overflow-wrap:anywhere]"
-              >
-                {project.finalMessage}
-              </h1>
-              {signatureText && (
-                <p
-                  style={
-                    hasCustomFinalStyle && finalTextStyle
-                      ? { color: finalTextStyle.color, opacity: 0.78 }
-                      : undefined
-                  }
-                  className="text-xs sm:text-sm text-gl-text-secondary/90 italic"
-                >
-                  {signatureText}
-                </p>
-              )}
-            </motion.div>
+                        }),
+                      )
+                    }
+                    className="w-6 h-6 rounded-md bg-white/10 hover:bg-white/20 text-xs font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Увеличить созвездие"
+                    onClick={() =>
+                      onPatchProject?.(
+                        buildProjectConstellationDevicePatch(project, activeDevice, {
+                          scale: Math.min(
+                            1.45,
+                            Number((constellationLayout.scale + 0.08).toFixed(2)),
+                          ),
+                        }),
+                      )
+                    }
+                    className="w-6 h-6 rounded-md bg-white/10 hover:bg-white/20 text-xs font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPatchProject?.(
+                        buildProjectConstellationDevicePatch(project, activeDevice, {
+                          offsetX: 0,
+                          offsetY: activeDevice === 'phone' ? 8 : 0,
+                          scale: activeDevice === 'phone' ? 0.78 : 1,
+                        }),
+                      )
+                    }
+                    className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[11px] font-medium cursor-pointer"
+                  >
+                    По центру
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
-            <div className="w-20 hidden sm:block shrink-0" />
-          </header>
+          <FinalLetterCard
+            project={project}
+            deviceMode={activeDevice}
+            signatureText={signatureText}
+            isPortrait={isPortrait}
+            isCompactLandscape={isCompactLandscape}
+            reducedMotion={reducedMotion}
+            isOpen={letterOpen && !(editMode && selectedTarget === 'constellation')}
+            onClose={() => setLetterOpen(false)}
+            editMode={editMode}
+            selectedTarget={selectedTarget}
+            activeInlineField={activeInlineField}
+            onSelectTarget={(target, field) => {
+              if (field) setActiveInlineField(field);
+              onSelectTarget?.(target, field);
+            }}
+            onCloseInlineEdit={() => setActiveInlineField(null)}
+            onPatchProject={onPatchProject}
+            letterContainerRef={finaleHeaderRef}
+            onBeginElementDrag={beginCanvasEdit}
+            onMoveElementDrag={moveCanvasEdit}
+            onEndElementDrag={endCanvasEdit}
+          />
 
           {/* Compact Interactive Bottom Dock */}
-          <div className="gl-hud fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-2 !rounded-2xl px-3 py-2 max-w-[95vw] mb-[env(safe-area-inset-bottom,0px)]">
+          <div className="gl-hud fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-wrap items-center justify-center gap-2 !rounded-2xl px-3 py-2 max-w-[95vw] mb-[env(safe-area-inset-bottom,0px)]">
             <div className="flex items-center gap-1 pr-2 border-r border-white/15">
               {project.stars.map((s, idx) => {
                 const hex = GLOW_COLORS[resolveStarGlowHex(s, project.globalGlowColor)].hex;
@@ -1932,6 +2294,20 @@ export function RecipientView({
                 );
               })}
             </div>
+
+            <button
+              type="button"
+              onClick={() => setLetterOpen((v) => !v)}
+              data-testid="toggle-final-letter-btn"
+              className={`gl-btn-secondary !px-3 !py-1.5 text-xs ${
+                letterOpen
+                  ? '!bg-amber-500/20 !border-amber-300/45 text-amber-100'
+                  : '!bg-gl-accent/35 !border-gl-accent-light/55 text-gl-text'
+              }`}
+            >
+              <MailOpen className="w-3.5 h-3.5" />
+              {letterOpen ? 'Скрыть письмо' : 'Открыть письмо'}
+            </button>
 
             <button
               type="button"

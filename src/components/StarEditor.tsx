@@ -1,40 +1,72 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
   ChevronDown,
   ChevronUp,
   ImagePlus,
   Lightbulb,
   Maximize,
+  MessageSquareHeart,
   Minimize,
+  Monitor,
   Move,
+  Palette,
   RotateCcw,
+  Shapes,
+  SlidersHorizontal,
+  Smartphone,
   Sparkles,
+  Type,
 } from 'lucide-react';
 import { BUILTIN_ILLUSTRATIONS, BuiltinIllustration } from '../assets/illustrations';
 import { StarShapePreview } from '../assets/shapePreviews';
 import {
+  CARD_DECOR_MOTIFS,
   DEFAULT_STAR_IMAGE_SETTINGS,
   GLOW_COLORS,
-  STAR_SHAPES,
-  getStarIdeasForCategory,
-  isPresetOrIdeaStarText,
+  buildStarDecorDevicePatch,
+  buildStarIllustrationDevicePatch,
+  buildStarTextDevicePatch,
+  getDefaultDeviceDecorLayout,
+  getDefaultDeviceIllustrationLayout,
+  resolveEffectiveIllustrationLayout,
+  resolveEffectiveStarDecor,
+  resolveEffectiveStarTextStyle,
   resolveStarGlowHex,
   resolveStarImageSettings,
   resolveStarShape,
-  type StarIdeaItem,
 } from '../scene/paletteConfig';
+import {
+  ORDERED_SHAPE_IDS,
+  SHAPE_DISPLAY_META,
+  getShapeNameSuggestions,
+  getStarMessageSuggestions,
+  getToneBadgeLabel,
+  isPresetOrSuggestedMessage,
+  isPresetOrSuggestedTitle,
+} from '../scene/starSuggestions';
 import { saveImageBlob } from '../services/database';
 import { processUploadedImage } from '../services/imageProcessor';
-import type {
-  ConstellationStar,
-  CosmicPaletteId,
-  GlowColorId,
-  OccasionId,
-  StarIllustrationRef,
-  StarImageFitMode,
-  StarImageSettings,
-  StarTextStyle,
+import {
+  isStarComplete,
+  type CardDecorMotif,
+  type CardThemeCustomColors,
+  type CardThemeId,
+  type ConstellationStar,
+  type CosmicPaletteId,
+  type DeviceLayoutKey,
+  type GlowColorId,
+  type OccasionId,
+  type StarDecorSettings,
+  type StarIllustrationLayout,
+  type StarIllustrationRef,
+  type StarImageFitMode,
+  type StarImageSettings,
+  type StarTextStyle,
 } from '../types/project';
+import { CardDecorView } from './CardDecorView';
 import { StarIllustrationView } from './StarIllustrationView';
 import { TextStyleEditor } from './TextStyleEditor';
 
@@ -42,22 +74,42 @@ interface StarEditorProps {
   projectId: string;
   paletteId: CosmicPaletteId;
   occasion: OccasionId;
+  recipientName?: string;
   star: ConstellationStar;
   starIndex: number;
   globalGlowColor: GlowColorId;
+  cardTheme?: CardThemeId;
+  cardColors?: CardThemeCustomColors;
   onChange: (patch: Partial<ConstellationStar>) => void;
   onApplyTextStyleToAll?: (style: StarTextStyle) => void;
 }
 
-type IdeaCategory = 'mothers_day' | 'new_year' | OccasionId;
+type StarEditStep = 'shape' | 'title' | 'message' | 'look';
+
+interface StarEditStepMeta {
+  id: StarEditStep;
+  stepLabel: string;
+  title: string;
+  icon: typeof Shapes;
+}
+
+const STAR_EDIT_STEPS: StarEditStepMeta[] = [
+  { id: 'shape', stepLabel: '1. Форма', title: 'Форма', icon: Shapes },
+  { id: 'title', stepLabel: '2. Название', title: 'Название', icon: Type },
+  { id: 'message', stepLabel: '3. Послание', title: 'Послание', icon: MessageSquareHeart },
+  { id: 'look', stepLabel: 'Вид и фото', title: 'Вид', icon: Palette },
+];
 
 export function StarEditor({
   projectId,
   paletteId,
   occasion,
+  recipientName,
   star,
   starIndex,
   globalGlowColor,
+  cardTheme,
+  cardColors,
   onChange,
   onApplyTextStyleToAll,
 }: StarEditorProps) {
@@ -69,31 +121,55 @@ export function StarEditor({
     originY: number;
   } | null>(null);
 
+  const [editStep, setEditStep] = useState<StarEditStep>('shape');
+  const [lookDevice, setLookDevice] = useState<DeviceLayoutKey>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 'phone' : 'desktop',
+  );
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [textTuningOpen, setTextTuningOpen] = useState(false);
+  const [cropTuningOpen, setCropTuningOpen] = useState(false);
+  const [decorTuningOpen, setDecorTuningOpen] = useState(false);
 
-  const [ideasOpen, setIdeasOpen] = useState(false);
-  const [ideaCategory, setIdeaCategory] = useState<IdeaCategory>(() =>
-    occasion === 'mothers_day' || occasion === 'new_year' ? occasion : occasion,
-  );
-  const [pendingIdeaConfirm, setPendingIdeaConfirm] = useState<StarIdeaItem | null>(
+  const [pendingTitleConfirm, setPendingTitleConfirm] = useState<string | null>(null);
+  const [pendingMessageConfirm, setPendingMessageConfirm] = useState<string | null>(
     null,
   );
 
-  // Sync default idea category when project occasion changes (never overwrites star text!)
+  // Start each selected star at Step 1 (Shape) so creative sequence is always Form -> Name -> Story -> Look
   useEffect(() => {
-    setIdeaCategory(occasion);
-    setPendingIdeaConfirm(null);
-  }, [occasion]);
-
-  // Clear pending overwrite prompt when switching stars
-  useEffect(() => {
-    setPendingIdeaConfirm(null);
+    setEditStep('shape');
+    setPendingTitleConfirm(null);
+    setPendingMessageConfirm(null);
+    setUploadError(null);
   }, [star.id]);
 
+  // Clear pending overwrite confirmations when project context updates
+  useEffect(() => {
+    setPendingTitleConfirm(null);
+    setPendingMessageConfirm(null);
+  }, [occasion, recipientName]);
+
   const currentShape = resolveStarShape(star);
+  const shapeMeta = SHAPE_DISPLAY_META[currentShape];
   const activeGlow = GLOW_COLORS[resolveStarGlowHex(star, globalGlowColor)];
   const imgSettings = resolveStarImageSettings(star);
+  const effectiveTextStyle = resolveEffectiveStarTextStyle(star, lookDevice);
+  const effectiveIlluLayout = resolveEffectiveIllustrationLayout(star, lookDevice);
+  const effectiveDecor = resolveEffectiveStarDecor(star, lookDevice);
+  const starReady = isStarComplete(star);
+
+  const nameSuggestions = getShapeNameSuggestions(
+    currentShape,
+    occasion,
+    recipientName,
+  );
+  const messageSuggestions = getStarMessageSuggestions(
+    occasion,
+    recipientName,
+    currentShape,
+  );
+  const toneBadge = getToneBadgeLabel(occasion, recipientName);
 
   const isDefaultImageSettings =
     imgSettings.fit === DEFAULT_STAR_IMAGE_SETTINGS.fit &&
@@ -115,22 +191,57 @@ export function StarEditor({
   const resetImageSettings = () => {
     onChange({
       imageSettings: { ...DEFAULT_STAR_IMAGE_SETTINGS },
+      ...buildStarIllustrationDevicePatch(
+        star,
+        lookDevice,
+        getDefaultDeviceIllustrationLayout(lookDevice),
+      ),
     });
   };
 
-  const applyIdea = (idea: StarIdeaItem) => {
-    onChange({
-      title: idea.title.slice(0, 30),
-      message: idea.message.slice(0, 180),
-    });
-    setPendingIdeaConfirm(null);
+  const updateIllustrationLayout = (patch: Partial<StarIllustrationLayout>) => {
+    onChange(buildStarIllustrationDevicePatch(star, lookDevice, patch));
   };
 
-  const handleSelectIdea = (idea: StarIdeaItem) => {
-    if (isPresetOrIdeaStarText(star.title, star.message)) {
-      applyIdea(idea);
+  const updateDecorSettings = (patch: Partial<StarDecorSettings>) => {
+    onChange(buildStarDecorDevicePatch(star, lookDevice, patch));
+  };
+
+  const resetDecorSettings = () => {
+    onChange(
+      buildStarDecorDevicePatch(star, lookDevice, getDefaultDeviceDecorLayout(lookDevice)),
+    );
+  };
+
+  const goToEditStep = (step: StarEditStep) => {
+    setEditStep(step);
+    setPendingTitleConfirm(null);
+    setPendingMessageConfirm(null);
+  };
+
+  const handleSelectTitleSuggestion = (suggestedTitle: string) => {
+    const clean = suggestedTitle.slice(0, 30);
+    if (
+      star.title.trim() === clean.trim() ||
+      isPresetOrSuggestedTitle(star.title)
+    ) {
+      onChange({ title: clean });
+      setPendingTitleConfirm(null);
     } else {
-      setPendingIdeaConfirm(idea);
+      setPendingTitleConfirm(clean);
+    }
+  };
+
+  const handleSelectMessageSuggestion = (suggestedText: string) => {
+    const clean = suggestedText.slice(0, 180);
+    if (
+      star.message.trim() === clean.trim() ||
+      isPresetOrSuggestedMessage(star.message)
+    ) {
+      onChange({ message: clean });
+      setPendingMessageConfirm(null);
+    } else {
+      setPendingMessageConfirm(clean);
     }
   };
 
@@ -158,15 +269,6 @@ export function StarEditor({
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
-
-  const ideasList = getStarIdeasForCategory(ideaCategory);
-  const categoryOptions: Array<{ id: IdeaCategory; label: string }> = [
-    ...(occasion !== 'mothers_day' && occasion !== 'new_year'
-      ? [{ id: occasion, label: 'По теме проекта' }]
-      : []),
-    { id: 'mothers_day', label: 'День матери' },
-    { id: 'new_year', label: 'Новый год' },
-  ];
 
   const handlePreviewPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -203,291 +305,540 @@ export function StarEditor({
     }
   };
 
+  const stepCompleteMap: Record<StarEditStep, boolean> = {
+    shape: true,
+    title: star.title.trim().length > 0 && !/^Звезда\s+\d+$/.test(star.title.trim()),
+    message: star.message.trim().length > 0,
+    look: true,
+  };
+
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <h3 className="font-display text-sm font-semibold text-gl-text">
-            Параметры звезды
+      {/* Selected Star Overview Header */}
+      <div className="rounded-2xl border border-white/12 bg-white/[0.035] p-3 flex items-center gap-3">
+        <div
+          className="w-11 h-11 rounded-xl border border-white/12 bg-gl-input flex items-center justify-center shrink-0 shadow-inner"
+          style={{ boxShadow: `0 0 18px ${activeGlow.hex}26` }}
+        >
+          <StarShapePreview
+            shape={currentShape}
+            color={activeGlow.hex}
+            coreColor={activeGlow.coreHex}
+            className="w-7 h-7"
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-semibold text-gl-accent-light">
+              Звезда {starIndex + 1}
+            </span>
+            <span className="text-white/25">·</span>
+            <span className="text-[11px] text-gl-text-muted truncate">
+              {shapeMeta.shortLabel}
+            </span>
+          </div>
+          <h3 className="font-display text-sm font-bold text-gl-text truncate mt-0.5">
+            {star.title.trim() || 'Придумай название'}
           </h3>
-          <span className="text-xs font-medium text-gl-accent-light tabular-nums">
-            Звезда {starIndex + 1}
-          </span>
         </div>
-        <div className="flex items-center justify-between text-[11px] text-gl-text-muted tabular-nums">
-          <span>Положение на сцене</span>
-          <span>
-            X: {star.position.x.toFixed(2)} · Y: {star.position.y.toFixed(2)} · Z:{' '}
-            {star.position.z.toFixed(2)}
-          </span>
-        </div>
+
+        <span
+          className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium border ${
+            starReady
+              ? 'border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
+              : 'border-amber-300/35 bg-amber-500/15 text-amber-100'
+          }`}
+        >
+          {starReady ? (
+            <>
+              <Check className="w-3 h-3 shrink-0" />
+              Готова
+            </>
+          ) : (
+            'В процессе'
+          )}
+        </span>
       </div>
 
-      {/* 1. Форма 3D-объекта */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs">
-          <span className="gl-label">Форма 3D-объекта</span>
-          <span className="text-[11px] text-gl-text-muted">
-            {STAR_SHAPES.find((s) => s.id === currentShape)?.name}
-          </span>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {STAR_SHAPES.map((item) => {
-            const active = currentShape === item.id;
-            return (
+      {/* Clear 4-tab Visual Stepper */}
+      <nav
+        aria-label="Шаги создания звезды"
+        className="grid grid-cols-2 sm:grid-cols-4 gap-1.5"
+      >
+        {STAR_EDIT_STEPS.map((st) => {
+          const Icon = st.icon;
+          const isCurrent = editStep === st.id;
+          const isDone =
+            (st.id === 'title' && stepCompleteMap.title) ||
+            (st.id === 'message' && stepCompleteMap.message);
+
+          return (
+            <button
+              key={st.id}
+              type="button"
+              data-selected={isCurrent}
+              data-testid={`star-step-tab-${st.id}`}
+              onClick={() => goToEditStep(st.id)}
+              className="gl-choice min-h-[44px] px-2.5 py-2 flex items-center justify-center gap-1.5 text-xs font-semibold"
+            >
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{st.stepLabel}</span>
+              {isDone && !isCurrent && (
+                <Check className="w-3 h-3 text-emerald-300 shrink-0" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* STEP 1: Выбрать форму */}
+      {editStep === 'shape' && (
+        <section
+          aria-label="Шаг 1: Выбрать форму"
+          className="space-y-3.5 rounded-2xl border border-white/10 bg-white/[0.025] p-3.5"
+        >
+          <div className="space-y-1">
+            <h4 className="font-display text-sm font-bold text-gl-text">
+              Шаг 1. Выбери форму звезды
+            </h4>
+            <p className="text-xs text-gl-text-secondary leading-relaxed">
+              Нажми на любую фигурку — она сразу обновится в 3D-космосе!
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            {ORDERED_SHAPE_IDS.map((shapeId, idx) => {
+              const meta = SHAPE_DISPLAY_META[shapeId];
+              const active = currentShape === shapeId;
+              const isLastOdd = idx === ORDERED_SHAPE_IDS.length - 1;
+
+              return (
+                <button
+                  key={shapeId}
+                  type="button"
+                  data-selected={active}
+                  data-testid={`shape-card-${shapeId}`}
+                  onClick={() => onChange({ shape: shapeId })}
+                  className={`gl-choice relative rounded-2xl p-3 transition-all ${
+                    isLastOdd
+                      ? 'col-span-2 min-h-[76px] flex flex-row items-center justify-center gap-3'
+                      : 'min-h-[96px] flex flex-col items-center justify-center gap-2'
+                  }`}
+                >
+                  {active && (
+                    <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gl-accent/90 text-white flex items-center justify-center shadow">
+                      <Check className="w-3 h-3" />
+                    </span>
+                  )}
+
+                  <div
+                    className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-center shrink-0"
+                    style={
+                      active
+                        ? { boxShadow: `0 0 20px ${activeGlow.hex}44` }
+                        : undefined
+                    }
+                  >
+                    <StarShapePreview
+                      shape={shapeId}
+                      color={activeGlow.hex}
+                      coreColor={activeGlow.coreHex}
+                      className="w-9 h-9"
+                    />
+                  </div>
+
+                  <span className="text-xs sm:text-[13px] font-semibold text-gl-text text-center leading-tight">
+                    {meta.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            data-testid="star-step-next-to-title"
+            onClick={() => goToEditStep('title')}
+            className="gl-btn-primary w-full !min-h-[46px] text-sm font-semibold"
+          >
+            <span>Дальше: придумать название</span>
+            <ArrowRight className="w-4 h-4 shrink-0" />
+          </button>
+        </section>
+      )}
+
+      {/* STEP 2: Придумать название */}
+      {editStep === 'title' && (
+        <section
+          aria-label="Шаг 2: Придумать название"
+          className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-3.5"
+        >
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-gl-input/70 px-3 py-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <StarShapePreview
+                shape={currentShape}
+                color={activeGlow.hex}
+                coreColor={activeGlow.coreHex}
+                className="w-6 h-6 shrink-0"
+              />
+              <span className="text-xs text-gl-text-secondary truncate">
+                Форма: <strong className="text-gl-text">{shapeMeta.label}</strong>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => goToEditStep('shape')}
+              className="text-xs font-semibold text-gl-accent-light hover:text-gl-text shrink-0 cursor-pointer"
+            >
+              Поменять
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            <h4 className="font-display text-sm font-bold text-gl-text">
+              Шаг 2. Придумай название
+            </h4>
+            <p className="text-xs text-gl-text-secondary leading-relaxed">
+              Напиши своё название или нажми на идею, которая подходит к форме.
+            </p>
+          </div>
+
+          <label className="block space-y-1.5">
+            <span className="gl-label block">Название звезды</span>
+            <input
+              type="text"
+              maxLength={30}
+              value={star.title}
+              data-testid="star-title-input"
+              onChange={(e) => {
+                setPendingTitleConfirm(null);
+                onChange({ title: e.target.value });
+              }}
+              placeholder="Напиши название для этой звезды..."
+              className="gl-input !min-h-[46px] text-sm"
+            />
+            {star.title.length >= 26 && (
+              <p className="text-[11px] text-amber-200/90">
+                Название получается длинным — лучше короткое, чтобы красиво поместилось на открытке.
+              </p>
+            )}
+          </label>
+
+          {/* Shape-specific clickable name chips */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-200">
+              <Lightbulb className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span>Идеи названий для формы «{shapeMeta.shortLabel}»:</span>
+            </div>
+
+            {pendingTitleConfirm && (
+              <div className="rounded-xl border border-amber-300/45 bg-amber-500/12 p-3 space-y-2 text-xs">
+                <p className="text-amber-100 leading-snug">
+                  У тебя уже написано своё название. Заменить его на «{pendingTitleConfirm}»?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange({ title: pendingTitleConfirm });
+                      setPendingTitleConfirm(null);
+                    }}
+                    className="gl-btn-primary !min-h-[36px] !px-3 text-xs"
+                  >
+                    Заменить название
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingTitleConfirm(null)}
+                    className="gl-btn-secondary !min-h-[36px] !px-3 text-xs"
+                  >
+                    Оставить своё
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {nameSuggestions.map((name) => {
+                const selected = star.title.trim() === name.trim();
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    data-selected={selected}
+                    onClick={() => handleSelectTitleSuggestion(name)}
+                    className="gl-choice min-h-[40px] px-3 py-1.5 text-xs font-medium text-left"
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => goToEditStep('shape')}
+              className="gl-btn-secondary !min-h-[44px] !px-3.5 text-xs shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4 shrink-0" />
+              <span>Форма</span>
+            </button>
+            <button
+              type="button"
+              data-testid="star-step-next-to-message"
+              onClick={() => goToEditStep('message')}
+              className="gl-btn-primary flex-1 !min-h-[44px] text-xs sm:text-sm font-semibold"
+            >
+              <span>Дальше: написать послание</span>
+              <ArrowRight className="w-4 h-4 shrink-0" />
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* STEP 3: Придумать историю или послание */}
+      {editStep === 'message' && (
+        <section
+          aria-label="Шаг 3: Придумать историю или послание"
+          className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-3.5"
+        >
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h4 className="font-display text-sm font-bold text-gl-text">
+                Шаг 3. Придумай историю или послание
+              </h4>
+              <span className="inline-flex items-center rounded-full border border-gl-accent/35 bg-gl-accent/15 px-2.5 py-0.5 text-[11px] font-medium text-gl-accent-light">
+                {toneBadge}
+              </span>
+            </div>
+            <p className="text-xs text-gl-text-secondary leading-relaxed">
+              Эти слова откроются на открытке, когда получатель нажмёт на звезду.
+            </p>
+          </div>
+
+          <label className="block space-y-1.5">
+            <span className="gl-label block">Текст для этой звезды</span>
+            <textarea
+              rows={4}
+              maxLength={180}
+              value={star.message}
+              data-testid="star-message-input"
+              onChange={(e) => {
+                setPendingMessageConfirm(null);
+                onChange({ message: e.target.value });
+              }}
+              placeholder="Напиши тёплые слова, воспоминание или маленькое пожелание..."
+              className="gl-textarea resize-none leading-relaxed text-sm"
+            />
+          </label>
+
+          {/* Personalized wish/story starter cards */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-200">
+              <Lightbulb className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span>Готовые идеи — выбери и допиши по-своему:</span>
+            </div>
+
+            {pendingMessageConfirm && (
+              <div className="rounded-xl border border-amber-300/45 bg-amber-500/12 p-3 space-y-2 text-xs">
+                <p className="text-amber-100 leading-snug">
+                  У звезды уже написан твой текст. Заменить его выбранной идеей?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange({ message: pendingMessageConfirm });
+                      setPendingMessageConfirm(null);
+                    }}
+                    className="gl-btn-primary !min-h-[36px] !px-3 text-xs"
+                  >
+                    Заменить текст
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingMessageConfirm(null)}
+                    className="gl-btn-secondary !min-h-[36px] !px-3 text-xs"
+                  >
+                    Оставить свой
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {messageSuggestions.map((item) => {
+                const active = star.message.trim() === item.text.trim();
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-selected={active}
+                    onClick={() => handleSelectMessageSuggestion(item.text)}
+                    className="gl-choice w-full text-left px-3 py-2.5 space-y-1 min-h-[48px]"
+                  >
+                    <span className="inline-block text-[10px] font-semibold uppercase tracking-wider text-gl-accent-light">
+                      {item.tag}
+                    </span>
+                    <p className="text-xs text-gl-text leading-relaxed">
+                      {item.text}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => goToEditStep('title')}
+              className="gl-btn-secondary !min-h-[44px] !px-3.5 text-xs shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4 shrink-0" />
+              <span>Название</span>
+            </button>
+            <button
+              type="button"
+              data-testid="star-step-next-to-look"
+              onClick={() => goToEditStep('look')}
+              className="gl-btn-primary flex-1 !min-h-[44px] text-xs sm:text-sm font-semibold"
+            >
+              <span>Дальше: цвет и картинка</span>
+              <ArrowRight className="w-4 h-4 shrink-0" />
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* STEP 4: Оформление (цвет свечения и картинка) */}
+      {editStep === 'look' && (
+        <section
+          aria-label="Оформление звезды: цвет и картинка"
+          className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-3.5"
+        >
+          <div className="space-y-1">
+            <h4 className="font-display text-sm font-bold text-gl-text">
+              Оформление звезды
+            </h4>
+            <p className="text-xs text-gl-text-secondary leading-relaxed">
+              Выбери цвет сияния и картинку, которая появится внутри открытки.
+            </p>
+          </div>
+
+          {/* 1. Готовые цвета свечения (без HEX-кодов) */}
+          <div className="space-y-2">
+            <span className="gl-label block">Цвет свечения</span>
+            <div className="grid grid-cols-2 gap-2">
               <button
-                key={item.id}
                 type="button"
-                data-selected={active}
-                title={item.shortHint}
-                onClick={() => onChange({ shape: item.id })}
-                className="gl-choice px-2 py-2 flex flex-col items-center gap-1"
+                data-selected={star.glowColor === 'inherit'}
+                onClick={() => onChange({ glowColor: 'inherit' })}
+                className="gl-choice min-h-[44px] px-3 py-2 flex items-center gap-2 text-xs font-medium col-span-2"
               >
-                <StarShapePreview
-                  shape={item.id}
-                  color={activeGlow.hex}
-                  coreColor={activeGlow.coreHex}
-                  className="w-7 h-7"
+                <Sparkles
+                  className="w-4 h-4 shrink-0"
+                  style={{ color: GLOW_COLORS[globalGlowColor].hex }}
                 />
-                <span className="text-[11px] font-medium leading-tight truncate max-w-full">
-                  {item.name}
+                <span>Как у всего неба ({GLOW_COLORS[globalGlowColor].name})</span>
+              </button>
+
+              {(Object.keys(GLOW_COLORS) as GlowColorId[]).map((gid) => {
+                const g = GLOW_COLORS[gid];
+                const active = star.glowColor === gid;
+                return (
+                  <button
+                    key={gid}
+                    type="button"
+                    data-selected={active}
+                    onClick={() => onChange({ glowColor: gid })}
+                    className="gl-choice min-h-[44px] px-3 py-2 flex items-center gap-2.5 text-xs font-medium"
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full shrink-0 border border-white/30 shadow-sm"
+                      style={{
+                        backgroundColor: g.hex,
+                        boxShadow: `0 0 10px ${g.hex}88`,
+                      }}
+                    />
+                    <span className="truncate">{g.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Понятный выбор картинки и загрузка своего фото */}
+          <div className="space-y-2.5 pt-1 border-t border-white/10">
+            <div className="flex items-center justify-between gap-2">
+              <span className="gl-label">Картинка внутри открытки</span>
+              <span className="text-[11px] text-gl-text-muted truncate max-w-[160px]">
+                {star.illustration.type === 'builtin'
+                  ? BUILTIN_ILLUSTRATIONS.find((i) => i.id === star.illustration.id)?.name
+                  : 'Своя картинка'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {BUILTIN_ILLUSTRATIONS.map((item) => {
+                const active =
+                  star.illustration.type === 'builtin' && star.illustration.id === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-selected={active}
+                    title={item.meaning}
+                    onClick={() =>
+                      onChange({ illustration: { type: 'builtin', id: item.id } })
+                    }
+                    className="gl-choice min-h-[82px] p-2 flex flex-col items-center justify-center gap-1.5"
+                  >
+                    <div className="w-11 h-11 flex items-center justify-center">
+                      <BuiltinIllustration id={item.id} className="w-full h-full object-contain" />
+                    </div>
+                    <span className="text-[11px] font-medium text-gl-text text-center leading-tight line-clamp-2">
+                      {item.name}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Upload photo tile */}
+              <button
+                type="button"
+                data-selected={star.illustration.type === 'custom'}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="gl-choice min-h-[82px] p-2 flex flex-col items-center justify-center gap-1.5"
+              >
+                {star.illustration.type === 'custom' ? (
+                  <div className="w-11 h-11 rounded-lg overflow-hidden bg-white/[0.04]">
+                    <StarIllustrationView
+                      illustration={star.illustration}
+                      imageSettings={imgSettings}
+                      alt={star.title || 'Своя картинка'}
+                      className="w-full h-full"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-11 h-11 rounded-lg bg-white/[0.05] border border-dashed border-white/25 flex items-center justify-center text-gl-accent-light">
+                    <ImagePlus className="w-5 h-5" />
+                  </div>
+                )}
+                <span className="text-[11px] font-medium text-gl-text text-center leading-tight">
+                  {uploading
+                    ? 'Сжатие...'
+                    : star.illustration.type === 'custom'
+                      ? 'Своё фото'
+                      : 'Добавить фото'}
                 </span>
               </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 2. Название */}
-      <label className="block space-y-1.5">
-        <div className="flex items-center justify-between text-xs">
-          <span className="gl-label">Название</span>
-          <span className="text-gl-text-muted tabular-nums">{star.title.length}/30</span>
-        </div>
-        <input
-          type="text"
-          maxLength={30}
-          value={star.title}
-          onChange={(e) => {
-            setPendingIdeaConfirm(null);
-            onChange({ title: e.target.value });
-          }}
-          placeholder="Например: Звезда тепла"
-          className="gl-input"
-        />
-      </label>
-
-      {/* 3. Послание + Библиотека идей */}
-      <div className="space-y-2">
-        <label className="block space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="gl-label">Послание</span>
-            <span className="text-gl-text-muted tabular-nums">
-              {star.message.length}/180
-            </span>
-          </div>
-          <textarea
-            rows={3}
-            maxLength={180}
-            value={star.message}
-            onChange={(e) => {
-              setPendingIdeaConfirm(null);
-              onChange({ message: e.target.value });
-            }}
-            placeholder="Напиши тёплые слова, которые откроются при нажатии на эту звезду..."
-            className="gl-textarea resize-none leading-relaxed"
-          />
-        </label>
-
-        {/* Ideas Library Accordion */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setIdeasOpen((o) => !o)}
-            aria-expanded={ideasOpen}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-amber-200 hover:bg-white/[0.04] transition-colors cursor-pointer"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Lightbulb className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-              Библиотека идей
-            </span>
-            {ideasOpen ? (
-              <ChevronUp className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
-            )}
-          </button>
-
-          {ideasOpen && (
-            <div className="border-t border-white/10 p-2.5 space-y-2.5">
-              <div className="flex flex-wrap gap-1.5">
-                {categoryOptions.map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    data-selected={ideaCategory === cat.id}
-                    onClick={() => {
-                      setIdeaCategory(cat.id);
-                      setPendingIdeaConfirm(null);
-                    }}
-                    className="gl-choice px-2.5 py-1 text-[11px] font-medium"
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-
-              {pendingIdeaConfirm && (
-                <div className="rounded-xl border border-amber-300/45 bg-amber-500/12 p-2.5 space-y-2 text-xs">
-                  <p className="text-amber-100 leading-snug">
-                    У звезды уже написан свой текст. Заменить его идеей «
-                    {pendingIdeaConfirm.title}»?
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => applyIdea(pendingIdeaConfirm)}
-                      className="gl-btn-primary !min-h-[30px] !px-2.5 !py-1 text-[11px]"
-                    >
-                      Заменить текст
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingIdeaConfirm(null)}
-                      className="gl-btn-secondary !min-h-[30px] !px-2.5 !py-1 text-[11px]"
-                    >
-                      Оставить свой
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="max-h-44 overflow-y-auto space-y-1.5 pr-0.5">
-                {ideasList.map((idea) => {
-                  const isActive =
-                    star.title.trim() === idea.title &&
-                    star.message.trim() === idea.message;
-                  return (
-                    <button
-                      key={idea.id}
-                      type="button"
-                      data-selected={isActive}
-                      onClick={() => handleSelectIdea(idea)}
-                      className="gl-choice w-full text-left px-2.5 py-2 space-y-0.5"
-                    >
-                      <div className="text-xs font-semibold text-gl-text">
-                        {idea.title}
-                      </div>
-                      <p className="text-[11px] text-gl-text-muted leading-snug line-clamp-2">
-                        {idea.message}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* 3b. Типографика и оформление послания */}
-      <TextStyleEditor
-        value={star.textStyle}
-        paletteId={paletteId}
-        glowColorId={resolveStarGlowHex(star, globalGlowColor)}
-        previewTitle={star.title || `Звезда ${starIndex + 1}`}
-        previewMessage={star.message}
-        onChange={(textStyle) => onChange({ textStyle })}
-        onApplyToAll={onApplyTextStyleToAll}
-      />
-
-      {/* 4. Цвет свечения */}
-      <div className="space-y-2">
-        <span className="gl-label block">Цвет свечения</span>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            data-selected={star.glowColor === 'inherit'}
-            onClick={() => onChange({ glowColor: 'inherit' })}
-            className="gl-choice inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium"
-          >
-            <Sparkles
-              className="w-3.5 h-3.5"
-              style={{ color: GLOW_COLORS[globalGlowColor].hex }}
-            />
-            Общий
-          </button>
-
-          {(Object.keys(GLOW_COLORS) as GlowColorId[]).map((gid) => {
-            const g = GLOW_COLORS[gid];
-            const active = star.glowColor === gid;
-            return (
-              <button
-                key={gid}
-                type="button"
-                data-selected={active}
-                title={g.name}
-                onClick={() => onChange({ glowColor: gid })}
-                className="gl-choice inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium"
-              >
-                <span
-                  className="w-3 h-3 rounded-full shrink-0 border border-white/25"
-                  style={{ backgroundColor: g.hex }}
-                />
-                {g.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 5. Иллюстрация */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs">
-          <span className="gl-label">Иллюстрация</span>
-          <span className="text-[11px] text-gl-text-muted truncate max-w-[160px]">
-            {star.illustration.type === 'builtin'
-              ? BUILTIN_ILLUSTRATIONS.find((i) => i.id === star.illustration.id)?.name
-              : 'Своё изображение'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-5 gap-1.5">
-          {BUILTIN_ILLUSTRATIONS.map((item) => {
-            const active =
-              star.illustration.type === 'builtin' && star.illustration.id === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                data-selected={active}
-                title={`${item.name} — ${item.meaning}`}
-                onClick={() =>
-                  onChange({ illustration: { type: 'builtin', id: item.id } })
-                }
-                className="gl-choice aspect-square w-full p-1.5 flex items-center justify-center"
-              >
-                <BuiltinIllustration id={item.id} className="w-full h-full object-contain" />
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-gl-input p-2">
-          <div className="w-11 h-11 rounded-lg bg-white/[0.04] p-1 flex items-center justify-center shrink-0 overflow-hidden">
-            <StarIllustrationView
-              illustration={star.illustration}
-              imageSettings={imgSettings}
-              alt={star.title || 'Иллюстрация звезды'}
-              className="w-full h-full"
-            />
-          </div>
-          <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
-            <span className="text-xs text-gl-text-secondary truncate">
-              {star.illustration.type === 'custom'
-                ? 'Своя картинка'
-                : 'Своё фото'}
-            </span>
             <input
               ref={fileInputRef}
               type="file"
@@ -495,162 +846,362 @@ export function StarEditor({
               onChange={handleFileChange}
               className="hidden"
             />
+
+            {uploadError && <p className="text-xs text-rose-300">{uploadError}</p>}
+          </div>
+
+          {/* 3. Настройки текста, рамки фото и декора карточки (без перехода в предпросмотр) */}
+          <div className="space-y-2.5 pt-1 border-t border-white/10">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-gl-text-muted">
+                Макет карточки для:
+              </span>
+              <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-gl-input border border-white/10">
+                <button
+                  type="button"
+                  data-selected={lookDevice === 'phone'}
+                  onClick={() => setLookDevice('phone')}
+                  className="gl-tab !min-h-[28px] !px-2 text-[11px] inline-flex items-center gap-1"
+                >
+                  <Smartphone className="w-3 h-3" />
+                  <span>Телефон</span>
+                </button>
+                <button
+                  type="button"
+                  data-selected={lookDevice === 'desktop'}
+                  onClick={() => setLookDevice('desktop')}
+                  className="gl-tab !min-h-[28px] !px-2 text-[11px] inline-flex items-center gap-1"
+                >
+                  <Monitor className="w-3 h-3" />
+                  <span>Компьютер</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 3a. Шрифт и оформление текста */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.025] overflow-hidden">
+              <button
+                type="button"
+                data-testid="star-look-text-toggle"
+                onClick={() => setTextTuningOpen((o) => !o)}
+                aria-expanded={textTuningOpen}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-gl-text-secondary hover:text-gl-text hover:bg-white/[0.04] transition-colors cursor-pointer min-h-[42px]"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Type className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
+                  Шрифт, цвет и позиция текста
+                </span>
+                {textTuningOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+                )}
+              </button>
+
+              {textTuningOpen && (
+                <div className="border-t border-white/10 p-3">
+                  <TextStyleEditor
+                    value={effectiveTextStyle}
+                    paletteId={paletteId}
+                    glowColorId={resolveStarGlowHex(star, globalGlowColor)}
+                    cardTheme={cardTheme}
+                    cardColors={cardColors}
+                    previewTitle={star.title || `Звезда ${starIndex + 1}`}
+                    previewMessage={star.message}
+                    onChange={(nextStyle) => {
+                      if (!nextStyle) {
+                        onChange({
+                          textStyle: undefined,
+                          deviceLayouts: {
+                            ...star.deviceLayouts,
+                            [lookDevice]: {
+                              ...star.deviceLayouts?.[lookDevice],
+                              text: undefined,
+                            },
+                          },
+                        });
+                      } else {
+                        onChange(buildStarTextDevicePatch(star, lookDevice, nextStyle));
+                      }
+                    }}
+                    onApplyToAll={onApplyTextStyleToAll}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* 3b. Кадрирование, масштаб и позиция фото */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.025] overflow-hidden">
+              <button
+                type="button"
+                data-testid="star-look-crop-toggle"
+                onClick={() => setCropTuningOpen((o) => !o)}
+                aria-expanded={cropTuningOpen}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-gl-text-secondary hover:text-gl-text hover:bg-white/[0.04] transition-colors cursor-pointer min-h-[42px]"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
+                  Кадрирование и положение картинки
+                </span>
+                {cropTuningOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+                )}
+              </button>
+
+              {cropTuningOpen && (
+                <div className="border-t border-white/10 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="gl-label">Рамка картинки</span>
+                    <button
+                      type="button"
+                      onClick={resetImageSettings}
+                      disabled={isDefaultImageSettings && effectiveIlluLayout.scale === 1}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Сброс
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div
+                      onPointerDown={handlePreviewPointerDown}
+                      onPointerMove={handlePreviewPointerMove}
+                      onPointerUp={handlePreviewPointerUp}
+                      onPointerCancel={handlePreviewPointerUp}
+                      title="Потяните картинку внутри рамки для смещения"
+                      className="relative w-24 h-24 shrink-0 rounded-xl border border-white/15 bg-gl-input overflow-hidden cursor-grab active:cursor-grabbing touch-none"
+                    >
+                      <StarIllustrationView
+                        illustration={star.illustration}
+                        imageSettings={imgSettings}
+                        alt={star.title || 'Предпросмотр изображения'}
+                        className="w-full h-full"
+                      />
+                      <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/55 p-0.5 text-white/75">
+                        <Move className="w-2.5 h-2.5" />
+                      </span>
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {(
+                          [
+                            { id: 'cover', label: 'Заполнить', icon: Maximize },
+                            { id: 'contain', label: 'Вписать', icon: Minimize },
+                          ] as Array<{
+                            id: StarImageFitMode;
+                            label: string;
+                            icon: typeof Maximize;
+                          }>
+                        ).map((mode) => {
+                          const Icon = mode.icon;
+                          const active = imgSettings.fit === mode.id;
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              data-selected={active}
+                              onClick={() => updateImageSettings({ fit: mode.id })}
+                              className="gl-choice px-2 py-2 text-[11px] font-medium flex items-center justify-center gap-1"
+                            >
+                              <Icon className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{mode.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <p className="text-[11px] text-gl-text-muted leading-snug">
+                        Двигай картинку прямо внутри рамки.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 rounded-xl border border-white/10 bg-white/[0.025] p-2.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gl-text-secondary font-medium">Приближение внутри рамки</span>
+                      <span className="text-gl-text-muted">
+                        {imgSettings.scale <= 1.05
+                          ? 'Обычное'
+                          : imgSettings.scale >= 1.8
+                            ? 'Крупно'
+                            : 'Среднее'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={2.5}
+                      step={0.05}
+                      value={imgSettings.scale}
+                      aria-label="Приближение изображения"
+                      onChange={(e) =>
+                        updateImageSettings({ scale: Number(e.target.value) })
+                      }
+                      className="w-full accent-gl-accent cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Card placement & scale per device */}
+                  <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-2.5">
+                    <label className="block space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gl-text-secondary font-medium">Размер на открытке</span>
+                        <span className="text-gl-text-muted">Меньше — Больше</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.65}
+                        max={1.45}
+                        step={0.05}
+                        value={effectiveIlluLayout.scale}
+                        aria-label="Размер картинки на открытке"
+                        onChange={(e) =>
+                          updateIllustrationLayout({ scale: Number(e.target.value) })
+                        }
+                        className="w-full accent-gl-accent cursor-pointer"
+                      />
+                    </label>
+
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { label: 'Слева', value: -100 },
+                          { label: 'Центр', value: 0 },
+                          { label: 'Справа', value: 100 },
+                        ] as const
+                      ).map((pos) => (
+                        <button
+                          key={pos.label}
+                          type="button"
+                          data-selected={Math.abs(effectiveIlluLayout.offsetX - pos.value) < 25}
+                          onClick={() => updateIllustrationLayout({ offsetX: pos.value })}
+                          className="gl-choice py-1.5 text-[11px] font-medium"
+                        >
+                          {pos.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3c. Узор на карточке звезды */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.025] overflow-hidden">
+              <button
+                type="button"
+                data-testid="star-look-decor-toggle"
+                onClick={() => setDecorTuningOpen((o) => !o)}
+                aria-expanded={decorTuningOpen}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-gl-text-secondary hover:text-gl-text hover:bg-white/[0.04] transition-colors cursor-pointer min-h-[42px]"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-gl-accent-light shrink-0" />
+                  Узор на карточке звезды
+                </span>
+                {decorTuningOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-gl-text-muted shrink-0" />
+                )}
+              </button>
+
+              {decorTuningOpen && (
+                <div className="border-t border-white/10 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-gl-text-muted">Узор</span>
+                    <button
+                      type="button"
+                      onClick={resetDecorSettings}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Сброс
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {CARD_DECOR_MOTIFS.map((item) => {
+                      const active = effectiveDecor.motif === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          data-selected={active}
+                          onClick={() =>
+                            updateDecorSettings({ motif: item.id as CardDecorMotif })
+                          }
+                          className="gl-choice p-1.5 flex flex-col items-center gap-1"
+                        >
+                          <div className="w-8 h-8 flex items-center justify-center">
+                            {item.id === 'none' ? (
+                              <span className="text-xs text-gl-text-muted">—</span>
+                            ) : (
+                              <CardDecorView
+                                motif={item.id}
+                                glowHex={activeGlow.hex}
+                                coreHex={activeGlow.coreHex}
+                                className="w-8 h-8"
+                              />
+                            )}
+                          </div>
+                          <span className="text-[10px] font-medium text-center leading-tight">
+                            {item.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {effectiveDecor.motif !== 'none' && (
+                    <label className="block space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gl-text-muted">Размер узора</span>
+                        <span className="text-gl-text-muted">Меньше — Больше</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.7}
+                        max={1.45}
+                        step={0.05}
+                        value={effectiveDecor.scale}
+                        aria-label="Размер узора карточки звезды"
+                        onChange={(e) =>
+                          updateDecorSettings({ scale: Number(e.target.value) })
+                        }
+                        className="w-full accent-gl-accent cursor-pointer"
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="gl-btn-secondary !min-h-[34px] !px-2.5 !py-1 text-xs shrink-0"
+              onClick={() => goToEditStep('message')}
+              className="gl-btn-secondary !min-h-[44px] !px-3.5 text-xs shrink-0"
             >
-              <ImagePlus className="w-3.5 h-3.5" />
-              {uploading ? 'Сжатие...' : 'Загрузить'}
+              <ArrowLeft className="w-4 h-4 shrink-0" />
+              <span>Послание</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => goToEditStep('shape')}
+              className="gl-btn-secondary flex-1 !min-h-[44px] text-xs font-semibold"
+            >
+              <Shapes className="w-4 h-4 shrink-0" />
+              <span>К выбору формы</span>
             </button>
           </div>
-        </div>
-
-        {uploadError && <p className="text-xs text-rose-300">{uploadError}</p>}
-      </div>
-
-      {/* 6. Настройка изображения */}
-      <div className="space-y-3 pt-1 border-t border-white/10">
-        <div className="flex items-center justify-between gap-2">
-          <span className="gl-label">Настройка изображения</span>
-          <button
-            type="button"
-            onClick={resetImageSettings}
-            disabled={isDefaultImageSettings}
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-gl-accent-light hover:text-gl-text disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <RotateCcw className="w-3 h-3" />
-            Сброс
-          </button>
-        </div>
-
-        {/* Live Draggable Preview Frame */}
-        <div className="flex items-center gap-3">
-          <div
-            onPointerDown={handlePreviewPointerDown}
-            onPointerMove={handlePreviewPointerMove}
-            onPointerUp={handlePreviewPointerUp}
-            onPointerCancel={handlePreviewPointerUp}
-            title="Потяните картинку внутри рамки для смещения"
-            className="relative w-24 h-24 shrink-0 rounded-xl border border-white/15 bg-gl-input overflow-hidden cursor-grab active:cursor-grabbing touch-none"
-          >
-            <StarIllustrationView
-              illustration={star.illustration}
-              imageSettings={imgSettings}
-              alt={star.title || 'Предпросмотр изображения'}
-              className="w-full h-full"
-            />
-            <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/55 p-0.5 text-white/75">
-              <Move className="w-2.5 h-2.5" />
-            </span>
-          </div>
-
-          <div className="flex-1 min-w-0 space-y-2">
-            {/* Fit Mode: Заполнить / Вписать */}
-            <div className="grid grid-cols-2 gap-1.5">
-              {(
-                [
-                  { id: 'cover', label: 'Заполнить', icon: Maximize },
-                  { id: 'contain', label: 'Вписать', icon: Minimize },
-                ] as Array<{
-                  id: StarImageFitMode;
-                  label: string;
-                  icon: typeof Maximize;
-                }>
-              ).map((mode) => {
-                const Icon = mode.icon;
-                const active = imgSettings.fit === mode.id;
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    data-selected={active}
-                    onClick={() => updateImageSettings({ fit: mode.id })}
-                    className="gl-choice px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1"
-                  >
-                    <Icon className="w-3 h-3 shrink-0" />
-                    <span className="truncate">{mode.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="text-[11px] text-gl-text-muted leading-snug">
-              Можно двигать прямо внутри рамки или ползунками ниже.
-            </p>
-          </div>
-        </div>
-
-        {/* Scale & X/Y Position Sliders */}
-        <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.025] p-2.5">
-          <label className="block space-y-1">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-gl-text-secondary font-medium">Масштаб</span>
-              <span className="text-gl-accent-light font-semibold tabular-nums">
-                {imgSettings.scale.toFixed(2)}×
-              </span>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={2.5}
-              step={0.05}
-              value={imgSettings.scale}
-              aria-label="Масштаб изображения"
-              onChange={(e) =>
-                updateImageSettings({ scale: Number(e.target.value) })
-              }
-              className="w-full accent-gl-accent cursor-pointer"
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <label className="block space-y-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-gl-text-muted">Сдвиг X</span>
-                <span className="text-gl-text-secondary tabular-nums">
-                  {imgSettings.offsetX}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={-50}
-                max={50}
-                step={1}
-                value={imgSettings.offsetX}
-                aria-label="Смещение изображения по горизонтали"
-                onChange={(e) =>
-                  updateImageSettings({ offsetX: Number(e.target.value) })
-                }
-                className="w-full accent-gl-accent cursor-pointer"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-gl-text-muted">Сдвиг Y</span>
-                <span className="text-gl-text-secondary tabular-nums">
-                  {imgSettings.offsetY}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={-50}
-                max={50}
-                step={1}
-                value={imgSettings.offsetY}
-                aria-label="Смещение изображения по вертикали"
-                onChange={(e) =>
-                  updateImageSettings({ offsetY: Number(e.target.value) })
-                }
-                className="w-full accent-gl-accent cursor-pointer"
-              />
-            </label>
-          </div>
-        </div>
-      </div>
+        </section>
+      )}
     </div>
   );
 }
-

@@ -3,8 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const DEFAULT_CAM_POS = new THREE.Vector3(0, 0.5, 11.2);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
-const FINALE_CAM_POS = new THREE.Vector3(0, 0.55, 12.2);
-const FINALE_TARGET = new THREE.Vector3(0, 0.22, 0);
+const FINALE_CAM_POS = new THREE.Vector3(0, 0.35, 13.4);
+const FINALE_TARGET = new THREE.Vector3(0, -0.1, 0);
 
 export class CameraController {
   public readonly controls: OrbitControls;

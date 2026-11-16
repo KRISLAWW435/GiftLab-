@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type {
   ConstellationStar,
   CosmicPaletteId,
+  DeviceConstellationLayout,
   EditorInteractionMode,
   GlowColorId,
   RecipientPhase,
@@ -64,6 +65,7 @@ export interface ConstellationSceneState {
   finaleActive: boolean;
   lowPerformance: boolean;
   reducedMotion: boolean;
+  constellationLayout?: DeviceConstellationLayout;
 }
 
 const _ndc = new THREE.Vector2();
@@ -252,7 +254,7 @@ export class ConstellationEngine {
 
   private finalRevealPlaying = false;
   private finalRevealElapsed = 0;
-  private readonly finalRevealDuration = 3.35;
+  private readonly finalRevealDuration = 4.35;
 
   private introPlaying = false;
   private introElapsed = 0;
@@ -433,7 +435,8 @@ export class ConstellationEngine {
     this.constellationRoot.worldToLocal(_camLocalTmp);
     out.copy(_camLocalTmp);
 
-    return { scale, isPortrait };
+    const rootScale = Math.max(0.5, this.constellationRoot.scale.x || 1);
+    return { scale: scale / rootScale, isPortrait };
   }
 
   private enterSealedState(): void {
@@ -547,7 +550,7 @@ export class ConstellationEngine {
     this.birthBurst.trigger(_worldTmp, glowCfg.hex, glowCfg.coreHex);
   }
 
-  /** Finale reveal: last active star flies home, lines draw in order, camera frames constellation */
+  /** Finale reveal: stars settle -> lines draw sequentially -> camera pulls back -> envelope appears & opens */
   public playFinalReveal(): void {
     if (!this.renderer || this.isDisposed) return;
 
@@ -579,6 +582,7 @@ export class ConstellationEngine {
       node.triggerPulse();
     }
 
+    this.envelope?.startFinaleAppear();
     this.lines.setRevealProgress(0);
     this.lines.setFinaleHighlight(true);
     this.particles.setFinaleActive(true);
@@ -591,6 +595,7 @@ export class ConstellationEngine {
     this.finalRevealPlaying = false;
     this.sealedMode = false;
     this.birthPlaying = false;
+    this.envelope?.hideImmediately();
 
     for (const node of this.starNodes.values()) {
       node.setInteractionState({
@@ -749,7 +754,28 @@ export class ConstellationEngine {
     this.lines.setGraph(positionsById, resolvedConnections);
   }
 
+  private applyConstellationRootTransform(state: ConstellationSceneState): void {
+    const useLayout =
+      state.interactionMode === 'recipient' &&
+      state.recipientPhase !== 'sealed' &&
+      state.recipientPhase !== 'birthing' &&
+      Boolean(state.constellationLayout);
+    if (!useLayout || !state.constellationLayout) {
+      this.constellationRoot.position.set(0, 0, 0);
+      this.constellationRoot.scale.setScalar(1);
+      return;
+    }
+    const offsetX = Math.max(-100, Math.min(100, state.constellationLayout.offsetX ?? 0));
+    const offsetY = Math.max(-100, Math.min(100, state.constellationLayout.offsetY ?? 0));
+    const sc = Math.max(0.55, Math.min(1.45, state.constellationLayout.scale ?? 1));
+    const wx = (offsetX / 100) * 3.1;
+    const wy = (offsetY / 100) * 2.5;
+    this.constellationRoot.position.set(wx, wy, 0);
+    this.constellationRoot.scale.setScalar(sc);
+  }
+
   private applySceneState(state: ConstellationSceneState): void {
+    this.applyConstellationRootTransform(state);
     const visitedSet = new Set(state.visitedStarIds);
     const rPhase = state.recipientPhase;
     const recipientPhaseChanged = rPhase !== this.lastAppliedRecipientPhase;
@@ -881,6 +907,7 @@ export class ConstellationEngine {
       node.setInteractionState({
         hovered: this.hoveredStarId === id,
         selected: state.selectedStarId === id,
+        dragging: this.draggingStarId === id,
         visited: visitedSet.has(id),
         finale: state.finaleActive,
         pendingLink: state.pendingLinkStarId === id,
@@ -1445,12 +1472,17 @@ export class ConstellationEngine {
     } else if (this.finalRevealPlaying) {
       this.finalRevealElapsed += dt;
 
-      // 0.65s .. 2.85s: draw user-saved constellation lines sequentially
-      const lineP = THREE.MathUtils.clamp((this.finalRevealElapsed - 0.65) / 2.2, 0, 1);
+      // 0.35s .. 2.15s: draw constellation connections progressively
+      const lineP = THREE.MathUtils.clamp((this.finalRevealElapsed - 0.35) / 1.8, 0, 1);
       this.lines.setRevealProgress(lineP);
+
+      // 1.65s .. 4.35s: envelope reappears in lower foreground, opens flap & glows before letter emerges
+      const envSec = Math.max(0, this.finalRevealElapsed - 1.65);
+      this.envelope?.update(this.elapsed, dt, envSec, this.state.reducedMotion);
 
       if (this.finalRevealElapsed >= this.finalRevealDuration) {
         this.finalRevealPlaying = false;
+        this.envelope?.hideImmediately();
         this.lines.setRevealProgress(1);
         this.cameraCtrl.setOrbitEnabled(true);
         this.callbacks.onFinalRevealComplete?.();

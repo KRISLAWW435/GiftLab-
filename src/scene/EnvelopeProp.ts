@@ -38,7 +38,7 @@ export class EnvelopeProp {
   private sealHaloMat: THREE.SpriteMaterial;
   private innerGlowMat: THREE.SpriteMaterial;
 
-  private state: 'sealed' | 'opening' | 'hidden' = 'sealed';
+  private state: 'sealed' | 'opening' | 'finaleOpening' | 'hidden' = 'sealed';
   private openProgress = 0; // 0..1 during opening animation
   private isHovered = false;
 
@@ -288,6 +288,9 @@ export class EnvelopeProp {
     this.state = 'sealed';
     this.openProgress = 0;
     this.group.visible = true;
+    this.group.position.set(0, 0, 0);
+    this.group.rotation.set(0, 0, 0);
+    this.group.scale.setScalar(1);
     this.bodyGroup.visible = true;
     this.bodyGroup.scale.setScalar(1);
     this.flapPivot.rotation.x = 0;
@@ -298,6 +301,7 @@ export class EnvelopeProp {
     this.trimMat.opacity = 1;
     this.goldMat.opacity = 1;
     this.sealStarMat.opacity = 1;
+    this.sealHaloMat.opacity = 0.78;
     this.innerGlowMat.opacity = 0;
     this.burstPoints.visible = false;
     this.burstMat.opacity = 0;
@@ -311,22 +315,95 @@ export class EnvelopeProp {
     }
   }
 
+  public startFinaleAppear(): void {
+    this.state = 'finaleOpening';
+    this.openProgress = 0;
+    this.group.visible = false;
+    this.group.position.set(0, -2.55, 4.9);
+    this.group.rotation.set(0.08, 0, 0);
+    this.group.scale.setScalar(0.56);
+    this.bodyGroup.visible = true;
+    this.bodyGroup.scale.setScalar(1);
+    this.flapPivot.rotation.x = 0;
+    this.sealGroup.position.set(0, -0.14, 0.16);
+    this.sealGroup.scale.setScalar(1);
+    this.sealGroup.rotation.z = 0;
+    this.bodyMat.opacity = 0;
+    this.trimMat.opacity = 0;
+    this.goldMat.opacity = 0;
+    this.sealStarMat.opacity = 0;
+    this.sealHaloMat.opacity = 0;
+    this.innerGlowMat.opacity = 0;
+    this.burstPoints.visible = true;
+    this.burstMat.opacity = 0;
+  }
+
   public hideImmediately(): void {
     this.state = 'hidden';
     this.group.visible = false;
   }
 
   /**
-   * Drives envelope animation from sealed idle -> seal ignition -> flap open -> dissolve into particles.
-   * When state === 'opening', `birthElapsedSec` controls exact choreography from 0..3.4s.
+   * Drives envelope animation from sealed idle -> seal ignition -> flap open -> dissolve into particles,
+   * or during finale reveal -> smooth reappearance in lower-center foreground -> flap opening for the paper letter.
    */
   public update(
     elapsed: number,
     dt: number,
-    birthElapsedSec: number,
+    choreographySec: number,
     reducedMotion: boolean,
   ): void {
     if (this.state === 'hidden') return;
+
+    if (this.state === 'finaleOpening') {
+      // Appears at 0..0.75s, opens flap at 0.75..1.85s, softly dissolves into emerging paper letter at 1.9..2.6s
+      if (choreographySec <= 0.02) {
+        this.group.visible = false;
+        return;
+      }
+      this.group.visible = true;
+      const enterP = THREE.MathUtils.clamp(choreographySec / 0.75, 0, 1);
+      const enterEase = 1 - Math.pow(1 - enterP, 3);
+      const sealP = THREE.MathUtils.clamp((choreographySec - 0.35) / 0.75, 0, 1);
+      const flapP = THREE.MathUtils.clamp((choreographySec - 0.75) / 1.05, 0, 1);
+      const handoffFadeP = THREE.MathUtils.clamp((choreographySec - 2.05) / 0.65, 0, 1);
+
+      this.group.position.set(
+        0,
+        THREE.MathUtils.lerp(-2.6, -1.35, enterEase),
+        THREE.MathUtils.lerp(4.2, 5.4, enterEase),
+      );
+      this.group.rotation.set(0.12, Math.sin(elapsed * 0.9) * 0.05, 0);
+      this.group.scale.setScalar(0.56 * (0.85 + enterEase * 0.15 + handoffFadeP * 0.08));
+
+      const baseOpacity = enterEase * (1 - handoffFadeP);
+      this.bodyMat.opacity = baseOpacity;
+      this.trimMat.opacity = baseOpacity;
+      this.goldMat.opacity = baseOpacity;
+      this.sealStarMat.opacity = baseOpacity;
+
+      const sealEase = 1 - Math.pow(1 - sealP, 3);
+      this.sealGroup.rotation.z = sealEase * Math.PI * 0.65;
+      this.sealGroup.position.z = 0.16 + sealEase * 0.36;
+      this.sealGroup.scale.setScalar(1 + sealEase * 0.2);
+      this.sealStarMat.emissiveIntensity = 1.25 + sealEase * 2.1;
+      this.sealHaloMat.opacity = Math.max(0, baseOpacity * (0.75 + sealEase * 0.25));
+
+      const flapEase = 1 - Math.pow(1 - flapP, 3);
+      this.flapPivot.rotation.x = -flapEase * Math.PI * 0.85;
+
+      const glowBell = Math.sin(
+        THREE.MathUtils.clamp((choreographySec - 0.75) / 1.8, 0, 1) * Math.PI,
+      );
+      this.innerGlowMat.opacity = glowBell * 0.98 * (1 - handoffFadeP * 0.7);
+      this.innerGlowSprite.scale.setScalar(2.6 + glowBell * 2.6);
+
+      if (choreographySec >= 2.75) {
+        this.state = 'hidden';
+        this.group.visible = false;
+      }
+      return;
+    }
 
     if (this.state === 'sealed') {
       if (!reducedMotion) {
@@ -352,12 +429,9 @@ export class EnvelopeProp {
     }
 
     // State === 'opening':
-    // 0.0s .. 1.2s: Star seal ignites, spins, lifts & expands light
-    // 1.0s .. 2.3s: Top flap opens + golden inner glow pours out
-    // 1.6s .. 3.4s: Envelope body dissolves into rising glowing particles
-    const sealP = THREE.MathUtils.clamp(birthElapsedSec / 1.25, 0, 1);
-    const flapP = THREE.MathUtils.clamp((birthElapsedSec - 0.9) / 1.2, 0, 1);
-    const dissolveP = THREE.MathUtils.clamp((birthElapsedSec - 1.55) / 1.65, 0, 1);
+    const sealP = THREE.MathUtils.clamp(choreographySec / 1.25, 0, 1);
+    const flapP = THREE.MathUtils.clamp((choreographySec - 0.9) / 1.2, 0, 1);
+    const dissolveP = THREE.MathUtils.clamp((choreographySec - 1.55) / 1.65, 0, 1);
 
     this.group.position.y = THREE.MathUtils.lerp(this.group.position.y, 0, 1 - Math.exp(-6 * dt));
     this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, 0.08, 1 - Math.exp(-5 * dt));
@@ -377,7 +451,7 @@ export class EnvelopeProp {
     this.flapPivot.rotation.x = -flapEase * Math.PI * 0.82;
 
     // Inner light swell
-    const glowBell = Math.sin(THREE.MathUtils.clamp((birthElapsedSec - 0.8) / 2.2, 0, 1) * Math.PI);
+    const glowBell = Math.sin(THREE.MathUtils.clamp((choreographySec - 0.8) / 2.2, 0, 1) * Math.PI);
     this.innerGlowMat.opacity = glowBell * 0.95;
     this.innerGlowSprite.scale.setScalar(2.6 + glowBell * 2.4);
 
@@ -403,7 +477,7 @@ export class EnvelopeProp {
       this.burstMat.opacity = Math.sin(dissolveP * Math.PI) * 0.95;
     }
 
-    if (birthElapsedSec >= 3.35) {
+    if (choreographySec >= 3.35) {
       this.state = 'hidden';
       this.group.visible = false;
     }

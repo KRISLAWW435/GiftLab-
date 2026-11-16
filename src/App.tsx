@@ -16,6 +16,7 @@ import {
 } from './services/database';
 import type {
   EditableCardTarget,
+  EditableTextField,
   IframeToParentMessage,
   ParentToIframeMessage,
   PreviewJumpTarget,
@@ -23,8 +24,52 @@ import type {
 import type {
   ConstellationProject,
   ConstellationStar,
+  DeviceLayoutKey,
   RecipientPhase,
 } from './types/project';
+import { resolveViewportDeviceMode } from './scene/paletteConfig';
+
+function mergeStarPatchLocal(
+  star: ConstellationStar,
+  patch: Partial<ConstellationStar>,
+): ConstellationStar {
+  if (!patch.deviceLayouts) {
+    return { ...star, ...patch };
+  }
+  return {
+    ...star,
+    ...patch,
+    deviceLayouts: {
+      phone: patch.deviceLayouts.phone
+        ? { ...star.deviceLayouts?.phone, ...patch.deviceLayouts.phone }
+        : star.deviceLayouts?.phone,
+      desktop: patch.deviceLayouts.desktop
+        ? { ...star.deviceLayouts?.desktop, ...patch.deviceLayouts.desktop }
+        : star.deviceLayouts?.desktop,
+    },
+  };
+}
+
+function mergeProjectPatchLocal(
+  prev: ConstellationProject,
+  patch: Partial<ConstellationProject>,
+): ConstellationProject {
+  if (!patch.deviceLayouts) {
+    return { ...prev, ...patch };
+  }
+  return {
+    ...prev,
+    ...patch,
+    deviceLayouts: {
+      phone: patch.deviceLayouts.phone
+        ? { ...prev.deviceLayouts?.phone, ...patch.deviceLayouts.phone }
+        : prev.deviceLayouts?.phone,
+      desktop: patch.deviceLayouts.desktop
+        ? { ...prev.deviceLayouts?.desktop, ...patch.deviceLayouts.desktop }
+        : prev.deviceLayouts?.desktop,
+    },
+  };
+}
 
 type AppScreen = 'start' | 'editor' | 'preview';
 
@@ -76,6 +121,11 @@ function PreviewIframeHost({
   const [project, setProject] = useState<ConstellationProject | null>(() =>
     readParentPreviewSnapshot(previewKey),
   );
+  const [deviceMode, setDeviceMode] = useState<DeviceLayoutKey>(() =>
+    typeof window !== 'undefined'
+      ? resolveViewportDeviceMode(window.innerWidth, window.innerHeight)
+      : 'desktop',
+  );
   const [editMode, setEditMode] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<EditableCardTarget | null>('text');
   const [jumpTo, setJumpTo] = useState<PreviewJumpTarget | null>(null);
@@ -89,7 +139,49 @@ function PreviewIframeHost({
       if (!data || data.source !== 'giftlab-preview-host' || data.type !== 'sync') {
         return;
       }
-      setProject(data.project);
+      const activeTestId =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement.getAttribute('data-testid')
+          : null;
+      const activeField = activeTestId?.startsWith('inline-edit-')
+        ? activeTestId.slice('inline-edit-'.length)
+        : null;
+
+      setProject((prev) => {
+        if (!prev || !activeField) return data.project;
+        if (activeField === 'title') {
+          return { ...data.project, title: prev.title };
+        }
+        if (activeField === 'recipientName') {
+          return { ...data.project, recipientName: prev.recipientName };
+        }
+        if (activeField === 'senderName') {
+          return { ...data.project, senderName: prev.senderName };
+        }
+        if (activeField === 'finalMessage') {
+          return { ...data.project, finalMessage: prev.finalMessage };
+        }
+        if (activeField === 'occasionLabel') {
+          return { ...data.project, occasionLabel: prev.occasionLabel };
+        }
+        if (activeField === 'starTitle' || activeField === 'starMessage') {
+          const prevById = new Map(prev.stars.map((s) => [s.id, s]));
+          return {
+            ...data.project,
+            stars: data.project.stars.map((s) => {
+              const old = prevById.get(s.id);
+              if (!old) return s;
+              return activeField === 'starTitle'
+                ? { ...s, title: old.title }
+                : { ...s, message: old.message };
+            }),
+          };
+        }
+        return data.project;
+      });
+      if (data.deviceMode === 'phone' || data.deviceMode === 'desktop') {
+        setDeviceMode(data.deviceMode);
+      }
       setEditMode(data.editMode);
       setSelectedTarget(data.selectedTarget);
       if (data.jumpTo) {
@@ -143,14 +235,18 @@ function PreviewIframeHost({
     [],
   );
 
-  const handleSelectTarget = useCallback((target: EditableCardTarget | null) => {
-    setSelectedTarget(target);
-    postToPreviewParent({
-      source: 'giftlab-preview-iframe',
-      type: 'selectTarget',
-      target,
-    });
-  }, []);
+  const handleSelectTarget = useCallback(
+    (target: EditableCardTarget | null, field?: EditableTextField) => {
+      setSelectedTarget(target);
+      postToPreviewParent({
+        source: 'giftlab-preview-iframe',
+        type: 'selectTarget',
+        target,
+        field,
+      });
+    },
+    [],
+  );
 
   const handlePatchStar = useCallback(
     (starId: string, patch: Partial<ConstellationStar>) => {
@@ -158,7 +254,9 @@ function PreviewIframeHost({
         prev
           ? {
               ...prev,
-              stars: prev.stars.map((s) => (s.id === starId ? { ...s, ...patch } : s)),
+              stars: prev.stars.map((s) =>
+                s.id === starId ? mergeStarPatchLocal(s, patch) : s,
+              ),
             }
           : prev,
       );
@@ -173,7 +271,7 @@ function PreviewIframeHost({
   );
 
   const handlePatchProject = useCallback((patch: Partial<ConstellationProject>) => {
-    setProject((prev) => (prev ? { ...prev, ...patch } : prev));
+    setProject((prev) => (prev ? mergeProjectPatchLocal(prev, patch) : prev));
     postToPreviewParent({
       source: 'giftlab-preview-iframe',
       type: 'patchProject',
@@ -200,6 +298,7 @@ function PreviewIframeHost({
   return (
     <RecipientView
       project={project}
+      deviceMode={deviceMode}
       editMode={editMode}
       selectedTarget={selectedTarget}
       jumpTo={jumpTo}
@@ -325,7 +424,6 @@ function StudioApp() {
         returnLabel={
           previewReturnScreenRef.current === 'editor' ? 'В редактор' : 'К проектам'
         }
-        onUpdateProject={handleUpdateProject}
         onExitPreview={async () => {
           if (saveTimerRef.current) {
             await flushSave(activeProject);
