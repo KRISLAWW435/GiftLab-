@@ -14,7 +14,17 @@ import {
   listProjects,
   saveProject,
 } from './services/database';
-import type { ConstellationProject } from './types/project';
+import type {
+  EditableCardTarget,
+  IframeToParentMessage,
+  ParentToIframeMessage,
+  PreviewJumpTarget,
+} from './preview/previewProtocol';
+import type {
+  ConstellationProject,
+  ConstellationStar,
+  RecipientPhase,
+} from './types/project';
 
 type AppScreen = 'start' | 'editor' | 'preview';
 
@@ -47,6 +57,15 @@ function readParentPreviewSnapshot(previewKey: string): ConstellationProject | n
   }
 }
 
+function postToPreviewParent(msg: IframeToParentMessage) {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  try {
+    window.parent.postMessage(msg, window.location.origin);
+  } catch {
+    // ignore cross-origin safety errors
+  }
+}
+
 function PreviewIframeHost({
   previewKey,
   projectId,
@@ -57,7 +76,36 @@ function PreviewIframeHost({
   const [project, setProject] = useState<ConstellationProject | null>(() =>
     readParentPreviewSnapshot(previewKey),
   );
+  const [editMode, setEditMode] = useState(false);
+  const [selectedTarget, setSelectedTarget] = useState<EditableCardTarget | null>('text');
+  const [jumpTo, setJumpTo] = useState<PreviewJumpTarget | null>(null);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== window.parent) return;
+      const data = event.data as ParentToIframeMessage | undefined;
+      if (!data || data.source !== 'giftlab-preview-host' || data.type !== 'sync') {
+        return;
+      }
+      setProject(data.project);
+      setEditMode(data.editMode);
+      setSelectedTarget(data.selectedTarget);
+      if (data.jumpTo) {
+        setJumpTo(data.jumpTo);
+      }
+    };
+
+    window.addEventListener('message', onMessage);
+    postToPreviewParent({
+      source: 'giftlab-preview-iframe',
+      type: 'ready',
+      phase: 'sealed',
+      activeIndex: 0,
+    });
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   useEffect(() => {
     if (project) return;
@@ -83,6 +131,56 @@ function PreviewIframeHost({
     };
   }, [project, projectId]);
 
+  const handlePhaseStateChange = useCallback(
+    (phase: RecipientPhase, activeIndex: number) => {
+      postToPreviewParent({
+        source: 'giftlab-preview-iframe',
+        type: 'state',
+        phase,
+        activeIndex,
+      });
+    },
+    [],
+  );
+
+  const handleSelectTarget = useCallback((target: EditableCardTarget | null) => {
+    setSelectedTarget(target);
+    postToPreviewParent({
+      source: 'giftlab-preview-iframe',
+      type: 'selectTarget',
+      target,
+    });
+  }, []);
+
+  const handlePatchStar = useCallback(
+    (starId: string, patch: Partial<ConstellationStar>) => {
+      setProject((prev) =>
+        prev
+          ? {
+              ...prev,
+              stars: prev.stars.map((s) => (s.id === starId ? { ...s, ...patch } : s)),
+            }
+          : prev,
+      );
+      postToPreviewParent({
+        source: 'giftlab-preview-iframe',
+        type: 'patchStar',
+        starId,
+        patch,
+      });
+    },
+    [],
+  );
+
+  const handlePatchProject = useCallback((patch: Partial<ConstellationProject>) => {
+    setProject((prev) => (prev ? { ...prev, ...patch } : prev));
+    postToPreviewParent({
+      source: 'giftlab-preview-iframe',
+      type: 'patchProject',
+      patch,
+    });
+  }, []);
+
   if (failed) {
     return (
       <div className="w-screen gl-h-screen bg-gl-bg text-gl-text flex items-center justify-center p-6 text-center text-sm text-gl-text-secondary">
@@ -99,7 +197,18 @@ function PreviewIframeHost({
     );
   }
 
-  return <RecipientView project={project} />;
+  return (
+    <RecipientView
+      project={project}
+      editMode={editMode}
+      selectedTarget={selectedTarget}
+      jumpTo={jumpTo}
+      onPhaseStateChange={handlePhaseStateChange}
+      onSelectTarget={handleSelectTarget}
+      onPatchStar={handlePatchStar}
+      onPatchProject={handlePatchProject}
+    />
+  );
 }
 
 function StudioApp() {
@@ -212,10 +321,17 @@ function StudioApp() {
     return (
       <PreviewWorkspace
         project={activeProject}
+        saveState={saveState}
         returnLabel={
           previewReturnScreenRef.current === 'editor' ? 'В редактор' : 'К проектам'
         }
-        onExitPreview={() => setScreen(previewReturnScreenRef.current)}
+        onUpdateProject={handleUpdateProject}
+        onExitPreview={async () => {
+          if (saveTimerRef.current) {
+            await flushSave(activeProject);
+          }
+          setScreen(previewReturnScreenRef.current);
+        }}
       />
     );
   }

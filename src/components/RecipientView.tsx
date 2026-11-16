@@ -10,6 +10,10 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import type {
+  EditableCardTarget,
+  PreviewJumpTarget,
+} from '../preview/previewProtocol';
 import {
   COSMIC_PALETTES,
   GLOW_COLORS,
@@ -17,22 +21,33 @@ import {
   computeTextBlockMarginLeftPct,
   isDefaultStarTextStyle,
   resolveMessageFont,
+  resolveStarDecor,
   resolveStarGlowHex,
+  resolveStarIllustrationLayout,
   resolveStarTextStyle,
   resolveTextShadowCss,
 } from '../scene/paletteConfig';
 import { getMusicTrackBlob } from '../services/musicEngine';
 import type {
   ConstellationProject,
+  ConstellationStar,
   MessageTextAlign,
   RecipientPhase,
 } from '../types/project';
+import { CardDecorView } from './CardDecorView';
 import { Constellation3D, type Constellation3DHandle } from './Constellation3D';
 import { StarIllustrationView } from './StarIllustrationView';
 
 interface RecipientViewProps {
   project: ConstellationProject;
   onExitPreview?: () => void;
+  editMode?: boolean;
+  selectedTarget?: EditableCardTarget | null;
+  jumpTo?: PreviewJumpTarget | null;
+  onPhaseStateChange?: (phase: RecipientPhase, activeIndex: number) => void;
+  onSelectTarget?: (target: EditableCardTarget | null) => void;
+  onPatchStar?: (starId: string, patch: Partial<ConstellationStar>) => void;
+  onPatchProject?: (patch: Partial<ConstellationProject>) => void;
 }
 
 type StoryNavigationIntent =
@@ -109,8 +124,21 @@ function hasActiveTextSelection(): boolean {
   return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
 }
 
-export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
+export function RecipientView({
+  project,
+  onExitPreview,
+  editMode = false,
+  selectedTarget = null,
+  jumpTo = null,
+  onPhaseStateChange,
+  onSelectTarget,
+  onPatchStar,
+  onPatchProject,
+}: RecipientViewProps) {
   const sceneRef = useRef<Constellation3DHandle | null>(null);
+  const storyStageRef = useRef<HTMLDivElement | null>(null);
+  const storyRightRef = useRef<HTMLDivElement | null>(null);
+  const finaleHeaderRef = useRef<HTMLElement | null>(null);
 
   const [phase, setPhase] = useState<RecipientPhase>('sealed');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -131,6 +159,28 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
     width: typeof window !== 'undefined' ? window.innerWidth : 1280,
     height: typeof window !== 'undefined' ? window.innerHeight : 720,
   }));
+
+  const canvasEditDragRef = useRef<{
+    kind:
+      | 'text-move'
+      | 'text-resize-right'
+      | 'text-resize-left'
+      | 'illu-move'
+      | 'illu-scale'
+      | 'decor-move'
+      | 'decor-scale'
+      | 'final-decor-move'
+      | 'final-decor-scale';
+    pointerId: number;
+    startX: number;
+    startY: number;
+    containerW: number;
+    containerH: number;
+    originX: number;
+    originY: number;
+    originValue: number;
+    starId?: string;
+  } | null>(null);
 
   // Synchronous state snapshot & lock refs to prevent stale closures and double transitions
   const stateRef = useRef({
@@ -210,6 +260,57 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
       window.removeEventListener('orientationchange', syncViewport);
     };
   }, []);
+
+  useEffect(() => {
+    onPhaseStateChange?.(phase, activeIndex);
+  }, [phase, activeIndex, onPhaseStateChange]);
+
+  const lastHandledJumpNonceRef = useRef<number>(0);
+  useEffect(() => {
+    if (!jumpTo || jumpTo.nonce === lastHandledJumpNonceRef.current) return;
+    lastHandledJumpNonceRef.current = jumpTo.nonce;
+
+    releaseTransitionLock();
+    const total = Math.max(1, project.stars.length);
+
+    if (jumpTo.phase === 'sealed') {
+      stateRef.current.phase = 'sealed';
+      stateRef.current.activeIndex = 0;
+      stateRef.current.unlockedCount = 0;
+      stateRef.current.finaleReached = false;
+      setPhase('sealed');
+      setActiveIndex(0);
+      setUnlockedCount(0);
+      setFinaleReached(false);
+      return;
+    }
+
+    if (jumpTo.phase === 'constellation') {
+      sceneRef.current?.skipFinalReveal();
+      stateRef.current.unlockedCount = total;
+      stateRef.current.finaleReached = true;
+      stateRef.current.phase = 'constellation';
+      setUnlockedCount(total);
+      setFinaleReached(true);
+      setPhase('constellation');
+      return;
+    }
+
+    // jumpTo.phase === 'starStory'
+    const targetIdx = Math.max(0, Math.min(total - 1, jumpTo.starIndex ?? 0));
+    if (stateRef.current.phase === 'sealed' || stateRef.current.phase === 'birthing') {
+      sceneRef.current?.skipBirthSequence();
+    } else if (stateRef.current.phase === 'finalReveal') {
+      sceneRef.current?.skipFinalReveal();
+    }
+    const nextUnlocked = Math.max(stateRef.current.unlockedCount, targetIdx + 1);
+    stateRef.current.unlockedCount = nextUnlocked;
+    stateRef.current.activeIndex = targetIdx;
+    stateRef.current.phase = 'starStory';
+    setUnlockedCount(nextUnlocked);
+    setActiveIndex(targetIdx);
+    setPhase('starStory');
+  }, [jumpTo, project.stars.length, releaseTransitionLock]);
 
   useEffect(() => {
     if (project.musicTrackId === 'none') return;
@@ -477,6 +578,7 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
   }, []);
 
   const handleStoryPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (editMode) return;
     if (stateRef.current.phase !== 'starStory') return;
     if (navLockRef.current) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -597,21 +699,54 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
     starTextStyle.widthPct,
     starTextStyle.offsetX,
   );
-  const absYRatio = Math.min(1, Math.abs(starTextStyle.offsetY) / 100);
+
+  const illuLayout = resolveStarIllustrationLayout(
+    activeStar ?? undefined,
+    isPortrait ? 0 : -100,
+  );
+  const illuLeftGrow = Number(((illuLayout.offsetX + 100) / 200).toFixed(3));
+  const illuRightGrow = Number((1 - illuLeftGrow).toFixed(3));
+  const clampedIlluScale = Math.min(isPortrait ? 1.28 : 1.45, illuLayout.scale);
+  const baseIlluPx = isCompactLandscape
+    ? 80
+    : isPortrait
+      ? viewport.width >= 640
+        ? 156
+        : 118
+      : viewport.width >= 1024
+        ? 196
+        : 158;
+  const effectiveIlluPx = Math.round(baseIlluPx * clampedIlluScale);
+
+  const illuYShift = illuLayout.offsetY / 100;
+  const textYShift = starTextStyle.offsetY / 100;
   const spacerBase = isPortrait || isCompactLandscape ? 0.35 : 0.9;
-  const topOuterGrow = Number(((1 - absYRatio) * spacerBase).toFixed(3));
+  const topOuterGrow = Number(
+    Math.max(
+      0,
+      Math.min(
+        2.0,
+        spacerBase * (1 + illuYShift * 0.85) - Math.max(0, -textYShift) * 0.45,
+      ),
+    ).toFixed(3),
+  );
   const topInnerGrow = Number(
-    (starTextStyle.offsetY <= 0
-      ? 0.08 * (1 + starTextStyle.offsetY / 100)
-      : 0.08 + (starTextStyle.offsetY / 100) * 1.92
+    Math.max(
+      0.06,
+      Math.min(
+        2.2,
+        0.14 + Math.max(0, textYShift) * 1.4 + Math.max(0, -illuYShift) * 0.7,
+      ),
     ).toFixed(3),
   );
   const bottomInnerGrow = Number(
-    (starTextStyle.offsetY >= 0
-      ? (1 - absYRatio) * spacerBase
-      : spacerBase + (-starTextStyle.offsetY / 100) * (2 - spacerBase)
+    Math.max(
+      0,
+      Math.min(2.4, spacerBase + Math.max(0, -textYShift) * 1.35 - Math.max(0, textYShift) * 0.65),
     ).toFixed(3),
   );
+
+  const starDecor = resolveStarDecor(activeStar ?? undefined);
   const resolvedTextShadow = resolveTextShadowCss(
     starTextStyle.shadow,
     activeStarGlow.hex,
@@ -630,6 +765,192 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
     finalTextStyle && finalTextStyle.textAlign !== 'auto'
       ? finalTextStyle.textAlign
       : 'center';
+  const finalDecor = resolveStarDecor(project.finalDecor);
+
+  // Interactive visual card design pointer handlers (only active in PreviewWorkspace editMode)
+  const beginCanvasEdit = (
+    kind:
+      | 'text-move'
+      | 'text-resize-right'
+      | 'text-resize-left'
+      | 'illu-move'
+      | 'illu-scale'
+      | 'decor-move'
+      | 'decor-scale'
+      | 'final-decor-move'
+      | 'final-decor-scale',
+    e: React.PointerEvent<HTMLElement>,
+  ) => {
+    if (!editMode) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.stopPropagation();
+
+    const targetMap = {
+      'text-move': 'text',
+      'text-resize-right': 'text',
+      'text-resize-left': 'text',
+      'illu-move': 'illustration',
+      'illu-scale': 'illustration',
+      'decor-move': 'decor',
+      'decor-scale': 'decor',
+      'final-decor-move': 'decor',
+      'final-decor-scale': 'decor',
+    } as const;
+    onSelectTarget?.(targetMap[kind]);
+
+    const stageRect =
+      kind.startsWith('final-')
+        ? finaleHeaderRef.current?.getBoundingClientRect()
+        : kind.startsWith('decor-')
+          ? storyRightRef.current?.getBoundingClientRect()
+          : storyStageRef.current?.getBoundingClientRect();
+
+    const containerW = Math.max(160, stageRect?.width ?? 420);
+    const containerH = Math.max(140, stageRect?.height ?? 420);
+
+    let originX = 0;
+    let originY = 0;
+    let originValue = 1;
+
+    if (kind === 'text-move' || kind === 'text-resize-right' || kind === 'text-resize-left') {
+      originX = starTextStyle.offsetX;
+      originY = starTextStyle.offsetY;
+      originValue = starTextStyle.widthPct;
+    } else if (kind === 'illu-move' || kind === 'illu-scale') {
+      originX = illuLayout.offsetX;
+      originY = illuLayout.offsetY;
+      originValue = illuLayout.scale;
+    } else if (kind === 'decor-move' || kind === 'decor-scale') {
+      originX = starDecor.xPct;
+      originY = starDecor.yPct;
+      originValue = starDecor.scale;
+    } else {
+      originX = finalDecor.xPct;
+      originY = finalDecor.yPct;
+      originValue = finalDecor.scale;
+    }
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+    canvasEditDragRef.current = {
+      kind,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      containerW,
+      containerH,
+      originX,
+      originY,
+      originValue,
+      starId: activeStar?.id,
+    };
+  };
+
+  const moveCanvasEdit = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = canvasEditDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.stopPropagation();
+
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+
+    if (drag.kind === 'final-decor-move' || drag.kind === 'final-decor-scale') {
+      if (drag.kind === 'final-decor-move') {
+        const nextX = Math.max(6, Math.min(94, Math.round(drag.originX + (dx / drag.containerW) * 100)));
+        const nextY = Math.max(6, Math.min(88, Math.round(drag.originY + (dy / drag.containerH) * 100)));
+        onPatchProject?.({
+          finalDecor: resolveStarDecor({ ...finalDecor, xPct: nextX, yPct: nextY }),
+        });
+      } else {
+        const delta = (dx + dy) / 140;
+        const nextScale = Math.max(0.7, Math.min(1.45, Number((drag.originValue + delta).toFixed(2))));
+        onPatchProject?.({
+          finalDecor: resolveStarDecor({ ...finalDecor, scale: nextScale }),
+        });
+      }
+      return;
+    }
+
+    const starId = drag.starId;
+    if (!starId) return;
+
+    if (drag.kind === 'text-move') {
+      let nextWidth = drag.originValue;
+      if (Math.abs(dx) > 6 && nextWidth > 90) {
+        nextWidth = 84;
+      }
+      const dxNorm = Math.round((dx / Math.max(60, drag.containerW * 0.35)) * 100);
+      const dyNorm = Math.round((dy / Math.max(60, drag.containerH * 0.32)) * 100);
+      onPatchStar?.(starId, {
+        textStyle: resolveStarTextStyle({
+          ...starTextStyle,
+          widthPct: nextWidth,
+          offsetX: Math.max(-100, Math.min(100, drag.originX + dxNorm)),
+          offsetY: Math.max(-100, Math.min(100, drag.originY + dyNorm)),
+        }),
+      });
+    } else if (drag.kind === 'text-resize-right' || drag.kind === 'text-resize-left') {
+      const signedDx = drag.kind === 'text-resize-right' ? dx : -dx;
+      const dWidthPct = Math.round((signedDx / drag.containerW) * 100);
+      const nextWidth = Math.max(56, Math.min(100, drag.originValue + dWidthPct));
+      onPatchStar?.(starId, {
+        textStyle: resolveStarTextStyle({
+          ...starTextStyle,
+          widthPct: nextWidth,
+        }),
+      });
+    } else if (drag.kind === 'illu-move') {
+      const dxNorm = Math.round((dx / Math.max(60, drag.containerW * 0.42)) * 100);
+      const dyNorm = Math.round((dy / Math.max(60, drag.containerH * 0.34)) * 100);
+      onPatchStar?.(starId, {
+        illustrationLayout: resolveStarIllustrationLayout({
+          ...illuLayout,
+          offsetX: Math.max(-100, Math.min(100, drag.originX + dxNorm)),
+          offsetY: Math.max(-100, Math.min(100, drag.originY + dyNorm)),
+        }),
+      });
+    } else if (drag.kind === 'illu-scale') {
+      const delta = (dx + dy) / 140;
+      const nextScale = Math.max(0.65, Math.min(1.45, Number((drag.originValue + delta).toFixed(2))));
+      onPatchStar?.(starId, {
+        illustrationLayout: resolveStarIllustrationLayout({
+          ...illuLayout,
+          scale: nextScale,
+        }),
+      });
+    } else if (drag.kind === 'decor-move') {
+      const nextX = Math.max(6, Math.min(94, Math.round(drag.originX + (dx / drag.containerW) * 100)));
+      const nextY = Math.max(6, Math.min(88, Math.round(drag.originY + (dy / drag.containerH) * 100)));
+      onPatchStar?.(starId, {
+        decor: resolveStarDecor({
+          ...starDecor,
+          xPct: nextX,
+          yPct: nextY,
+        }),
+      });
+    } else if (drag.kind === 'decor-scale') {
+      const delta = (dx + dy) / 140;
+      const nextScale = Math.max(0.7, Math.min(1.45, Number((drag.originValue + delta).toFixed(2))));
+      onPatchStar?.(starId, {
+        decor: resolveStarDecor({
+          ...starDecor,
+          scale: nextScale,
+        }),
+      });
+    }
+  };
+
+  const endCanvasEdit = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = canvasEditDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    canvasEditDragRef.current = null;
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <div className="relative w-screen gl-h-screen overflow-hidden bg-gl-bg text-gl-text">
@@ -960,13 +1281,19 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
 
             {/* Story / Swipeable Area (pointer-events-auto, isolated from 3D OrbitControls) */}
             <div
+              ref={storyRightRef}
               onPointerDown={handleStoryPointerDown}
               onPointerMove={handleStoryPointerMove}
               onPointerUp={handleStoryPointerUp}
               onPointerCancel={resetSwipeGesture}
               onLostPointerCapture={resetSwipeGesture}
-              style={{ touchAction: 'pan-y' }}
-              className={`pointer-events-auto min-h-0 flex flex-col overflow-y-auto overflow-x-hidden ${
+              onClick={(e) => {
+                if (editMode && e.target === e.currentTarget) {
+                  onSelectTarget?.(null);
+                }
+              }}
+              style={{ touchAction: editMode ? 'none' : 'pan-y' }}
+              className={`relative pointer-events-auto min-h-0 flex flex-col overflow-y-auto overflow-x-hidden ${
                 isPortrait
                   ? 'flex-1 px-5 pb-4 pt-1 justify-between items-center text-center'
                   : isCompactLandscape
@@ -974,9 +1301,68 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                     : 'px-6 sm:px-10 lg:pr-14 lg:pl-4 pb-6 pt-2 justify-between items-start text-left'
               }`}
             >
+              {/* Optional Card Decorative Ornament (positioned freely in safe card area) */}
+              {starDecor.motif !== 'none' && (
+                <div
+                  data-testid="story-card-decor"
+                  data-selected={editMode && selectedTarget === 'decor'}
+                  onPointerDown={editMode ? (e) => beginCanvasEdit('decor-move', e) : undefined}
+                  onPointerMove={editMode ? moveCanvasEdit : undefined}
+                  onPointerUp={editMode ? endCanvasEdit : undefined}
+                  onPointerCancel={editMode ? endCanvasEdit : undefined}
+                  onClick={
+                    editMode
+                      ? (e) => {
+                          e.stopPropagation();
+                          onSelectTarget?.('decor');
+                        }
+                      : undefined
+                  }
+                  style={{
+                    left: `${starDecor.xPct}%`,
+                    top: `${starDecor.yPct}%`,
+                    transform: `translate(-50%, -50%) scale(${starDecor.scale})`,
+                  }}
+                  className={`absolute ${
+                    editMode
+                      ? `z-30 cursor-grab active:cursor-grabbing touch-none rounded-2xl p-1 transition-[box-shadow,background-color] ${
+                          selectedTarget === 'decor'
+                            ? 'ring-2 ring-amber-300 bg-amber-500/10'
+                            : 'ring-1 ring-dashed ring-white/30 hover:ring-amber-300/75'
+                        }`
+                      : 'z-0 pointer-events-none opacity-75'
+                  }`}
+                >
+                  <CardDecorView
+                    motif={starDecor.motif}
+                    glowHex={activeStarGlow.hex}
+                    coreHex={activeStarGlow.coreHex}
+                    className={isPortrait ? 'w-20 h-20' : 'w-24 h-24 sm:w-28 sm:h-28'}
+                  />
+                  {editMode && selectedTarget === 'decor' && (
+                    <button
+                      type="button"
+                      data-testid="decor-scale-handle"
+                      aria-label="Изменить размер декора"
+                      onPointerDown={(e) => beginCanvasEdit('decor-scale', e)}
+                      onPointerMove={moveCanvasEdit}
+                      onPointerUp={endCanvasEdit}
+                      onPointerCancel={endCanvasEdit}
+                      className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white cursor-nwse-resize touch-none shadow"
+                    />
+                  )}
+                </div>
+              )}
+
               {/* Animated Story Content inside bounded flex stage */}
               <div
-                className={`flex-1 min-h-0 w-full max-w-xl flex flex-col ${
+                ref={storyStageRef}
+                onClick={(e) => {
+                  if (editMode && e.target === e.currentTarget) {
+                    onSelectTarget?.(null);
+                  }
+                }}
+                className={`relative z-10 flex-1 min-h-0 w-full max-w-xl flex flex-col ${
                   isPortrait ? 'mx-auto' : ''
                 }`}
                 style={{
@@ -1010,31 +1396,70 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                   >
                     <div style={{ flexGrow: topOuterGrow, flexBasis: 0 }} />
 
-                    {/* Borderless Floating Illustration (always protected above text) */}
-                    <div
-                      className={`relative shrink-0 flex items-center justify-center py-0.5 ${
-                        isPortrait ? 'self-center' : 'self-start'
-                      }`}
-                    >
+                    {/* Borderless Floating Illustration with Safe Horizontal Positioning & Scale */}
+                    <div className="w-full flex items-center shrink-0">
+                      <div style={{ flexGrow: illuLeftGrow, flexBasis: 0 }} />
                       <div
-                        className="pointer-events-none absolute inset-0 -m-5 rounded-full opacity-55"
-                        style={{
-                          background: `radial-gradient(circle, ${activeStarGlow.hex}36 0%, transparent 70%)`,
-                        }}
-                        aria-hidden="true"
-                      />
-                      <StarIllustrationView
-                        illustration={activeStar.illustration}
-                        imageSettings={activeStar.imageSettings}
-                        alt={activeStar.title || `Звезда ${activeIndex + 1}`}
-                        className={`relative object-contain drop-shadow-[0_14px_34px_rgba(0,0,0,0.6)] ${
-                          isPortrait
-                            ? 'w-28 h-28 sm:w-40 sm:h-40'
-                            : isCompactLandscape
-                              ? 'w-20 h-20'
-                              : 'w-40 h-40 lg:w-52 lg:h-52'
+                        data-testid="story-illustration-box"
+                        data-selected={editMode && selectedTarget === 'illustration'}
+                        onPointerDown={editMode ? (e) => beginCanvasEdit('illu-move', e) : undefined}
+                        onPointerMove={editMode ? moveCanvasEdit : undefined}
+                        onPointerUp={editMode ? endCanvasEdit : undefined}
+                        onPointerCancel={editMode ? endCanvasEdit : undefined}
+                        onClick={
+                          editMode
+                            ? (e) => {
+                                e.stopPropagation();
+                                onSelectTarget?.('illustration');
+                              }
+                            : undefined
+                        }
+                        className={`relative shrink-0 flex items-center justify-center py-0.5 ${
+                          editMode
+                            ? `cursor-grab active:cursor-grabbing touch-none rounded-2xl p-1.5 transition-[box-shadow,background-color] ${
+                                selectedTarget === 'illustration'
+                                  ? 'ring-2 ring-sky-400 bg-sky-500/10'
+                                  : 'ring-1 ring-dashed ring-white/25 hover:ring-sky-400/75'
+                              }`
+                            : ''
                         }`}
-                      />
+                      >
+                        <div
+                          className="pointer-events-none absolute inset-0 -m-5 rounded-full opacity-55"
+                          style={{
+                            background: `radial-gradient(circle, ${activeStarGlow.hex}36 0%, transparent 70%)`,
+                          }}
+                          aria-hidden="true"
+                        />
+                        <div
+                          style={{
+                            width: `${effectiveIlluPx}px`,
+                            height: `${effectiveIlluPx}px`,
+                            maxWidth: '100%',
+                          }}
+                          className="relative flex items-center justify-center"
+                        >
+                          <StarIllustrationView
+                            illustration={activeStar.illustration}
+                            imageSettings={activeStar.imageSettings}
+                            alt={activeStar.title || `Звезда ${activeIndex + 1}`}
+                            className="w-full h-full relative object-contain drop-shadow-[0_14px_34px_rgba(0,0,0,0.6)]"
+                          />
+                        </div>
+                        {editMode && selectedTarget === 'illustration' && (
+                          <button
+                            type="button"
+                            data-testid="illu-scale-handle"
+                            aria-label="Изменить масштаб иллюстрации"
+                            onPointerDown={(e) => beginCanvasEdit('illu-scale', e)}
+                            onPointerMove={moveCanvasEdit}
+                            onPointerUp={endCanvasEdit}
+                            onPointerCancel={endCanvasEdit}
+                            className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-sky-400 border-2 border-white cursor-nwse-resize touch-none shadow"
+                          />
+                        )}
+                      </div>
+                      <div style={{ flexGrow: illuRightGrow, flexBasis: 0 }} />
                     </div>
 
                     <div style={{ flexGrow: topInnerGrow, flexBasis: 0 }} />
@@ -1042,6 +1467,19 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                     {/* Bounded Customizable Message Block */}
                     <div
                       data-testid="story-text-block"
+                      data-selected={editMode && selectedTarget === 'text'}
+                      onPointerDown={editMode ? (e) => beginCanvasEdit('text-move', e) : undefined}
+                      onPointerMove={editMode ? moveCanvasEdit : undefined}
+                      onPointerUp={editMode ? endCanvasEdit : undefined}
+                      onPointerCancel={editMode ? endCanvasEdit : undefined}
+                      onClick={
+                        editMode
+                          ? (e) => {
+                              e.stopPropagation();
+                              onSelectTarget?.('text');
+                            }
+                          : undefined
+                      }
                       style={{
                         width: `${starTextStyle.widthPct}%`,
                         marginLeft: `${textMarginLeftPct}%`,
@@ -1054,7 +1492,7 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                               ? activeStarGlow.hex
                               : undefined,
                       }}
-                      className={`shrink-0 max-w-full space-y-2 ${
+                      className={`relative shrink-0 max-w-full space-y-2 ${
                         starTextStyle.accent === 'frame'
                           ? 'rounded-2xl border bg-[#070B1A]/62 backdrop-blur-md px-4 py-3.5 sm:px-5 sm:py-4 shadow-xl'
                           : starTextStyle.accent === 'quote'
@@ -1062,8 +1500,41 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                               ? 'border-r-2 pr-3.5 py-0.5'
                               : 'border-l-2 pl-3.5 py-0.5'
                             : ''
+                      } ${
+                        editMode
+                          ? `cursor-grab active:cursor-grabbing touch-none rounded-xl transition-[box-shadow] ${
+                              selectedTarget === 'text'
+                                ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-transparent'
+                                : 'ring-1 ring-dashed ring-white/25 hover:ring-violet-400/75'
+                            }`
+                          : ''
                       }`}
                     >
+                      {editMode && selectedTarget === 'text' && (
+                        <>
+                          <button
+                            type="button"
+                            data-testid="text-resize-left"
+                            aria-label="Изменить ширину текста слева"
+                            onPointerDown={(e) => beginCanvasEdit('text-resize-left', e)}
+                            onPointerMove={moveCanvasEdit}
+                            onPointerUp={endCanvasEdit}
+                            onPointerCancel={endCanvasEdit}
+                            className="absolute top-1/2 -left-2 -translate-y-1/2 w-3.5 h-8 rounded-full bg-violet-500 border-2 border-white cursor-ew-resize touch-none shadow z-20"
+                          />
+                          <button
+                            type="button"
+                            data-testid="text-resize-right"
+                            aria-label="Изменить ширину текста справа"
+                            onPointerDown={(e) => beginCanvasEdit('text-resize-right', e)}
+                            onPointerMove={moveCanvasEdit}
+                            onPointerUp={endCanvasEdit}
+                            onPointerCancel={endCanvasEdit}
+                            className="absolute top-1/2 -right-2 -translate-y-1/2 w-3.5 h-8 rounded-full bg-violet-500 border-2 border-white cursor-ew-resize touch-none shadow z-20"
+                          />
+                        </>
+                      )}
+
                       {starTextStyle.accent === 'line' && (
                         <div
                           className="h-0.5 w-16 rounded-full"
@@ -1084,7 +1555,7 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                           Звезда {activeIndex + 1} из {totalStars}
                         </p>
                         <h2
-                          data-selectable-text="true"
+                          data-selectable-text={editMode ? undefined : 'true'}
                           style={{
                             fontFamily: starFontMeta.cssFamily,
                             fontSize: `${effectiveTitlePx}px`,
@@ -1096,7 +1567,9 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                             color: starTextStyle.color,
                             textShadow: resolvedTextShadow,
                           }}
-                          className="leading-tight [text-wrap:balance] break-words [overflow-wrap:anywhere] select-text"
+                          className={`leading-tight [text-wrap:balance] break-words [overflow-wrap:anywhere] ${
+                            editMode ? 'select-none' : 'select-text'
+                          }`}
                         >
                           {activeStar.title || `Звезда ${activeIndex + 1}`}
                         </h2>
@@ -1104,7 +1577,7 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
 
                       {/* Personal Wish Message */}
                       <p
-                        data-selectable-text="true"
+                        data-selectable-text={editMode ? undefined : 'true'}
                         style={{
                           fontFamily: starFontMeta.cssFamily,
                           fontSize: `${effectiveBodyPx}px`,
@@ -1113,7 +1586,9 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                           color: starTextStyle.color,
                           textShadow: resolvedTextShadow,
                         }}
-                        className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] select-text"
+                        className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                          editMode ? 'select-none' : 'select-text'
+                        }`}
                       >
                         {activeStar.message || 'Здесь хранится особое тёплое пожелание.'}
                       </p>
@@ -1121,13 +1596,15 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                       {/* Signature Attribution */}
                       {signatureText && (
                         <p
-                          data-selectable-text="true"
+                          data-selectable-text={editMode ? undefined : 'true'}
                           style={{
                             color: starTextStyle.color,
                             opacity: 0.78,
                             textShadow: resolvedTextShadow,
                           }}
-                          className="text-xs sm:text-sm italic tracking-wide select-text"
+                          className={`text-xs sm:text-sm italic tracking-wide ${
+                            editMode ? 'select-none' : 'select-text'
+                          }`}
                         >
                           — {signatureText}
                         </p>
@@ -1258,7 +1735,10 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
             aria-hidden="true"
           />
 
-          <header className="pointer-events-none fixed top-0 inset-x-0 z-20 px-4 sm:px-8 pt-4 sm:pt-6 gl-safe-top flex items-start justify-between gap-4">
+          <header
+            ref={finaleHeaderRef}
+            className="pointer-events-none fixed top-0 inset-x-0 z-20 px-4 sm:px-8 pt-4 sm:pt-6 gl-safe-top flex items-start justify-between gap-4"
+          >
             <div className="pointer-events-auto shrink-0">
               {onExitPreview && (
                 <button
@@ -1272,8 +1752,68 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
               )}
             </div>
 
+            {finalDecor.motif !== 'none' && (
+              <div
+                data-testid="finale-card-decor"
+                data-selected={editMode && selectedTarget === 'decor'}
+                onPointerDown={editMode ? (e) => beginCanvasEdit('final-decor-move', e) : undefined}
+                onPointerMove={editMode ? moveCanvasEdit : undefined}
+                onPointerUp={editMode ? endCanvasEdit : undefined}
+                onPointerCancel={editMode ? endCanvasEdit : undefined}
+                onClick={
+                  editMode
+                    ? (e) => {
+                        e.stopPropagation();
+                        onSelectTarget?.('decor');
+                      }
+                    : undefined
+                }
+                style={{
+                  left: `${finalDecor.xPct}%`,
+                  top: `${finalDecor.yPct}%`,
+                  transform: `translate(-50%, -50%) scale(${finalDecor.scale})`,
+                }}
+                className={`absolute ${
+                  editMode
+                    ? `pointer-events-auto z-30 cursor-grab active:cursor-grabbing touch-none rounded-2xl p-1 ${
+                        selectedTarget === 'decor'
+                          ? 'ring-2 ring-amber-300 bg-amber-500/10'
+                          : 'ring-1 ring-dashed ring-white/30 hover:ring-amber-300/75'
+                      }`
+                    : 'z-0 pointer-events-none opacity-80'
+                }`}
+              >
+                <CardDecorView
+                  motif={finalDecor.motif}
+                  glowHex={globalGlow.hex}
+                  coreHex={globalGlow.coreHex}
+                  className="w-24 h-24"
+                />
+                {editMode && selectedTarget === 'decor' && (
+                  <button
+                    type="button"
+                    aria-label="Изменить размер финального декора"
+                    onPointerDown={(e) => beginCanvasEdit('final-decor-scale', e)}
+                    onPointerMove={moveCanvasEdit}
+                    onPointerUp={endCanvasEdit}
+                    onPointerCancel={endCanvasEdit}
+                    className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white cursor-nwse-resize touch-none shadow"
+                  />
+                )}
+              </div>
+            )}
+
             {/* Final Greeting Positioned Above Constellation */}
             <motion.div
+              data-testid="finale-text-block"
+              onClick={
+                editMode
+                  ? (e) => {
+                      e.stopPropagation();
+                      onSelectTarget?.('text');
+                    }
+                  : undefined
+              }
               initial={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: reducedMotion ? 0.08 : 0.65, ease: [0.16, 1, 0.3, 1] }}
@@ -1291,7 +1831,7 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                     }
                   : undefined
               }
-              className={`flex-1 max-w-2xl mx-auto text-center space-y-1.5 ${
+              className={`relative z-10 flex-1 max-w-2xl mx-auto text-center space-y-1.5 ${
                 hasCustomFinalStyle && finalTextStyle?.accent === 'frame'
                   ? 'rounded-2xl border bg-[#070B1A]/60 backdrop-blur-md px-5 py-3.5 shadow-xl'
                   : hasCustomFinalStyle && finalTextStyle?.accent === 'quote'
@@ -1299,6 +1839,14 @@ export function RecipientView({ project, onExitPreview }: RecipientViewProps) {
                       ? 'border-r-2 pr-4 py-1'
                       : 'border-l-2 pl-4 py-1'
                     : ''
+              } ${
+                editMode
+                  ? `pointer-events-auto cursor-pointer rounded-xl ${
+                      selectedTarget === 'text'
+                        ? 'ring-2 ring-violet-400'
+                        : 'ring-1 ring-dashed ring-white/25 hover:ring-violet-400/75'
+                    }`
+                  : ''
               }`}
             >
               <p className="text-xs sm:text-sm font-medium text-amber-200/90 tracking-wide">

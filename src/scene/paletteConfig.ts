@@ -1,5 +1,6 @@
 import type {
   BuiltinIllustrationId,
+  CardDecorMotif,
   CompositionPresetId,
   ConstellationProject,
   ConstellationStar,
@@ -12,6 +13,8 @@ import type {
   MusicTrackId,
   OccasionId,
   StarConnection,
+  StarDecorSettings,
+  StarIllustrationLayout,
   StarImageSettings,
   StarPosition3D,
   StarShapeId,
@@ -474,6 +477,88 @@ export function resolveStarImageSettings(
   return { fit, scale, offsetX, offsetY };
 }
 
+export const DEFAULT_ILLUSTRATION_LAYOUT: StarIllustrationLayout = {
+  offsetX: 0,
+  offsetY: 0,
+  scale: 1,
+};
+
+export function resolveStarIllustrationLayout(
+  rawHolder?: { illustrationLayout?: Partial<StarIllustrationLayout> } | Partial<StarIllustrationLayout>,
+  fallbackOffsetX = 0,
+): StarIllustrationLayout {
+  const raw =
+    rawHolder && 'illustrationLayout' in rawHolder
+      ? rawHolder.illustrationLayout
+      : (rawHolder as Partial<StarIllustrationLayout> | undefined);
+
+  if (!raw) {
+    return { offsetX: fallbackOffsetX, offsetY: 0, scale: 1 };
+  }
+
+  const offsetX =
+    typeof raw.offsetX === 'number' && Number.isFinite(raw.offsetX)
+      ? Math.max(-100, Math.min(100, Math.round(raw.offsetX)))
+      : fallbackOffsetX;
+  const offsetY =
+    typeof raw.offsetY === 'number' && Number.isFinite(raw.offsetY)
+      ? Math.max(-100, Math.min(100, Math.round(raw.offsetY)))
+      : 0;
+  const scale =
+    typeof raw.scale === 'number' && Number.isFinite(raw.scale)
+      ? Math.max(0.65, Math.min(1.45, Number(raw.scale.toFixed(2))))
+      : 1;
+
+  return { offsetX, offsetY, scale };
+}
+
+export const CARD_DECOR_MOTIFS: Array<{ id: CardDecorMotif; name: string }> = [
+  { id: 'none', name: 'Без узора' },
+  { id: 'sparkles', name: 'Искры' },
+  { id: 'orbital', name: 'Орбита' },
+  { id: 'hearts', name: 'Сердечки' },
+  { id: 'corners', name: 'Уголки' },
+];
+
+export const VALID_CARD_DECOR_MOTIFS = new Set<CardDecorMotif>(
+  CARD_DECOR_MOTIFS.map((m) => m.id),
+);
+
+export const DEFAULT_STAR_DECOR: StarDecorSettings = {
+  motif: 'none',
+  xPct: 82,
+  yPct: 16,
+  scale: 1,
+};
+
+export function resolveStarDecor(
+  rawHolder?: { decor?: Partial<StarDecorSettings> } | Partial<StarDecorSettings>,
+): StarDecorSettings {
+  const raw =
+    rawHolder && 'decor' in rawHolder
+      ? rawHolder.decor
+      : (rawHolder as Partial<StarDecorSettings> | undefined);
+
+  if (!raw) return { ...DEFAULT_STAR_DECOR };
+
+  const motif: CardDecorMotif =
+    raw.motif && VALID_CARD_DECOR_MOTIFS.has(raw.motif) ? raw.motif : 'none';
+  const xPct =
+    typeof raw.xPct === 'number' && Number.isFinite(raw.xPct)
+      ? Math.max(6, Math.min(94, Math.round(raw.xPct)))
+      : DEFAULT_STAR_DECOR.xPct;
+  const yPct =
+    typeof raw.yPct === 'number' && Number.isFinite(raw.yPct)
+      ? Math.max(6, Math.min(88, Math.round(raw.yPct)))
+      : DEFAULT_STAR_DECOR.yPct;
+  const scale =
+    typeof raw.scale === 'number' && Number.isFinite(raw.scale)
+      ? Math.max(0.7, Math.min(1.45, Number(raw.scale.toFixed(2))))
+      : DEFAULT_STAR_DECOR.scale;
+
+  return { motif, xPct, yPct, scale };
+}
+
 export interface MessageFontCategoryMeta {
   id: MessageFontCategory;
   name: string;
@@ -914,7 +999,11 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
     shape: resolveStarShape(s),
     glowColor: s.glowColor ?? 'inherit',
     imageSettings: s.imageSettings ? resolveStarImageSettings(s) : undefined,
+    illustrationLayout: s.illustrationLayout
+      ? resolveStarIllustrationLayout(s.illustrationLayout)
+      : undefined,
     textStyle: s.textStyle ? resolveStarTextStyle(s.textStyle) : undefined,
+    decor: s.decor ? resolveStarDecor(s.decor) : undefined,
   }));
 
   const connections = sanitizeConnections(
@@ -930,6 +1019,7 @@ export function normalizeProject(project: ConstellationProject): ConstellationPr
     finalTextStyle: project.finalTextStyle
       ? resolveStarTextStyle(project.finalTextStyle)
       : undefined,
+    finalDecor: project.finalDecor ? resolveStarDecor(project.finalDecor) : undefined,
   };
 }
 

@@ -5,19 +5,24 @@ import {
   computeTextBlockMarginLeftPct,
   isDefaultStarTextStyle,
   resolveMessageFont,
+  resolveStarDecor,
   resolveStarGlowHex,
+  resolveStarIllustrationLayout,
+  resolveStarImageSettings,
   resolveStarShape,
   resolveStarTextStyle,
   resolveTextShadowCss,
   sanitizeConnections,
 } from '../scene/paletteConfig';
 import type {
+  CardDecorMotif,
   ConstellationStar,
   CosmicPaletteId,
   GlowColorId,
   MessageTextAlign,
   RecipientPhase,
   StarConnection,
+  StarDecorSettings,
   StarShapeId,
   StarTextStyle,
 } from '../types/project';
@@ -37,6 +42,7 @@ interface StandalonePayload {
   connections?: StarConnection[];
   finalMessage: string;
   finalTextStyle?: StarTextStyle;
+  finalDecor?: StarDecorSettings;
   musicPath: string | null;
   musicName: string | null;
 }
@@ -84,6 +90,51 @@ function createProgressStarSvg(lit: boolean, active: boolean): SVGSVGElement {
   path.setAttribute('stroke-width', lit ? '1.2' : '1.6');
   path.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(path);
+  return svg;
+}
+
+function createCardDecorSvg(
+  motif: CardDecorMotif,
+  glowHex: string,
+  coreHex: string,
+): SVGSVGElement | null {
+  if (motif === 'none') return null;
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 120 120');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('class', 'gl-card-decor-svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.filter = `drop-shadow(0 0 12px ${glowHex}66)`;
+
+  const mk = (tag: string, attrs: Record<string, string>) => {
+    const node = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    svg.appendChild(node);
+  };
+
+  if (motif === 'sparkles') {
+    mk('path', { d: 'M54 14L59 35L80 40L59 45L54 66L49 45L28 40L49 35L54 14Z', fill: coreHex, 'fill-opacity': '0.92' });
+    mk('path', { d: 'M88 58L91 70L103 73L91 76L88 88L85 76L73 73L85 70L88 58Z', fill: glowHex, 'fill-opacity': '0.88' });
+    mk('path', { d: 'M32 76L34 84L42 86L34 88L32 96L30 88L22 86L30 84L32 76Z', fill: glowHex, 'fill-opacity': '0.72' });
+    mk('circle', { cx: '88', cy: '28', r: '2.4', fill: coreHex, 'fill-opacity': '0.85' });
+    mk('circle', { cx: '24', cy: '48', r: '2', fill: glowHex, 'fill-opacity': '0.75' });
+  } else if (motif === 'orbital') {
+    mk('ellipse', { cx: '60', cy: '60', rx: '44', ry: '18', transform: 'rotate(-24 60 60)', stroke: glowHex, 'stroke-width': '1.6', 'stroke-dasharray': '4 5', 'stroke-opacity': '0.85' });
+    mk('ellipse', { cx: '60', cy: '60', rx: '32', ry: '12', transform: 'rotate(28 60 60)', stroke: coreHex, 'stroke-width': '1.2', 'stroke-opacity': '0.55' });
+    mk('circle', { cx: '96', cy: '43', r: '4.5', fill: coreHex });
+    mk('path', { d: 'M31 32C26 35 23 41 24 47C25 53 31 57 37 56C32 55 29 50 29 45C29 40 31 35 35 32C33.5 31.6 32.2 31.6 31 32Z', fill: glowHex, 'fill-opacity': '0.9' });
+  } else if (motif === 'hearts') {
+    mk('path', { d: 'M52 72C52 72 28 57 28 40C28 32 34 26 41.5 26C46.2 26 50.2 28.6 52 32.3C53.8 28.6 57.8 26 62.5 26C70 26 76 32 76 40C76 57 52 72 52 72Z', stroke: glowHex, 'stroke-width': '2.2', fill: glowHex, 'fill-opacity': '0.18' });
+    mk('path', { d: 'M86 86C86 86 73 78 73 69C73 64.8 76.2 61.6 80.2 61.6C82.8 61.6 84.9 63 86 65C87.1 63 89.2 61.6 91.8 61.6C95.8 61.6 99 64.8 99 69C99 78 86 86 86 86Z', stroke: coreHex, 'stroke-width': '1.8', fill: coreHex, 'fill-opacity': '0.22' });
+    mk('circle', { cx: '88', cy: '36', r: '2.2', fill: coreHex, 'fill-opacity': '0.85' });
+    mk('circle', { cx: '28', cy: '82', r: '2.5', fill: glowHex, 'fill-opacity': '0.8' });
+  } else if (motif === 'corners') {
+    mk('path', { d: 'M16 42V22C16 18.7 18.7 16 22 16H42', stroke: glowHex, 'stroke-width': '2', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M104 78V98C104 101.3 101.3 104 98 104H78', stroke: glowHex, 'stroke-width': '2', 'stroke-linecap': 'round' });
+    mk('path', { d: 'M84 22L86 30L94 32L86 34L84 42L82 34L74 32L82 30L84 22Z', fill: coreHex, 'fill-opacity': '0.9' });
+    mk('path', { d: 'M36 78L38 86L46 88L38 90L36 98L34 90L26 88L34 86L36 78Z', fill: coreHex, 'fill-opacity': '0.8' });
+  }
   return svg;
 }
 
@@ -262,12 +313,20 @@ function bootGiftLabRecipient(): void {
   const storyMotionWrap = el('div', 'gl-story-motion-wrap');
   const storyContent = el('article', 'gl-story-content');
 
+  const storyCardDecor = el('div', 'gl-card-decor gl-hidden');
+
   const topOuterSpacer = el('div', 'gl-story-spacer');
+  const illuRow = el('div', 'gl-illu-row');
+  const illuLeftSpacer = el('div', 'gl-story-spacer');
   const illuWrap = el('div', 'gl-illu-wrap');
   const illuGlow = el('div', 'gl-illu-glow');
+  const illuFrame = el('div', 'gl-illu-frame');
   const illuImg = document.createElement('img');
   illuImg.className = 'gl-illu-img';
-  illuWrap.append(illuGlow, illuImg);
+  illuFrame.appendChild(illuImg);
+  illuWrap.append(illuGlow, illuFrame);
+  const illuRightSpacer = el('div', 'gl-story-spacer');
+  illuRow.append(illuLeftSpacer, illuWrap, illuRightSpacer);
 
   const topInnerSpacer = el('div', 'gl-story-spacer');
   const storyBlock = el('div', 'gl-story-block');
@@ -287,7 +346,7 @@ function bootGiftLabRecipient(): void {
 
   storyContent.append(
     topOuterSpacer,
-    illuWrap,
+    illuRow,
     topInnerSpacer,
     storyBlock,
     bottomInnerSpacer,
@@ -312,7 +371,7 @@ function bootGiftLabRecipient(): void {
   nextArrowBtn.setAttribute('aria-label', 'Следующая звезда');
 
   storyNav.append(prevArrowBtn, swipeHint, nextArrowBtn);
-  storyRight.append(storyMotionWrap, storyNav);
+  storyRight.append(storyCardDecor, storyMotionWrap, storyNav);
   storyGrid.append(storyLeft, storyRight);
   storyUi.append(storyScrim, storyTop, storyGrid);
   stage.appendChild(storyUi);
@@ -320,6 +379,7 @@ function bootGiftLabRecipient(): void {
   // PHASE 5: Final Rotating Constellation Top Greeting & Dock
   const finaleScrim = el('div', 'gl-finale-scrim gl-hidden');
   const finaleTop = el('header', 'gl-finale-top gl-hidden');
+  const finaleDecorEl = el('div', 'gl-card-decor gl-hidden');
   const finaleBox = el('div', 'gl-finale-box');
   const finaleKicker = el(
     'p',
@@ -331,10 +391,23 @@ function bootGiftLabRecipient(): void {
   const finaleSignEl = el('p', 'gl-finale-sign', signatureText);
   if (!signatureText) finaleSignEl.classList.add('gl-hidden');
   finaleBox.append(finaleKicker, finaleAccentLine, finaleHeading, finaleSignEl);
-  finaleTop.appendChild(finaleBox);
+  finaleTop.append(finaleDecorEl, finaleBox);
   stage.append(finaleScrim, finaleTop);
 
   function applyFinaleTextFormatting(): void {
+    const fDecor = resolveStarDecor(payload.finalDecor);
+    finaleDecorEl.innerHTML = '';
+    if (fDecor.motif !== 'none') {
+      const svg = createCardDecorSvg(fDecor.motif, globalGlow.hex, globalGlow.coreHex);
+      if (svg) finaleDecorEl.appendChild(svg);
+      finaleDecorEl.classList.remove('gl-hidden');
+      finaleDecorEl.style.left = `${fDecor.xPct}%`;
+      finaleDecorEl.style.top = `${fDecor.yPct}%`;
+      finaleDecorEl.style.transform = `translate(-50%, -50%) scale(${fDecor.scale})`;
+    } else {
+      finaleDecorEl.classList.add('gl-hidden');
+    }
+
     if (!payload.finalTextStyle) return;
     const style = resolveStarTextStyle(payload.finalTextStyle);
     if (isDefaultStarTextStyle(style)) return;
@@ -531,25 +604,83 @@ function bootGiftLabRecipient(): void {
     );
     const marginLeftPct = computeTextBlockMarginLeftPct(style.widthPct, style.offsetX);
 
-    const absYRatio = Math.min(1, Math.abs(style.offsetY) / 100);
+    const illuLayout = resolveStarIllustrationLayout(star, isPortrait ? 0 : -100);
+    const illuLeftGrow = Number(((illuLayout.offsetX + 100) / 200).toFixed(3));
+    const illuRightGrow = Number((1 - illuLeftGrow).toFixed(3));
+    illuLeftSpacer.style.flexGrow = String(illuLeftGrow);
+    illuRightSpacer.style.flexGrow = String(illuRightGrow);
+
+    const clampedIlluScale = Math.min(isPortrait ? 1.28 : 1.45, illuLayout.scale);
+    const baseIlluPx = isCompactLandscape
+      ? 80
+      : isPortrait
+        ? w >= 640
+          ? 156
+          : 118
+        : w >= 1024
+          ? 196
+          : 158;
+    const effectiveIlluPx = Math.round(baseIlluPx * clampedIlluScale);
+    illuFrame.style.width = `${effectiveIlluPx}px`;
+    illuFrame.style.height = `${effectiveIlluPx}px`;
+
+    const imgSettings = star.imageSettings ? resolveStarImageSettings(star) : null;
+    if (imgSettings) {
+      illuImg.style.objectFit = imgSettings.fit;
+      illuImg.style.transform = `translate(${imgSettings.offsetX}%, ${imgSettings.offsetY}%) scale(${imgSettings.scale})`;
+      illuImg.style.transformOrigin = 'center center';
+    } else {
+      illuImg.style.objectFit = 'contain';
+      illuImg.style.transform = '';
+    }
+
+    const illuYShift = illuLayout.offsetY / 100;
+    const textYShift = style.offsetY / 100;
     const spacerBase = isPortrait || isCompactLandscape ? 0.35 : 0.9;
-    const topOuterGrow = Number(((1 - absYRatio) * spacerBase).toFixed(3));
+    const topOuterGrow = Number(
+      Math.max(
+        0,
+        Math.min(
+          2.0,
+          spacerBase * (1 + illuYShift * 0.85) - Math.max(0, -textYShift) * 0.45,
+        ),
+      ).toFixed(3),
+    );
     const topInnerGrow = Number(
-      (style.offsetY <= 0
-        ? 0.08 * (1 + style.offsetY / 100)
-        : 0.08 + (style.offsetY / 100) * 1.92
+      Math.max(
+        0.06,
+        Math.min(
+          2.2,
+          0.14 + Math.max(0, textYShift) * 1.4 + Math.max(0, -illuYShift) * 0.7,
+        ),
       ).toFixed(3),
     );
     const bottomInnerGrow = Number(
-      (style.offsetY >= 0
-        ? (1 - absYRatio) * spacerBase
-        : spacerBase + (-style.offsetY / 100) * (2 - spacerBase)
+      Math.max(
+        0,
+        Math.min(
+          2.4,
+          spacerBase + Math.max(0, -textYShift) * 1.35 - Math.max(0, textYShift) * 0.65,
+        ),
       ).toFixed(3),
     );
 
     topOuterSpacer.style.flexGrow = String(topOuterGrow);
     topInnerSpacer.style.flexGrow = String(topInnerGrow);
     bottomInnerSpacer.style.flexGrow = String(bottomInnerGrow);
+
+    const starDecor = resolveStarDecor(star);
+    storyCardDecor.innerHTML = '';
+    if (starDecor.motif !== 'none') {
+      const decorSvg = createCardDecorSvg(starDecor.motif, glow.hex, glow.coreHex);
+      if (decorSvg) storyCardDecor.appendChild(decorSvg);
+      storyCardDecor.classList.remove('gl-hidden');
+      storyCardDecor.style.left = `${starDecor.xPct}%`;
+      storyCardDecor.style.top = `${starDecor.yPct}%`;
+      storyCardDecor.style.transform = `translate(-50%, -50%) scale(${starDecor.scale})`;
+    } else {
+      storyCardDecor.classList.add('gl-hidden');
+    }
 
     const shadowCss = resolveTextShadowCss(style.shadow, glow.hex);
 

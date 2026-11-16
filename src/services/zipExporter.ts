@@ -76,9 +76,11 @@ const STANDALONE_CSS = `
 
   .gl-story-grid { position: relative; z-index: 10; flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 44% 56%; }
   .gl-story-left { min-height: 0; pointer-events: none; }
-  .gl-story-right { pointer-events: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; display: flex; flex-direction: column; justify-content: space-between; padding: 12px 48px 22px 16px; }
+  .gl-story-right { position: relative; pointer-events: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; display: flex; flex-direction: column; justify-content: space-between; padding: 12px 48px 22px 16px; }
+  .gl-card-decor { position: absolute; z-index: 0; pointer-events: none; opacity: 0.78; }
+  .gl-card-decor-svg { width: 104px; height: 104px; display: block; }
   @keyframes glStoryIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .gl-story-motion-wrap { flex: 1; min-height: 0; width: 100%; max-width: 560px; display: flex; flex-direction: column; transition: transform 220ms ease-out; }
+  .gl-story-motion-wrap { position: relative; z-index: 10; flex: 1; min-height: 0; width: 100%; max-width: 560px; display: flex; flex-direction: column; transition: transform 220ms ease-out; }
   .gl-story-content { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; align-items: stretch; }
   .gl-story-spacer { flex-basis: 0; flex-shrink: 0; }
   .gl-story-block { flex-shrink: 0; max-width: 100%; display: flex; flex-direction: column; gap: 8px; }
@@ -89,9 +91,11 @@ const STANDALONE_CSS = `
   .gl-story-anim .gl-story-content { animation: glStoryIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
   .gl-reduced .gl-story-anim .gl-story-content { animation: none; }
 
-  .gl-illu-wrap { position: relative; flex-shrink: 0; align-self: flex-start; display: flex; align-items: center; justify-content: center; padding: 4px 0; }
+  .gl-illu-row { width: 100%; display: flex; align-items: center; flex-shrink: 0; }
+  .gl-illu-wrap { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 4px 0; }
   .gl-illu-glow { position: absolute; inset: -20px; border-radius: 999px; pointer-events: none; opacity: 0.58; }
-  .gl-illu-img { position: relative; width: 196px; height: 196px; object-fit: contain; filter: drop-shadow(0 14px 30px rgba(0,0,0,0.6)); }
+  .gl-illu-frame { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; border-radius: 12px; max-width: 100%; filter: drop-shadow(0 14px 30px rgba(0,0,0,0.6)); }
+  .gl-illu-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
   .gl-story-ord { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
   .gl-story-title { font-size: clamp(22px, 3vw, 36px); font-weight: 600; line-height: 1.18; color: #ffffff; text-shadow: 0 2px 14px rgba(0,0,0,0.65); user-select: text; overflow-wrap: anywhere; word-break: break-word; }
@@ -150,9 +154,8 @@ const STANDALONE_CSS = `
     .gl-story-grid { display: flex; flex-direction: column; }
     .gl-story-left { height: 32vh; min-height: 185px; max-height: 290px; flex-shrink: 0; }
     .gl-story-right { flex: 1; padding: 4px 18px 18px; align-items: center; }
+    .gl-card-decor-svg { width: 80px; height: 80px; }
     .gl-story-motion-wrap { margin: 0 auto; }
-    .gl-illu-wrap { align-self: center; }
-    .gl-illu-img { width: 124px; height: 124px; }
     .gl-story-nav { margin: 0 auto; }
   }
 
@@ -161,7 +164,6 @@ const STANDALONE_CSS = `
     .gl-story-top { padding: 8px 16px 4px; }
     .gl-story-brand { display: none; }
     .gl-story-right { padding: 4px 20px 10px 10px; }
-    .gl-illu-img { width: 82px; height: 82px; }
     .gl-story-title { font-size: 20px; }
     .gl-story-msg { font-size: 14px; line-height: 1.45; }
     .gl-story-nav { padding-top: 6px; }
@@ -253,6 +255,7 @@ export async function exportProjectToZip(
     connections: sanitizeConnections(project.connections, project.stars),
     finalMessage: project.finalMessage,
     finalTextStyle: project.finalTextStyle,
+    finalDecor: project.finalDecor,
     musicPath,
     musicName,
   };

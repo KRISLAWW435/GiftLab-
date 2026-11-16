@@ -36,6 +36,27 @@ export interface StarImageSettings {
   offsetY: number;
 }
 
+export interface StarIllustrationLayout {
+  /** Horizontal placement offset within safe card width (-100..100) */
+  offsetX: number;
+  /** Vertical placement offset within safe card area (-100..100) */
+  offsetY: number;
+  /** Card illustration scale multiplier (0.65..1.45) */
+  scale: number;
+}
+
+export type CardDecorMotif = 'none' | 'sparkles' | 'orbital' | 'hearts' | 'corners';
+
+export interface StarDecorSettings {
+  motif: CardDecorMotif;
+  /** Horizontal position percentage inside card area (6..94) */
+  xPct: number;
+  /** Vertical position percentage inside card area (6..88) */
+  yPct: number;
+  /** Scale multiplier (0.7..1.45) */
+  scale: number;
+}
+
 export type MessageFontId = 'manrope' | 'comfortaa' | 'caveat' | 'cormorant' | 'lora';
 
 export type MessageFontCategory = 'handwritten' | 'elegant' | 'classic' | 'modern';
@@ -81,8 +102,12 @@ export interface ConstellationStar {
   illustration: StarIllustrationRef;
   /** Optional non-destructive image presentation & crop settings */
   imageSettings?: StarImageSettings;
+  /** Optional card illustration placement and scale settings */
+  illustrationLayout?: StarIllustrationLayout;
   /** Optional typography and bounded block placement settings */
   textStyle?: StarTextStyle;
+  /** Optional decorative card motif and placement */
+  decor?: StarDecorSettings;
   /** 3D crystal form; migrated to 'star' when absent in legacy projects */
   shape: StarShapeId;
   /** If 'inherit' or undefined, uses project.globalGlowColor */
@@ -110,6 +135,7 @@ export interface ConstellationProject {
   connections: StarConnection[];
   finalMessage: string;
   finalTextStyle?: StarTextStyle;
+  finalDecor?: StarDecorSettings;
   musicTrackId: MusicTrackId;
   createdAt: number;
   updatedAt: number;
